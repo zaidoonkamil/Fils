@@ -7,10 +7,6 @@ const User = sequelize.define("User", {
         autoIncrement: true,
         primaryKey: true,
     },
-    ipAdress: {
-        type: DataTypes.TEXT,
-        allowNull: false,
-    },
     name: {
         type: DataTypes.STRING,
         allowNull: false,

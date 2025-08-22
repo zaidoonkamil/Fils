@@ -171,7 +171,7 @@ router.delete("/users/:id", async (req, res) => {
 });
 
 router.post("/users", upload.none() ,async (req, res) => {
-    const { id, name, email, location ,password , note, role = 'user', ipAdress} = req.body;
+    const { id, name, email, location ,password , note, role = 'user'} = req.body;
     let phone = req.body.phone;
     try {
         const existingUser = await User.findOne({ where: { email } });
@@ -188,7 +188,7 @@ router.post("/users", upload.none() ,async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, saltRounds);
         const isVerified = role === "admin" || role === "agent";
 
-        const user = await User.create({ id: id || undefined, name, email, isVerified,ipAdress, phone, location, password: hashedPassword, note: note || null , role });
+        const user = await User.create({ id: id || undefined, name, email, isVerified, phone, location, password: hashedPassword, note: note || null , role });
 
         res.status(201).json({
         id: id || undefined,
@@ -199,7 +199,6 @@ router.post("/users", upload.none() ,async (req, res) => {
         role: role,
         note: user.note,
         isVerified: user.isVerified,
-        ipAdress: user.ipAdress,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
      });
