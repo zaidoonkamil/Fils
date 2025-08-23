@@ -252,8 +252,13 @@ router.post("/login", upload.none(), async (req, res) => {
         });
       }
     }
-    user.isLoggedIn = true;
-    await user.save();
+
+    if (user.isVerified) {
+      user.isLoggedIn = true;
+      await user.save();
+    }
+
+
     const token = generateToken(user);
 
     res.status(200).json({
