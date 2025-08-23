@@ -199,6 +199,7 @@ router.post("/users", upload.none() ,async (req, res) => {
         role: role,
         note: user.note,
         isVerified: user.isVerified,
+        isLoggedIn: user.isLoggedIn, 
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
      });
@@ -220,6 +221,10 @@ router.post("/login", upload.none(), async (req, res) => {
     const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(400).json({ error: "البريد الإلكتروني غير صحيح" });
+    }
+
+    if (user.isLoggedIn) {
+      return res.status(403).json({ error: "لا يمكن تسجيل الدخول من أكثر من جهاز في نفس الوقت" });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -247,15 +252,8 @@ router.post("/login", upload.none(), async (req, res) => {
         });
       }
     }
-    
-    const userIp = user.ipAdress;
-    await User.destroy({
-      where: {
-        ipAdress: userIp,
-        id: { [Op.ne]: user.id } 
-      }
-    });
-
+    user.isLoggedIn = true;
+    await user.save();
     const token = generateToken(user);
 
     res.status(200).json({
@@ -268,6 +266,7 @@ router.post("/login", upload.none(), async (req, res) => {
         isVerified: user.isVerified,
         sawa: user.sawa,
         role: user.role,
+        isLoggedIn: user.isLoggedIn,
         location: user.location,
         Jewel: user.Jewel,
         dolar: user.dolar
@@ -277,6 +276,29 @@ router.post("/login", upload.none(), async (req, res) => {
 
   } catch (err) {
     console.error("❌ خطأ أثناء تسجيل الدخول:", err);
+    res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
+router.post("/logout", upload.none(), async (req, res) => {
+  const { id } = req.body;
+
+  if (!id) {
+    return res.status(400).json({ error: "يجب إرسال id المستخدم" });
+  }
+
+  try {
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    user.isLoggedIn = false;
+    await user.save();
+
+    res.json({ message: "تم تسجيل الخروج بنجاح" });
+  } catch (err) {
+    console.error("❌ خطأ أثناء تسجيل الخروج:", err);
     res.status(500).json({ error: "خطأ داخلي في الخادم" });
   }
 });
