@@ -213,7 +213,6 @@ router.post("/login", upload.none(), async (req, res) => {
   const { email , password, refId } = req.body;
   try {
 
-
     if (!email) {
       return res.status(400).json({ error: "يرجى إدخال البريد الإلكتروني" });
     }
@@ -271,7 +270,6 @@ router.post("/login", upload.none(), async (req, res) => {
         isVerified: user.isVerified,
         sawa: user.sawa,
         role: user.role,
-        isVerified: user.isVerified,
         isLoggedIn: user.isLoggedIn,
         location: user.location,
         Jewel: user.Jewel,
