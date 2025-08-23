@@ -271,6 +271,7 @@ router.post("/login", upload.none(), async (req, res) => {
         isVerified: user.isVerified,
         sawa: user.sawa,
         role: user.role,
+        isVerified: user.isVerified,
         isLoggedIn: user.isLoggedIn,
         location: user.location,
         Jewel: user.Jewel,
