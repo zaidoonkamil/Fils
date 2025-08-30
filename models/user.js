@@ -43,6 +43,11 @@ const User = sequelize.define("User", {
         type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0,
+    },   
+    card: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
     },
     dolar: {
         type: DataTypes.DOUBLE,

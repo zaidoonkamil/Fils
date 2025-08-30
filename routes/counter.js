@@ -194,37 +194,6 @@ router.get("/counters/for-sale", async (req, res) => {
   }
 });
 
-router.post("/fix-usercounters", async (req, res) => {
-  try {
-    // جيب كل UserCounters
-    const userCounters = await UserCounter.findAll();
-
-    let updatedCount = 0;
-
-    for (const userCounter of userCounters) {
-      // جيب بيانات العداد الأصلي
-      const counter = await Counter.findByPk(userCounter.counterId);
-      if (counter) {
-        // حدث بيانات العداد عند المستخدم
-        await userCounter.update({
-          points: counter.points,
-          type: counter.type,
-          price: counter.price
-        });
-        updatedCount++;
-      }
-    }
-
-    res.status(200).json({ 
-      message: `تم تحديث ${updatedCount} عداد بنجاح`
-    });
-
-  } catch (err) {
-    console.error("❌ Error fixing UserCounters:", err);
-    res.status(500).json({ error: "حدث خطأ أثناء تصحيح العدادات" });
-  }
-});
-
 router.delete("/counters/sell/:saleId", upload.none(), async (req, res) => {
   const { saleId } = req.params;
   const { userId } = req.body;

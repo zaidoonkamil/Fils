@@ -6,6 +6,9 @@ const TransferHistory = require("./transferHistory");
 const CounterSale = require("./counterSale");
 const WithdrawalRequest = require("./withdrawalRequest");
 const UserDevice = require("./user_device");
+const GameRoom = require("./GameRoom");
+const GameRoomUser = require("./GameRoomUser");
+const GameResult = require("./GameResult");
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -43,4 +46,7 @@ module.exports = {
   CounterSale,
   WithdrawalRequest,
   UserDevice,
+  GameRoom,
+  GameRoomUser,
+  GameResult,
 };

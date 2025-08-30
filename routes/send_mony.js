@@ -77,6 +77,9 @@ router.post("/daily-action", upload.none(), async (req, res) => {
       user.sawa += totalSawa;
     }
 
+    if (typeof user.card === "number" && !isNaN(user.card)) {
+      user.card += 1;
+    }
     await user.save();
 
 
@@ -86,6 +89,7 @@ router.post("/daily-action", upload.none(), async (req, res) => {
       jewelsAdded: totalJewels,
       sawaAdded: totalSawa,
       newJewelBalance: user.Jewel,
+      newCardBalance: user.card,
       newSawaBalance: user.sawa
     });
 
