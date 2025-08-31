@@ -8,7 +8,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 const multer = require("multer");
 const upload = multer();
-const { User, UserDevice } = require('../models');
+const { User, UserDevice, CounterShop } = require('../models');
 const UserCounter = require("../models/usercounters");
 const Counter = require("../models/counter");
 const { Op } = require("sequelize");
