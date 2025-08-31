@@ -17,7 +17,6 @@ const OtpCode = require("../models/OtpCode");
 const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
-const CounterShop = require("../models");
 
 
 const transporter = nodemailer.createTransport({
