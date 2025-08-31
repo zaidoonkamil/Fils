@@ -29,7 +29,7 @@ app.use("/timeofday", timeOfDayRouter);
 app.use("/", counterRouter);
 app.use("/", notifications);
 app.use("/", agentsRouter);
-app.use("/game", gameRouter);
+app.use("/", gameRouter);
 
 app.listen( 1300 , () => {
     console.log(`🚀 Server running on http://localhost:3000`);
