@@ -9,7 +9,7 @@ const UserDevice = require("./user_device");
 const GameRoom = require("./GameRoom");
 const GameRoomUser = require("./GameRoomUser");
 const GameResult = require("./GameResult");
-const CounterShop = require("./CounterShop");
+const IdShop = require("./IdShop");
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -50,5 +50,5 @@ module.exports = {
   GameRoom,
   GameRoomUser,
   GameResult,
-  CounterShop
+  IdShop,
 };

@@ -8,7 +8,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 const multer = require("multer");
 const upload = multer();
-const { User, UserDevice, CounterShop } = require('../models');
+const { User, UserDevice, IdShop } = require('../models');
 const UserCounter = require("../models/usercounters");
 const Counter = require("../models/counter");
 const { Op } = require("sequelize");
@@ -504,11 +504,10 @@ router.put("/users/:id/gems", upload.none() , async (req, res) => {
   }
 });
 /////////////////////////////////////////////////////////////////////////////
-router.get("/store/counters", async (req, res) => {
+router.get("/store/id", async (req, res) => {
   try {
-    const items = await CounterShop.findAll({
+    const items = await IdShop.findAll({
       where: { isAvailable: true },
-      include: [Counter],
     });
     res.status(200).json(items);
   } catch (err) {
@@ -517,17 +516,18 @@ router.get("/store/counters", async (req, res) => {
   }
 });
 
-router.post("/store/buy/:shopId/:userId", async (req, res) => {
+router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
   const { shopId, userId } = req.params;
 
+  const t = await sequelize.transaction();
   try {
-    const shopItem = await CounterShop.findByPk(shopId, { include: [Counter] });
+    const shopItem = await IdShop.findByPk(shopId, { transaction: t });
 
     if (!shopItem || !shopItem.isAvailable) {
       return res.status(404).json({ error: "العنصر غير موجود أو تم شراؤه" });
     }
 
-    const user = await User.findByPk(userId);
+    const user = await User.findByPk(userId, { transaction: t });
     if (!user) {
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
@@ -537,81 +537,96 @@ router.post("/store/buy/:shopId/:userId", async (req, res) => {
     }
 
     user.sawa -= shopItem.price;
-    await user.save();
+    await user.save({ transaction: t });
 
-    const userCounter = await UserCounter.create({
-      userId: user.id,
-      counterId: shopItem.Counter.id,
-      startDate: new Date(),
-    });
+    const newId = shopItem.idForSale;
+
+    await UserCounter.update({ userId: newId }, { where: { userId: user.id }, transaction: t });
+    await Order.update({ userId: newId }, { where: { userId: user.id }, transaction: t });
+
+    await User.update({ id: newId }, { where: { id: user.id }, transaction: t });
 
     shopItem.isAvailable = false;
-    await shopItem.save();
+    await shopItem.save({ transaction: t });
 
-    res.status(200).json({ 
-      message: "تم شراء العداد بنجاح ✅", 
-      user, 
-      shopItem,
-      userCounter
+    await t.commit();
+
+    res.status(200).json({
+      message: "✅ تم شراء وتغيير الـ ID بنجاح",
+      oldId: user.id,
+      newId,
     });
   } catch (err) {
-    console.error("❌ Error buying counter:", err);
-    res.status(500).json({ error: "Internal Server Error" });
+    await t.rollback();
+    console.error("❌ Error buying ID:", err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 });
 
 router.post("/store/add", upload.none(), async (req, res) => {
   try {
-    const { counterId, price } = req.body;
+    const { idForSale, price } = req.body;
 
-    if (!counterId || !price) {
-      return res.status(400).json({ error: "يجب إدخال counterId والسعر" });
+    if (!idForSale || !price) {
+      return res.status(400).json({ error: "يجب إدخال id والسعر" });
     }
 
-    const counter = await Counter.findByPk(counterId);
-    if (!counter) {
-      return res.status(404).json({ error: "العداد غير موجود" });
+    const existingUser = await User.findByPk(idForSale);
+    if (existingUser) {
+      return res.status(400).json({ error: "هذا الـ ID مستخدم من قبل مستخدم آخر" });
     }
 
-    const existingItem = await CounterShop.findOne({
-      where: { counterId, isAvailable: true },
+    const existingShopItem = await IdShop.findOne({
+      where: { idForSale, isAvailable: true },
     });
-    if (existingItem) {
-      return res.status(400).json({ error: "هذا العداد موجود بالفعل في المتجر" });
+    if (existingShopItem) {
+      return res.status(400).json({ error: "هذا الـ ID معروض بالفعل في المتجر" });
     }
 
-    const newShopItem = await CounterShop.create({
-      counterId,
+    const newShopItem = await IdShop.create({
+      idForSale,
       price,
       isAvailable: true,
     });
 
     res.status(201).json({
-      message: "تمت إضافة العداد للمتجر بنجاح ✅",
+      message: "تمت إضافة الـ ID للمتجر بنجاح ✅",
       shopItem: newShopItem,
     });
   } catch (err) {
-    console.error("❌ Error adding counter to store:", err);
+    console.error("❌ Error adding id to store:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 router.delete("/store/:shopId", async (req, res) => {
   const { shopId } = req.params;
-
   try {
-    const shopItem = await CounterShop.findByPk(shopId);
+    if (isNaN(shopId)) {
+      return res.status(400).json({ error: "معرف المتجر shopId غير صالح" });
+    }
+
+    const shopItem = await IdShop.findByPk(shopId);
 
     if (!shopItem) {
-      return res.status(404).json({ error: "العنصر غير موجود" });
+      return res.status(404).json({ error: `العنصر بالمعرف ${shopId} غير موجود` });
     }
 
     await shopItem.destroy();
 
-    res.status(200).json({ message: "تمت إزالة العنصر من المتجر ✅" });
+    res.status(200).json({
+      message: "✅ تمت إزالة العنصر من المتجر بنجاح",
+      removedId: shopId,
+    });
   } catch (err) {
-    console.error("❌ Error removing store item:", err);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ خطأ أثناء إزالة العنصر من المتجر:");
+    console.error("📌 الرسالة:", err.message);
+    console.error("📌 التفاصيل:", err);
+
+    res.status(500).json({
+      error: "Internal Server Error",
+      details: err.message,
+    });
   }
 });
 

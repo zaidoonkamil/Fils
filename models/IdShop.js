@@ -1,8 +1,12 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const Counter = require("./counter");
 
-const CounterShop = sequelize.define("CounterShop", {
+const IdShop = sequelize.define("IdShop", {
+  idForSale: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    unique: true,
+  },
   price: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -13,6 +17,5 @@ const CounterShop = sequelize.define("CounterShop", {
   }
 });
 
-CounterShop.belongsTo(Counter, { foreignKey: "counterId" });
 
-module.exports = CounterShop;
+module.exports = IdShop;
