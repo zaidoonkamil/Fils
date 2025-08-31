@@ -17,6 +17,7 @@ const OtpCode = require("../models/OtpCode");
 const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
+const CounterShop = require("../models");
 
 
 const transporter = nodemailer.createTransport({
@@ -503,6 +504,116 @@ router.put("/users/:id/gems", upload.none() , async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+/////////////////////////////////////////////////////////////////////////////
+router.get("/store/counters", async (req, res) => {
+  try {
+    const items = await CounterShop.findAll({
+      where: { isAvailable: true },
+      include: [Counter],
+    });
+    res.status(200).json(items);
+  } catch (err) {
+    console.error("❌ Error fetching store items:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
+router.post("/store/buy/:shopId/:userId", async (req, res) => {
+  const { shopId, userId } = req.params;
+
+  try {
+    const shopItem = await CounterShop.findByPk(shopId, { include: [Counter] });
+
+    if (!shopItem || !shopItem.isAvailable) {
+      return res.status(404).json({ error: "العنصر غير موجود أو تم شراؤه" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (user.sawa < shopItem.price) {
+      return res.status(400).json({ error: "رصيدك غير كافي" });
+    }
+
+    user.sawa -= shopItem.price;
+    await user.save();
+
+    const userCounter = await UserCounter.create({
+      userId: user.id,
+      counterId: shopItem.Counter.id,
+      startDate: new Date(),
+    });
+
+    shopItem.isAvailable = false;
+    await shopItem.save();
+
+    res.status(200).json({ 
+      message: "تم شراء العداد بنجاح ✅", 
+      user, 
+      shopItem,
+      userCounter
+    });
+  } catch (err) {
+    console.error("❌ Error buying counter:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/store/add", upload.none(), async (req, res) => {
+  try {
+    const { counterId, price } = req.body;
+
+    if (!counterId || !price) {
+      return res.status(400).json({ error: "يجب إدخال counterId والسعر" });
+    }
+
+    const counter = await Counter.findByPk(counterId);
+    if (!counter) {
+      return res.status(404).json({ error: "العداد غير موجود" });
+    }
+
+    const existingItem = await CounterShop.findOne({
+      where: { counterId, isAvailable: true },
+    });
+    if (existingItem) {
+      return res.status(400).json({ error: "هذا العداد موجود بالفعل في المتجر" });
+    }
+
+    const newShopItem = await CounterShop.create({
+      counterId,
+      price,
+      isAvailable: true,
+    });
+
+    res.status(201).json({
+      message: "تمت إضافة العداد للمتجر بنجاح ✅",
+      shopItem: newShopItem,
+    });
+  } catch (err) {
+    console.error("❌ Error adding counter to store:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/store/:shopId", async (req, res) => {
+  const { shopId } = req.params;
+
+  try {
+    const shopItem = await CounterShop.findByPk(shopId);
+
+    if (!shopItem) {
+      return res.status(404).json({ error: "العنصر غير موجود" });
+    }
+
+    await shopItem.destroy();
+
+    res.status(200).json({ message: "تمت إزالة العنصر من المتجر ✅" });
+  } catch (err) {
+    console.error("❌ Error removing store item:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 module.exports = router;
