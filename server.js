@@ -7,6 +7,7 @@ const sendmonyRouter = require("./routes/send_mony.js");
 const counterRouter = require("./routes/counter.js");
 const notifications = require("./routes/notifications.js");
 const agentsRouter = require("./routes/agents.js");
+const gameRouter = require("./routes/game.js");
 
 require("./cron");
 
@@ -28,6 +29,7 @@ app.use("/timeofday", timeOfDayRouter);
 app.use("/", counterRouter);
 app.use("/", notifications);
 app.use("/", agentsRouter);
+app.use("/game", gameRouter);
 
 app.listen( 1300 , () => {
     console.log(`🚀 Server running on http://localhost:3000`);
