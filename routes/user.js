@@ -503,7 +503,7 @@ router.put("/users/:id/gems", upload.none() , async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-/////////////////////////////////////////////////////////////////////////////
+
 router.get("/store/id", async (req, res) => {
   try {
     const items = await IdShop.findAll({
@@ -522,7 +522,6 @@ router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const shopItem = await IdShop.findByPk(shopId, { transaction: t });
-
     if (!shopItem || !shopItem.isAvailable) {
       return res.status(404).json({ error: "العنصر غير موجود أو تم شراؤه" });
     }
@@ -541,10 +540,20 @@ router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
 
     const newId = shopItem.idForSale;
 
-    await UserCounter.update({ userId: newId }, { where: { userId: user.id }, transaction: t });
-    await Order.update({ userId: newId }, { where: { userId: user.id }, transaction: t });
+    await UserCounter.update(
+      { userId: newId },
+      { where: { userId: user.id }, transaction: t }
+    );
 
-    await User.update({ id: newId }, { where: { id: user.id }, transaction: t });
+    await Counter.update(
+      { userId: newId },
+      { where: { userId: user.id }, transaction: t }
+    );
+
+    await User.update(
+      { id: newId },
+      { where: { id: user.id }, transaction: t }
+    );
 
     shopItem.isAvailable = false;
     await shopItem.save({ transaction: t });
