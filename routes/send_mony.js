@@ -268,7 +268,6 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
       return res.status(404).json({ error: "المستلم غير موجود" });
     }
 
-    // خصم كامل المبلغ من المرسل وإضافته للمستلم بدون عمولة
     if (typeof sender.sawa === "number" && !isNaN(sender.sawa)) {
       sender.sawa -= transferAmount;
     }
@@ -342,6 +341,43 @@ router.post("/deposit-jewel", upload.none(), async (req, res) => {
 
     } catch (err) {
         console.error("❌ Error during jewel deposit:", err);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+router.post("/deposit-card", upload.none(), async (req, res) => {
+    const { userId, amount } = req.body;
+
+    try {
+        const depositAmount = parseInt(amount);
+
+        if (isNaN(depositAmount) || depositAmount <= 0) {
+            return res.status(400).json({ error: "Invalid deposit amount" });
+        }
+
+        const user = await User.findOne({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        user.card += depositAmount;
+
+        await user.save();
+
+        res.status(200).json({
+            message: `Successfully added ${depositAmount} cards to ${user.name}`,
+            user: {
+                id: user.id,
+                name: user.name,
+                newBalance: user.card
+            }
+        });
+
+    } catch (err) {
+        console.error("❌ Error during card deposit:", err);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
