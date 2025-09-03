@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { User, GameRoom, GameRoomUser, GameResult } = require("../models");
+const { User, GameRoom, GameRoomUser, GameResult, sequelize  } = require("../models");
 const { Op } = require("sequelize");
 
 router.post("/join-game/:id", async (req, res) => {
@@ -36,14 +36,17 @@ router.post("/join-game/:id", async (req, res) => {
     }
     await GameRoomUser.create({ roomId: room.id, userId });
 
-    const players = await GameRoomUser.findAll({ where: { roomId: room.id } });
+    const players = await GameRoomUser.findAll({
+      where: { roomId: room.id },
+      order: sequelize.random()
+    });
 
     if (players.length === 4) {
-      const winnerIndex = Math.floor(Math.random() * 4);
+      const winnerIndex = Math.floor(Math.random() * players.length);
       const winner = players[winnerIndex];
 
       const userWinner = await User.findByPk(winner.userId);
-      const rewardGems = 50; 
+      const rewardGems = 50;
       userWinner.Jewel += rewardGems;
       await userWinner.save();
 
