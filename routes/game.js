@@ -1,7 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const { User, GameRoom, GameRoomUser, GameResult, sequelize  } = require("../models");
+const { User, GameRoom, GameRoomUser, GameResult } = require("../models");
 const { Op } = require("sequelize");
+const Sequelize = require("sequelize");
 
 router.post("/join-game/:id", async (req, res) => {
   try {
@@ -38,7 +39,7 @@ router.post("/join-game/:id", async (req, res) => {
 
     const players = await GameRoomUser.findAll({
       where: { roomId: room.id },
-      order: sequelize.random()
+      order: Sequelize.literal('RAND()')
     });
 
     if (players.length === 4) {
