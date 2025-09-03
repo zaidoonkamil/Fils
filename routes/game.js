@@ -22,7 +22,7 @@ router.post("/join-game/:id", async (req, res) => {
       include: { model: GameRoom, where: { status: { [Op.not]: "finished" } } },
     });
     if (existing) {
-      return res.status(400).json({ error: "أنت بالفعل في غرفة أخرى!" });
+      return res.status(400).json({ error: "أنت بالفعل في مباراة أخرى!" });
     }
 
     let room = await GameRoom.findOne({
@@ -87,13 +87,18 @@ router.get("/last-finished-game/:userId", async (req, res) => {
       include: {
         model: GameRoom,
         where: { status: "finished" },
-        include: {
-          model: GameRoomUser,
-          include: {
-            model: User,
-            attributes: ["id", "name"] 
+        include: [
+          {
+            model: GameRoomUser,
+            include: {
+              model: User,
+              attributes: ["id", "name"]
+            }
+          },
+          {
+            model: GameResult   
           }
-        }
+        ]
       },
       order: [["createdAt", "DESC"]]
     });
@@ -120,5 +125,6 @@ router.get("/last-finished-game/:userId", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ أثناء جلب آخر لعبة" });
   }
 });
+
 
 module.exports = router;
