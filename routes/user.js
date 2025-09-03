@@ -209,6 +209,56 @@ router.post("/users", upload.none() ,async (req, res) => {
     }
 });
 
+router.post("/users/always-verified", upload.none(), async (req, res) => {
+  const { id, name, email, location, password, note, role = "user" } = req.body;
+  let phone = req.body.phone;
+
+  try {
+    const existingUser = await User.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
+    }
+
+    const existingPhone = await User.findOne({ where: { phone } });
+    if (existingPhone) {
+      return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    const isVerified = true;
+
+    const user = await User.create({
+      id: id || undefined,
+      name,
+      email,
+      isVerified,
+      phone,
+      location,
+      password: hashedPassword,
+      note: note || null,
+      role,
+    });
+
+    res.status(201).json({
+      id: id || undefined,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      location: user.location,
+      role: user.role,
+      note: user.note,
+      isVerified: user.isVerified,
+      isLoggedIn: user.isLoggedIn,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+  } catch (err) {
+    console.error("❌ Error creating verified user:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/login", upload.none(), async (req, res) => {
   const { email , password, refId } = req.body;
   try {
