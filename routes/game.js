@@ -4,17 +4,24 @@ const { User, GameRoom, GameRoomUser, GameResult } = require("../models");
 const { Op } = require("sequelize");
 const Sequelize = require("sequelize");
 
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
 router.post("/join-game/:id", async (req, res) => {
   try {
     const userId = req.params.id;
-    const user = await User.findByPk(userId);
-    if (!user) {
-      return res.status(404).json({ error: "المستخدم غير موجود" });
-    }
 
-    if (user.card < 1) {
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+
+    if (user.card < 1)
       return res.status(400).json({ error: "لا يوجد لديك بطاقة للدخول للعبة" });
-    }
+
     user.card -= 1;
     await user.save();
 
@@ -22,9 +29,7 @@ router.post("/join-game/:id", async (req, res) => {
       where: { userId },
       include: { model: GameRoom, where: { status: { [Op.not]: "finished" } } },
     });
-    if (existing) {
-      return res.status(400).json({ error: "أنت بالفعل في مباراة أخرى!" });
-    }
+    if (existing) return res.status(400).json({ error: "أنت بالفعل في مباراة أخرى!" });
 
     let room = await GameRoom.findOne({
       where: { status: "waiting" },
@@ -32,19 +37,18 @@ router.post("/join-game/:id", async (req, res) => {
       order: [["createdAt", "ASC"]],
     });
 
-    if (!room) {
-      room = await GameRoom.create({ status: "waiting" });
-    }
+    if (!room) room = await GameRoom.create({ status: "waiting" });
+
     await GameRoomUser.create({ roomId: room.id, userId });
 
     const players = await GameRoomUser.findAll({
       where: { roomId: room.id },
-      order: Sequelize.literal('RAND()')
+      include: User, 
     });
 
     if (players.length === 4) {
-      const winnerIndex = Math.floor(Math.random() * players.length);
-      const winner = players[winnerIndex];
+      const shuffledPlayers = shuffle(players);
+      const winner = shuffledPlayers[Math.floor(Math.random() * shuffledPlayers.length)];
 
       const userWinner = await User.findByPk(winner.userId);
       const rewardGems = 50;
@@ -60,7 +64,7 @@ router.post("/join-game/:id", async (req, res) => {
         message: "اللعبة اكتملت",
         winner: winner.userId,
         rewardGems,
-        players: players.map(p => p.userId),
+        players: shuffledPlayers.map(p => p.userId),
       });
     }
 
@@ -70,7 +74,6 @@ router.post("/join-game/:id", async (req, res) => {
       currentPlayers: players.map(p => p.userId),
       playersCount: players.length,
     });
-
   } catch (err) {
     console.error("❌ خطأ أثناء الانضمام للعبة:", err);
     res.status(500).json({ error: "حدث خطأ أثناء الدخول للعبة" });
