@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام غرف الدردشة</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            min-height: 600px;
+        }
+        
+        .sidebar {
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+            padding: 20px;
+        }
+        
+        .chat-area {
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+        }
+        
+        .chat-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: white;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 15px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+        
+        .message.own {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+        
+        .message.other {
+            background: #f1f3f4;
+            color: #333;
+        }
+        
+        .message-header {
+            font-size: 12px;
+            margin-bottom: 5px;
+            opacity: 0.7;
+        }
+        
+        .chat-input {
+            padding: 20px;
+            border-top: 1px solid #e9ecef;
+            background: white;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        
+        input, textarea, select, button {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #5a6fd8;
+        }
+        
+        .room-card {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .room-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .room-card.active {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        
+        .room-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .room-info {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .users-list {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .user-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        
+        .user-item:last-child {
+            border-bottom: none;
+        }
+        
+        .typing-indicator {
+            font-style: italic;
+            color: #666;
+            font-size: 12px;
+            padding: 5px 15px;
+        }
+        
+        .system-message {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            margin: 10px 0;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+        }
+        
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        
+        .success {
+            color: #155724;
+            background: #d4edda;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>نظام غرف الدردشة الجماعية</h1>
+            <p>الدردشة في الوقت الفعلي</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="form-group">
+                    <label>Token المستخدم:</label>
+                    <input type="text" id="userToken" placeholder="أدخل token المستخدم">
+                </div>
+                
+                <div class="form-group">
+                    <label>اسم الغرفة:</label>
+                    <input type="text" id="roomName" placeholder="اسم الغرفة">
+                </div>
+                
+                <div class="form-group">
+                    <label>وصف الغرفة:</label>
+                    <textarea id="roomDescription" placeholder="وصف الغرفة"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>تكلفة إنشاء الغرفة (نقاط):</label>
+                    <input type="number" id="roomCost" placeholder="التكلفة" min="0">
+                </div>
+                
+                <div class="form-group">
+                    <label>الحد الأقصى للمستخدمين:</label>
+                    <input type="number" id="maxUsers" placeholder="الحد الأقصى" min="1" max="100" value="50">
+                </div>
+                
+                <div class="form-group">
+                    <label>فئة الغرفة:</label>
+                    <select id="roomCategory">
+                        <option value="general">عام</option>
+                        <option value="gaming">ألعاب</option>
+                        <option value="music">موسيقى</option>
+                        <option value="sports">رياضة</option>
+                        <option value="technology">تقنية</option>
+                    </select>
+                </div>
+                
+                <button onclick="createRoom()">إنشاء غرفة جديدة</button>
+                
+                <div id="message"></div>
+                
+                <h3>الغرف المتوفرة:</h3>
+                <div id="roomsList"></div>
+                
+                <div class="users-list">
+                    <h4>المستخدمون في الغرفة:</h4>
+                    <div id="usersList"></div>
+                </div>
+            </div>
+            
+            <div class="chat-area">
+                <div class="chat-header">
+                    <h3 id="currentRoomName">اختر غرفة للدردشة</h3>
+                    <button onclick="leaveRoom()" id="leaveBtn" style="display: none;">مغادرة الغرفة</button>
+                </div>
+                
+                <div class="chat-messages" id="chatMessages">
+                    <div class="system-message">مرحباً بك في نظام الدردشة الجماعية</div>
+                </div>
+                
+                <div class="chat-input">
+                    <div class="input-group">
+                        <textarea id="messageInput" placeholder="اكتب رسالتك هنا..." rows="3" style="flex: 1;"></textarea>
+                        <button onclick="sendMessage()">إرسال</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        let currentRoom = null;
+        let currentUser = null;
+        
+        // تهيئة Socket.IO
+        function initializeSocket(token) {
+            socket = io('http://localhost:1300', {
+                auth: { token: token }
+            });
+            
+            socket.on('connect', () => {
+                console.log('تم الاتصال بالخادم');
+                showMessage('تم الاتصال بالخادم بنجاح', 'success');
+            });
+            
+            socket.on('disconnect', () => {
+                console.log('انقطع الاتصال بالخادم');
+                showMessage('انقطع الاتصال بالخادم', 'error');
+            });
+            
+            socket.on('joined-room', (data) => {
+                currentRoom = data.roomId;
+                showMessage(data.message, 'success');
+                updateRoomUI();
+            });
+            
+            socket.on('user-joined', (data) => {
+                addSystemMessage(data.message);
+            });
+            
+            socket.on('user-left', (data) => {
+                addSystemMessage(data.message);
+            });
+            
+            socket.on('new-message', (message) => {
+                addMessage(message);
+            });
+            
+            socket.on('room-users', (users) => {
+                updateUsersList(users);
+            });
+            
+            socket.on('user-typing', (data) => {
+                showTypingIndicator(data.userName);
+            });
+            
+            socket.on('error', (data) => {
+                showMessage(data.message, 'error');
+            });
+        }
+        
+        // إنشاء غرفة جديدة
+        async function createRoom() {
+            const token = document.getElementById('userToken').value;
+            if (!token) {
+                showMessage('يرجى إدخال token المستخدم', 'error');
+                return;
+            }
+            
+            const roomData = {
+                name: document.getElementById('roomName').value,
+                description: document.getElementById('roomDescription').value,
+                cost: parseInt(document.getElementById('roomCost').value) || 0,
+                maxUsers: parseInt(document.getElementById('maxUsers').value) || 50,
+                category: document.getElementById('roomCategory').value
+            };
+            
+            if (!roomData.name) {
+                showMessage('يرجى إدخال اسم الغرفة', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/create-room', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(roomData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showMessage(result.message, 'success');
+                    loadRooms();
+                } else {
+                    showMessage(result.error, 'error');
+                }
+            } catch (error) {
+                showMessage('خطأ في إنشاء الغرفة', 'error');
+            }
+        }
+        
+        // تحميل الغرف المتوفرة
+        async function loadRooms() {
+            const token = document.getElementById('userToken').value;
+            if (!token) return;
+            
+            try {
+                const response = await fetch('/rooms', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    displayRooms(result.rooms);
+                }
+            } catch (error) {
+                console.error('خطأ في تحميل الغرف:', error);
+            }
+        }
+        
+        // عرض الغرف
+        function displayRooms(rooms) {
+            const roomsList = document.getElementById('roomsList');
+            roomsList.innerHTML = '';
+            
+            rooms.forEach(room => {
+                const roomCard = document.createElement('div');
+                roomCard.className = 'room-card';
+                roomCard.onclick = () => joinRoom(room.id);
+                
+                roomCard.innerHTML = `
+                    <div class="room-name">${room.name}</div>
+                    <div class="room-info">
+                        <div>المنشئ: ${room.creator ? room.creator.name : 'غير معروف'}</div>
+                        <div>التكلفة: ${room.cost} نقطة</div>
+                        <div>المستخدمون: ${room.currentUsers}/${room.maxUsers}</div>
+                        <div>الفئة: ${room.category}</div>
+                    </div>
+                `;
+                
+                roomsList.appendChild(roomCard);
+            });
+        }
+        
+        // الانضمام إلى غرفة
+        function joinRoom(roomId) {
+            if (!socket) {
+                const token = document.getElementById('userToken').value;
+                if (!token) {
+                    showMessage('يرجى إدخال token المستخدم أولاً', 'error');
+                    return;
+                }
+                initializeSocket(token);
+            }
+            
+            socket.emit('join-room', roomId);
+            
+            // تحديث الواجهة
+            document.querySelectorAll('.room-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            
+            event.target.closest('.room-card').classList.add('active');
+        }
+        
+        // مغادرة الغرفة
+        function leaveRoom() {
+            if (socket && currentRoom) {
+                socket.emit('leave-room', currentRoom);
+                currentRoom = null;
+                updateRoomUI();
+                clearChat();
+            }
+        }
+        
+        // إرسال رسالة
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const content = messageInput.value.trim();
+            
+            if (!content || !socket || !currentRoom) return;
+            
+            socket.emit('send-message', {
+                roomId: currentRoom,
+                content: content,
+                messageType: 'text'
+            });
+            
+            messageInput.value = '';
+        }
+        
+        // إضافة رسالة للواجهة
+        function addMessage(message) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${message.userId === currentUser ? 'own' : 'other'}`;
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">${message.userName} - ${new Date(message.createdAt).toLocaleTimeString()}</div>
+                <div class="message-content">${message.content}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // إضافة رسالة نظام
+        function addSystemMessage(message) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'system-message';
+            messageDiv.textContent = message;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // تحديث قائمة المستخدمين
+        function updateUsersList(users) {
+            const usersList = document.getElementById('usersList');
+            usersList.innerHTML = '';
+            
+            users.forEach(user => {
+                const userItem = document.createElement('div');
+                userItem.className = 'user-item';
+                userItem.textContent = user.name;
+                usersList.appendChild(userItem);
+            });
+        }
+        
+        // تحديث واجهة الغرفة
+        function updateRoomUI() {
+            const leaveBtn = document.getElementById('leaveBtn');
+            const currentRoomName = document.getElementById('currentRoomName');
+            
+            if (currentRoom) {
+                leaveBtn.style.display = 'block';
+                currentRoomName.textContent = `غرفة ${currentRoom}`;
+            } else {
+                leaveBtn.style.display = 'none';
+                currentRoomName.textContent = 'اختر غرفة للدردشة';
+            }
+        }
+        
+        // مسح الدردشة
+        function clearChat() {
+            const chatMessages = document.getElementById('chatMessages');
+            chatMessages.innerHTML = '<div class="system-message">اختر غرفة للدردشة</div>';
+        }
+        
+        // عرض رسالة
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            
+            setTimeout(() => {
+                messageDiv.textContent = '';
+                messageDiv.className = '';
+            }, 5000);
+        }
+        
+        // مؤشر الكتابة
+        function showTypingIndicator(userName) {
+            const chatMessages = document.getElementById('chatMessages');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.textContent = `${userName} يكتب...`;
+            
+            chatMessages.appendChild(typingDiv);
+            
+            setTimeout(() => {
+                if (typingDiv.parentNode) {
+                    typingDiv.remove();
+                }
+            }, 3000);
+        }
+        
+        // إرسال الرسالة عند الضغط على Enter
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        // تحميل الغرف عند تغيير Token
+        document.getElementById('userToken').addEventListener('change', loadRooms);
+        
+        // تحميل الغرف عند تحميل الصفحة
+        window.addEventListener('load', () => {
+            const token = document.getElementById('userToken').value;
+            if (token) {
+                loadRooms();
+            }
+        });
+    </script>
+</body>
+</html>
