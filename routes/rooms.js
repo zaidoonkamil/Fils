@@ -180,7 +180,8 @@ router.get("/rooms", authenticateToken, async (req, res) => {
             include: [{
                 model: User,
                 as: 'creator',
-                attributes: ['id', 'name']
+                attributes: ['id', 'name'],
+                required: false  // LEFT JOIN بدلاً من INNER JOIN
             }],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
@@ -196,7 +197,12 @@ router.get("/rooms", authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error("خطأ في جلب الغرف:", error);
-        res.status(500).json({ error: "خطأ في جلب الغرف" });
+        console.error("تفاصيل الخطأ:", error.message);
+        console.error("Stack trace:", error.stack);
+        res.status(500).json({ 
+            error: "خطأ في جلب الغرف",
+            details: error.message 
+        });
     }
 });
 

@@ -1,6 +1,7 @@
 require("./models/agent");
-require("./models/room");
-require("./models/message");
+const Room = require("./models/room");
+const Message = require("./models/message");
+const User = require("./models/user");
 require("./models/associations");
 const express = require("express");
 const http = require("http");
@@ -37,8 +38,13 @@ app.use(express.static("public"));
 sequelize.sync({
     alter: true
    //  force: false,
- }).then(() => console.log("✅ Database & User table synced!"))
-  .catch(err => console.error("❌ Error syncing database:", err));
+ }).then(() => {
+    console.log("✅ Database & User table synced!");
+    // التحقق من العلاقات
+    console.log("🔗 Checking associations...");
+    console.log("Room associations:", Object.keys(Room.associations));
+    console.log("User associations:", Object.keys(User.associations));
+ }).catch(err => console.error("❌ Error syncing database:", err));
 
 // إضافة route للصفحة الرئيسية
 app.get("/", (req, res) => {
