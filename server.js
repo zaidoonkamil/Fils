@@ -36,7 +36,7 @@ app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
 
 sequelize.sync({
-     force: true, 
+     force: false, 
     logging: console.log })
     .then(() => {
     console.log("✅ Database & User table synced!");

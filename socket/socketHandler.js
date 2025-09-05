@@ -9,9 +9,7 @@ const roomUsers = new Map();
 function initializeSocketIO(io) {
     io.use(async (socket, next) => {
         try {
-            const token = socket.handshake.auth?.token || socket.handshake.query?.token;
-            console.log('🔑 Token received by Socket.IO:', token); 
-
+            const token = socket.handshake.auth.token;
             if (!token) {
                 return next(new Error("Authentication error"));
             }
