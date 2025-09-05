@@ -30,7 +30,7 @@ const transporter = nodemailer.createTransport({
 const generateToken = (user) => {
     return jwt.sign(
         { id: user.id, email: user.email, role: user.role },
-.        process.env.JWT_SECRET || 'your-secret-key-123456789',
+        process.env.JWT_SECRET || 'your-secret-key-123456789',
         { expiresIn: '350d' } 
     );
 };
