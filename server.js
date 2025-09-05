@@ -35,6 +35,7 @@ app.use(express.json());
 app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
 
+await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
 sequelize.sync({
      force: true, 
     logging: console.log })
@@ -45,6 +46,7 @@ sequelize.sync({
     console.log("Room associations:", Object.keys(Room.associations));
     console.log("User associations:", Object.keys(User.associations));
  }).catch(err => console.error("❌ Error syncing database:", err));
+ await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
 
 // إضافة route للصفحة الرئيسية
 app.get("/", (req, res) => {
