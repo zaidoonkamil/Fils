@@ -27,17 +27,109 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 
+// إضافة نقاط sawa للمستخدم للاختبار
+router.post("/add-sawa", authenticateToken, async (req, res) => {
+    try {
+        const { amount = 1000 } = req.body;
+        
+        await req.user.update({
+            sawa: req.user.sawa + amount
+        });
+        
+        res.json({
+            message: `تم إضافة ${amount} نقطة sawa`,
+            newBalance: req.user.sawa + amount
+        });
+    } catch (error) {
+        res.status(500).json({ error: "خطأ في إضافة النقاط" });
+    }
+});
+
+// إنشاء مستخدمين متعددين للاختبار
+router.post("/create-test-users", async (req, res) => {
+    try {
+        const users = [];
+        
+        // إنشاء 5 مستخدمين للاختبار
+        for (let i = 1; i <= 5; i++) {
+            const userId = 10000 + i;
+            
+            // التحقق من وجود المستخدم
+            let user = await User.findByPk(userId);
+            
+            if (!user) {
+                // إنشاء مستخدم جديد
+                user = await User.create({
+                    id: userId,
+                    name: `مستخدم ${i}`,
+                    email: `user${i}@test.com`,
+                    phone: `123456789${i}`,
+                    location: 'الرياض',
+                    password: '123456',
+                    role: 'user',
+                    Jewel: 1000,
+                    sawa: 2000,
+                    card: 0,
+                    dolar: 0,
+                    isVerified: true,
+                    isLoggedIn: false
+                });
+            } else {
+                // تحديث النقاط إذا كان المستخدم موجود
+                await user.update({
+                    sawa: 2000,
+                    Jewel: 1000
+                });
+            }
+            
+            // إنشاء Token للمستخدم
+            const token = jwt.sign({ userId: userId }, process.env.JWT_SECRET || 'your-secret-key');
+            
+            users.push({
+                id: userId,
+                name: user.name,
+                token: token,
+                sawa: user.sawa,
+                Jewel: user.Jewel
+            });
+        }
+        
+        res.json({
+            message: "تم إنشاء المستخدمين بنجاح",
+            users: users
+        });
+        
+    } catch (error) {
+        console.error("خطأ في إنشاء المستخدمين:", error);
+        res.status(500).json({ error: "خطأ في إنشاء المستخدمين" });
+    }
+});
+
+// إنشاء Token تجريبي للاختبار
+router.post("/test-token", async (req, res) => {
+    try {
+        const token = jwt.sign({ userId: 10001 }, process.env.JWT_SECRET || 'your-secret-key');
+        res.json({ 
+            token,
+            message: "Token تم إنشاؤه بنجاح",
+            userId: 10001
+        });
+    } catch (error) {
+        res.status(500).json({ error: "خطأ في إنشاء Token" });
+    }
+});
+
 // إنشاء غرفة جديدة
 router.post("/create-room", authenticateToken, async (req, res) => {
     try {
         const { name, description, cost, maxUsers, category } = req.body;
         
         // التحقق من وجود النقاط الكافية
-        if (req.user.Jewel < cost) {
+        if (req.user.sawa < cost) {
             return res.status(400).json({ 
                 error: "نقاط غير كافية لإنشاء الغرفة",
                 required: cost,
-                available: req.user.Jewel
+                available: req.user.sawa
             });
         }
 
@@ -53,13 +145,13 @@ router.post("/create-room", authenticateToken, async (req, res) => {
 
         // خصم النقاط من المستخدم
         await req.user.update({
-            Jewel: req.user.Jewel - cost
+            sawa: req.user.sawa - cost
         });
 
         res.status(201).json({
             message: "تم إنشاء الغرفة بنجاح",
             room,
-            remainingJewel: req.user.Jewel - cost
+            remainingSawa: req.user.sawa - cost
         });
 
     } catch (error) {

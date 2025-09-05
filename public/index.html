@@ -233,8 +233,28 @@
         <div class="main-content">
             <div class="sidebar">
                 <div class="form-group">
+                    <label>اختيار المستخدم:</label>
+                    <select id="userSelect" onchange="selectUser()" style="width: 100%;">
+                        <option value="">اختر مستخدم...</option>
+                    </select>
+                    <button onclick="createTestUsers()" style="margin-top: 5px; font-size: 12px;">إنشاء مستخدمين للاختبار</button>
+                </div>
+                
+                <div class="form-group">
                     <label>Token المستخدم:</label>
-                    <input type="text" id="userToken" placeholder="أدخل token المستخدم">
+                    <input type="text" id="userToken" placeholder="أدخل token المستخدم" value="">
+                    <div style="margin-top: 5px;">
+                        <button onclick="testToken()" style="font-size: 12px; margin-right: 5px;">اختبار Token</button>
+                        <button onclick="createNewToken()" style="font-size: 12px; margin-right: 5px;">إنشاء Token جديد</button>
+                        <button onclick="addJewels()" style="font-size: 12px;">إضافة نقاط sawa</button>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>معلومات المستخدم الحالي:</label>
+                    <div id="currentUserInfo" style="background: #f8f9fa; padding: 10px; border-radius: 5px; font-size: 12px;">
+                        لم يتم اختيار مستخدم
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -353,6 +373,165 @@
             });
         }
         
+        let testUsers = [];
+        
+        // إنشاء مستخدمين للاختبار
+        async function createTestUsers() {
+            try {
+                const response = await fetch('/create-test-users', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    testUsers = result.users;
+                    populateUserSelect();
+                    showMessage(result.message, 'success');
+                    console.log('المستخدمين المنشأين:', testUsers);
+                } else {
+                    const error = await response.json();
+                    showMessage(error.error || 'خطأ في إنشاء المستخدمين', 'error');
+                }
+            } catch (error) {
+                showMessage('خطأ في الاتصال بالخادم', 'error');
+            }
+        }
+        
+        // ملء قائمة المستخدمين
+        function populateUserSelect() {
+            const userSelect = document.getElementById('userSelect');
+            userSelect.innerHTML = '<option value="">اختر مستخدم...</option>';
+            
+            testUsers.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.token;
+                option.textContent = `${user.name} (ID: ${user.id}) - Sawa: ${user.sawa}`;
+                userSelect.appendChild(option);
+            });
+        }
+        
+        // اختيار مستخدم
+        function selectUser() {
+            const userSelect = document.getElementById('userSelect');
+            const selectedToken = userSelect.value;
+            
+            if (selectedToken) {
+                document.getElementById('userToken').value = selectedToken;
+                const selectedUser = testUsers.find(user => user.token === selectedToken);
+                if (selectedUser) {
+                    showMessage(`تم اختيار ${selectedUser.name}`, 'success');
+                    updateCurrentUserInfo(selectedUser);
+                }
+            } else {
+                document.getElementById('userToken').value = '';
+                updateCurrentUserInfo(null);
+            }
+        }
+        
+        // تحديث معلومات المستخدم الحالي
+        function updateCurrentUserInfo(user) {
+            const userInfoDiv = document.getElementById('currentUserInfo');
+            
+            if (user) {
+                userInfoDiv.innerHTML = `
+                    <strong>الاسم:</strong> ${user.name}<br>
+                    <strong>ID:</strong> ${user.id}<br>
+                    <strong>Sawa:</strong> ${user.sawa}<br>
+                    <strong>Jewel:</strong> ${user.Jewel}
+                `;
+            } else {
+                userInfoDiv.innerHTML = 'لم يتم اختيار مستخدم';
+            }
+        }
+        
+        // إضافة نقاط sawa للمستخدم
+        async function addJewels() {
+            const token = document.getElementById('userToken').value;
+            if (!token) {
+                showMessage('يرجى إدخال Token أولاً', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/add-sawa', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ amount: 1000 })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showMessage(result.message, 'success');
+                    console.log('النقاط الجديدة:', result.newBalance);
+                } else {
+                    const error = await response.json();
+                    showMessage(error.error || 'خطأ في إضافة النقاط', 'error');
+                }
+            } catch (error) {
+                showMessage('خطأ في الاتصال بالخادم', 'error');
+            }
+        }
+        
+        // إنشاء Token جديد
+        async function createNewToken() {
+            try {
+                const response = await fetch('/test-token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    document.getElementById('userToken').value = result.token;
+                    showMessage('تم إنشاء Token جديد بنجاح!', 'success');
+                    console.log('Token جديد:', result.token);
+                } else {
+                    showMessage('خطأ في إنشاء Token', 'error');
+                }
+            } catch (error) {
+                showMessage('خطأ في الاتصال بالخادم', 'error');
+            }
+        }
+        
+        // اختبار Token
+        async function testToken() {
+            const token = document.getElementById('userToken').value;
+            if (!token) {
+                showMessage('يرجى إدخال Token', 'error');
+                return;
+            }
+            
+            console.log('اختبار Token:', token.substring(0, 20) + '...');
+            
+            try {
+                const response = await fetch('/rooms', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    showMessage('Token صالح! يمكنك الآن استخدام النظام', 'success');
+                    loadRooms();
+                } else {
+                    const error = await response.json();
+                    showMessage(`Token غير صالح: ${error.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('خطأ في اختبار Token', 'error');
+            }
+        }
+        
         // إنشاء غرفة جديدة
         async function createRoom() {
             const token = document.getElementById('userToken').value;
@@ -374,6 +553,8 @@
                 return;
             }
             
+            console.log('جاري إنشاء الغرفة:', roomData);
+            
             try {
                 const response = await fetch('/create-room', {
                     method: 'POST',
@@ -384,38 +565,61 @@
                     body: JSON.stringify(roomData)
                 });
                 
+                console.log('استجابة إنشاء الغرفة:', response.status);
+                
                 const result = await response.json();
                 
                 if (response.ok) {
                     showMessage(result.message, 'success');
                     loadRooms();
+                    // مسح الحقول
+                    document.getElementById('roomName').value = '';
+                    document.getElementById('roomDescription').value = '';
+                    document.getElementById('roomCost').value = '';
                 } else {
-                    showMessage(result.error, 'error');
+                    console.error('خطأ في إنشاء الغرفة:', result);
+                    showMessage(result.error || 'خطأ في إنشاء الغرفة', 'error');
+                    console.log('تفاصيل الخطأ:', JSON.stringify(result, null, 2));
                 }
             } catch (error) {
-                showMessage('خطأ في إنشاء الغرفة', 'error');
+                console.error('خطأ في إنشاء الغرفة:', error);
+                showMessage('خطأ في الاتصال بالخادم', 'error');
             }
         }
         
         // تحميل الغرف المتوفرة
         async function loadRooms() {
             const token = document.getElementById('userToken').value;
-            if (!token) return;
+            if (!token) {
+                console.log('لا يوجد Token');
+                return;
+            }
+            
+            console.log('جاري تحميل الغرف مع Token:', token.substring(0, 20) + '...');
             
             try {
                 const response = await fetch('/rooms', {
+                    method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
                     }
                 });
                 
-                const result = await response.json();
+                console.log('استجابة الخادم:', response.status);
                 
                 if (response.ok) {
+                    const result = await response.json();
+                    console.log('الغرف المحملة:', result.rooms.length);
                     displayRooms(result.rooms);
+                } else {
+                    const error = await response.json();
+                    console.error('خطأ من الخادم:', error);
+                    showMessage(error.error || 'خطأ في تحميل الغرف', 'error');
                 }
             } catch (error) {
                 console.error('خطأ في تحميل الغرف:', error);
+                showMessage('خطأ في الاتصال بالخادم', 'error');
             }
         }
         

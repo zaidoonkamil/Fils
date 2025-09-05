@@ -22,7 +22,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: ["*", "https://fils.khaleeafashion.com", "http://fils.khaleeafashion.com"],
+        origin: ["http://fils.khaleeafashion.com"],
         methods: ["GET", "POST"],
         allowedHeaders: ["*"],
         credentials: true
