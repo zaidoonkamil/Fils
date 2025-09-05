@@ -22,7 +22,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: ["http://fils.khaleeafashion.com"],
+        origin: ["https://fils.khaleeafashion.com", "http://localhost:1300"],
         methods: ["GET", "POST"],
         allowedHeaders: ["*"],
         credentials: true
@@ -39,6 +39,11 @@ sequelize.sync({
    //  force: false,
  }).then(() => console.log("✅ Database & User table synced!"))
   .catch(err => console.error("❌ Error syncing database:", err));
+
+// إضافة route للصفحة الرئيسية
+app.get("/", (req, res) => {
+    res.sendFile(__dirname + "/public/index.html");
+});
 
 app.use("/", usersRouter);
 app.use("/", sendmonyRouter);
