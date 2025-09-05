@@ -30,7 +30,7 @@ const transporter = nodemailer.createTransport({
 const generateToken = (user) => {
     return jwt.sign(
         { id: user.id, email: user.email, role: user.role },
-        process.env.JWT_SECRET,
+.        process.env.JWT_SECRET || 'your-secret-key-123456789',
         { expiresIn: '350d' } 
     );
 };
@@ -39,7 +39,7 @@ const authenticateToken = (req, res, next) => {
     const token = req.headers['authorization'];
     if (!token) return res.status(401).json({ error: "Access denied, no token provided" });
 
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-123456789', (err, user) => {
         if (err) return res.status(403).json({ error: "Invalid token" });
         req.user = user;
         next();

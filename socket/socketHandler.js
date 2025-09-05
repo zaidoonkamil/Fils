@@ -14,8 +14,14 @@ function initializeSocketIO(io) {
                 return next(new Error("Authentication error"));
             }
             
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-            const user = await User.findByPk(decoded.userId);
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-123456789');
+            // التحقق من وجود id أو userId في التوكن
+            const userId = decoded.id || decoded.userId;
+            if (!userId) {
+                return next(new Error("Invalid token - no user ID"));
+            }
+            
+            const user = await User.findByPk(userId);
             if (!user) {
                 return next(new Error("User not found"));
             }

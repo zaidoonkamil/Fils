@@ -15,7 +15,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-123456789');
         // التحقق من وجود id أو userId في التوكن
         const userId = decoded.id || decoded.userId;
         if (!userId) {
@@ -88,7 +88,7 @@ router.post("/create-test-users", async (req, res) => {
                 });
             }
             
-            const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'your-secret-key');
+            const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'your-secret-key-123456789');
             
             users.push({
                 id: userId,
@@ -113,7 +113,7 @@ router.post("/create-test-users", async (req, res) => {
 // إنشاء Token تجريبي للاختبار
 router.post("/test-token", async (req, res) => {
     try {
-        const token = jwt.sign({ id: 10001 }, process.env.JWT_SECRET || 'your-secret-key');
+        const token = jwt.sign({ id: 10001 }, process.env.JWT_SECRET || 'your-secret-key-123456789');
         res.json({ 
             token,
             message: "Token تم إنشاؤه بنجاح",
