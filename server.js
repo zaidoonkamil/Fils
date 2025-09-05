@@ -22,9 +22,12 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+        origin: ["*", "https://fils.khaleeafashion.com", "http://fils.khaleeafashion.com"],
+        methods: ["GET", "POST"],
+        allowedHeaders: ["*"],
+        credentials: true
+    },
+    allowEIO3: true
 });
 
 app.use(express.json());
@@ -46,9 +49,8 @@ app.use("/", agentsRouter);
 app.use("/", gameRouter);
 app.use("/", roomsRouter);
 
-// تهيئة Socket.IO
 initializeSocketIO(io);
 
-server.listen(1300, () => {
-    console.log(`🚀 Server running on http://localhost:1300`);
+server.listen(1300, '0.0.0.0', () => { 
+    console.log(`🚀 Server running on http://0.0.0.0:1300`);
 });
