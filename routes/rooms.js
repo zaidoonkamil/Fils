@@ -88,7 +88,6 @@ router.post("/create-test-users", async (req, res) => {
                 });
             }
             
-            // إنشاء Token للمستخدم (نفس تنسيق user.js)
             const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'your-secret-key');
             
             users.push({
