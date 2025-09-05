@@ -16,7 +16,13 @@ const authenticateToken = async (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-        const user = await User.findByPk(decoded.userId);
+        // التحقق من وجود id أو userId في التوكن
+        const userId = decoded.id || decoded.userId;
+        if (!userId) {
+            return res.status(401).json({ error: "Token غير صالح - لا يوجد معرف مستخدم" });
+        }
+        
+        const user = await User.findByPk(userId);
         if (!user) {
             return res.status(401).json({ error: "المستخدم غير موجود" });
         }
@@ -82,8 +88,8 @@ router.post("/create-test-users", async (req, res) => {
                 });
             }
             
-            // إنشاء Token للمستخدم
-            const token = jwt.sign({ userId: userId }, process.env.JWT_SECRET || 'your-secret-key');
+            // إنشاء Token للمستخدم (نفس تنسيق user.js)
+            const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'your-secret-key');
             
             users.push({
                 id: userId,
@@ -108,7 +114,7 @@ router.post("/create-test-users", async (req, res) => {
 // إنشاء Token تجريبي للاختبار
 router.post("/test-token", async (req, res) => {
     try {
-        const token = jwt.sign({ userId: 10001 }, process.env.JWT_SECRET || 'your-secret-key');
+        const token = jwt.sign({ id: 10001 }, process.env.JWT_SECRET || 'your-secret-key');
         res.json({ 
             token,
             message: "Token تم إنشاؤه بنجاح",
