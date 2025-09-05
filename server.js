@@ -36,8 +36,8 @@ app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
 
 sequelize.sync({
-    alter: true
-   //  force: false,
+   // alter: true
+     force: true,
  }).then(() => {
     console.log("✅ Database & User table synced!");
     // التحقق من العلاقات
