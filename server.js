@@ -37,7 +37,7 @@ app.use(express.static("public"));
 
 sequelize.sync({
    // alter: true
-     force: true,
+     force: false,
  }).then(() => {
     console.log("✅ Database & User table synced!");
     // التحقق من العلاقات
