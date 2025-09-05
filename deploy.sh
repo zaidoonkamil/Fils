@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # سكربت رفع الملفات للسيرفر
-SERVER="root@fils.khaleeafashion.com"
-PROJECT_PATH="/path/to/your/project"
+SERVER="root@145.223.117.211"
+PROJECT_PATH="~/Fils"
 
 echo "🚀 رفع الملفات للسيرفر..."
 
