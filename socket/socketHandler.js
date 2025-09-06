@@ -46,41 +46,33 @@ function initializeSocketIO(io) {
                     return;
                 }
 
-                if (room.currentUsers >= room.maxUsers) {
-                    socket.emit("error", { message: "الغرفة ممتلئة" });
-                    return;
-                }
-
                 socket.join(`room-${roomId}`);
-                
-                // إضافة المستخدم إلى قائمة الغرفة
+
                 if (!roomUsers.has(roomId)) {
                     roomUsers.set(roomId, new Set());
                 }
-                roomUsers.get(roomId).add({
-                    id: socket.userId,
-                    name: socket.userName,
-                    socketId: socket.id
-                });
+                const usersSet = roomUsers.get(roomId);
 
-                // تحديث عدد المستخدمين في الغرفة
-                await room.update({ currentUsers: room.currentUsers + 1 });
+                const alreadyJoined = [...usersSet].some(u => u.id === socket.userId);
+                if (!alreadyJoined) {
+                    usersSet.add({ id: socket.userId, name: socket.userName, socketId: socket.id });
+                    await room.update({ currentUsers: usersSet.size });
+                }
 
-                // إرسال رسالة ترحيب
                 socket.emit("joined-room", { 
                     roomId, 
                     message: `مرحباً بك في غرفة ${room.name}` 
                 });
 
-                // إعلام باقي المستخدمين بانضمام شخص جديد
-                socket.to(`room-${roomId}`).emit("user-joined", {
-                    userId: socket.userId,
-                    userName: socket.userName,
-                    message: `${socket.userName} انضم إلى الغرفة`
-                });
+                if (!alreadyJoined) {
+                    socket.to(`room-${roomId}`).emit("user-joined", {
+                        userId: socket.userId,
+                        userName: socket.userName,
+                        message: `${socket.userName} انضم إلى الغرفة`
+                    });
+                }
 
-                // إرسال قائمة المستخدمين الحاليين
-                const currentUsers = Array.from(roomUsers.get(roomId)).map(user => ({
+                const currentUsers = Array.from(usersSet).map(user => ({
                     id: user.id,
                     name: user.name
                 }));
