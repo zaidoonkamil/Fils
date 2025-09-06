@@ -121,12 +121,13 @@ function initializeSocketIO(io) {
                     id: message.id,
                     content: message.content,
                     messageType: message.messageType,
-                    userId: user.id,
-                    userName: user.name,
-                    createdAt: message.createdAt
+                    createdAt: message.createdAt,
+                    user: {                
+                        id: user.id,
+                        name: user.name
+                    }
                 };
 
-                // إرسال الرسالة لجميع المستخدمين في الغرفة
                 io.to(`room-${roomId}`).emit("new-message", messageData);
 
             } catch (error) {
