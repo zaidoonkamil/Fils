@@ -248,6 +248,7 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
             },
             include: [{
                 model: User,
+                as: 'user',
                 attributes: ['id', 'name']
             }],
             order: [['createdAt', 'DESC']],
