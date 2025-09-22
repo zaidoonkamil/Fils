@@ -15,6 +15,7 @@ const notifications = require("./routes/notifications.js");
 const agentsRouter = require("./routes/agents.js");
 const gameRouter = require("./routes/game.js");
 const roomsRouter = require("./routes/rooms.js");
+const adsRouter = require("./routes/ads");
 const initializeSocketIO = require("./socket/socketHandler.js");
 
 require("./cron");
@@ -59,6 +60,7 @@ app.use("/", notifications);
 app.use("/", agentsRouter);
 app.use("/", gameRouter);
 app.use("/", roomsRouter);
+app.use("/", adsRouter);
 
 initializeSocketIO(io);
 
