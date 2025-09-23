@@ -16,6 +16,7 @@ const agentsRouter = require("./routes/agents.js");
 const gameRouter = require("./routes/game.js");
 const roomsRouter = require("./routes/rooms.js");
 const adsRouter = require("./routes/ads");
+const chat = require("./routes/chatRoutes");
 const initializeSocketIO = require("./socket/socketHandler.js");
 
 require("./cron");
@@ -37,17 +38,12 @@ app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
 
 sequelize.sync({
-     force: false, 
+     alter: true,
     logging: console.log })
     .then(() => {
     console.log("✅ Database & User table synced!");
-    // التحقق من العلاقات
-    console.log("🔗 Checking associations...");
-    console.log("Room associations:", Object.keys(Room.associations));
-    console.log("User associations:", Object.keys(User.associations));
  }).catch(err => console.error("❌ Error syncing database:", err));
 
-// إضافة route للصفحة الرئيسية
 app.get("/", (req, res) => {
     res.sendFile(__dirname + "/public/index.html");
 });
@@ -61,7 +57,9 @@ app.use("/", agentsRouter);
 app.use("/", gameRouter);
 app.use("/", roomsRouter);
 app.use("/", adsRouter);
+app.use("/", chat.router);
 
+chat.initChatSocket(io);
 initializeSocketIO(io);
 
 server.listen(1300, '0.0.0.0', () => { 

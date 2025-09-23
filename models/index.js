@@ -10,6 +10,7 @@ const GameRoom = require("./GameRoom");
 const GameRoomUser = require("./GameRoomUser");
 const GameResult = require("./GameResult");
 const IdShop = require("./IdShop");
+const ChatMessage = require("./ChatMessage");
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -37,6 +38,11 @@ User.hasMany(WithdrawalRequest, { foreignKey: 'userId', as: 'withdrawalRequests'
 User.hasMany(UserDevice, { foreignKey: 'user_id', as: 'devices', onDelete: 'CASCADE' });
 UserDevice.belongsTo(User, { foreignKey: 'user_id', as: 'user', onDelete: 'CASCADE' });
 
+ChatMessage.belongsTo(User, { as: "sender", foreignKey: "senderId" , onDelete: 'CASCADE'});
+ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId" , onDelete: 'CASCADE' });
+
+User.hasMany(ChatMessage, { as: "sentMessages", foreignKey: "senderId" , onDelete: 'CASCADE' });
+User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId" , onDelete: 'CASCADE'});
 
 module.exports = {
   User,
@@ -51,4 +57,5 @@ module.exports = {
   GameRoomUser,
   GameResult,
   IdShop,
+  ChatMessage
 };
