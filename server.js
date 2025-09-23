@@ -33,14 +33,7 @@ const io = socketIo(server, {
     },
     allowEIO3: true
 });
-io.on("connection", (socket) => {
-  console.log("🟢 New client connected:", socket.id);
-  console.log("👉 Query params:", socket.handshake.query);
 
-  socket.on("disconnect", () => {
-    console.log("🔴 Client disconnected:", socket.id);
-  });
-});
 app.use(express.json());
 app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));

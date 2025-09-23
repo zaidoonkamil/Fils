@@ -39,7 +39,6 @@ function initChatSocket(io) {
           return socket.emit("messagesLoaded", messages);
         }
 
-        // لو المحادثة مع الأدمن (receiverId = null)
         const admins = await User.findAll({ where: { role: "admin" }, attributes: ["id"] });
         const adminIds = admins.map(a => a.id);
 
@@ -63,7 +62,6 @@ function initChatSocket(io) {
         console.error("❌ خطأ في جلب الرسائل:", err);
       }
     });
-
 
     socket.on("sendMessage", async (data) => {
       try {

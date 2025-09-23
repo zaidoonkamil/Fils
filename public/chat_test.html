@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>اختبار Chat Socket</title>
+  <script src="https://cdn.socket.io/4.7.1/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>اختبار Chat Socket</h1>
+
+  <label>User ID: <input type="number" id="userId" value="10000"></label>
+  <button id="connectBtn">اتصل بالسيرفر</button>
+  <hr>
+
+  <div>
+    <input type="text" id="messageInput" placeholder="اكتب رسالة">
+    <button id="sendBtn">إرسال</button>
+  </div>
+
+  <h3>الرسائل:</h3>
+  <ul id="messagesList"></ul>
+
+  <script>
+    let socket;
+    const connectBtn = document.getElementById("connectBtn");
+    const sendBtn = document.getElementById("sendBtn");
+    const messageInput = document.getElementById("messageInput");
+    const messagesList = document.getElementById("messagesList");
+
+    connectBtn.onclick = () => {
+      const userId = document.getElementById("userId").value;
+      socket = io("https://fils.khaleeafashion.com", {
+        transports: ["websocket"],
+        query: { userId }
+      });
+
+      socket.on("connect", () => {
+        console.log("✅ Connected to server");
+        appendMessage("✅ متصل بالسيرفر");
+
+        // جلب الرسائل السابقة
+        socket.emit("getMessages", { userId, receiverId: null });
+      });
+
+      socket.on("messagesLoaded", (messages) => {
+        console.log("📥 Messages:", messages);
+        messagesList.innerHTML = "";
+        messages.forEach(msg => appendMessage(`🟢 ${msg.sender?.name || msg.senderId}: ${msg.message}`));
+      });
+
+      socket.on("newMessage", (msg) => {
+        console.log("📩 New message:", msg);
+        appendMessage(`📩 ${msg.sender?.name || msg.senderId}: ${msg.message}`);
+      });
+
+      socket.on("disconnect", () => appendMessage("❌ Disconnected"));
+      socket.on("connect_error", (err) => appendMessage(`❌ Connect error: ${err}`));
+    };
+
+    sendBtn.onclick = () => {
+      const text = messageInput.value.trim();
+      if (!text) return;
+      const userId = document.getElementById("userId").value;
+      socket.emit("sendMessage", { senderId: parseInt(userId), receiverId: null, message: text });
+      messageInput.value = "";
+    };
+
+    function appendMessage(msg) {
+      const li = document.createElement("li");
+      li.textContent = msg;
+      messagesList.appendChild(li);
+    }
+  </script>
+</body>
+</html>
