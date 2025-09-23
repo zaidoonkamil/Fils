@@ -1,32 +1,44 @@
 const express = require("express");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
 const { ChatMessage, User } = require("../models");
 const { Op } = require("sequelize");
-const { sendNotificationToRole } = require("../services/notifications.js"); 
-const { sendNotificationToUser } = require("../services/notifications.js"); 
+const { sendNotificationToRole, sendNotificationToUser } = require("../services/notifications.js");
 
 function initChatSocket(io) {
   const userSockets = new Map();
 
+  // Middleware للتحقق من JWT قبل السماح بالاتصال
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error("Authentication error"));
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+      if (err) return next(new Error("Authentication error"));
+      socket.userId = user.id;
+      socket.userName = user.name;
+      next();
+    });
+  });
+
   io.on("connection", (socket) => {
-    const { userId } = socket.handshake.query;
-    if (!userId) return socket.disconnect(true);
+    console.log(`🔌 مستخدم متصل: ${socket.userName} (${socket.userId})`);
 
-    console.log(`🔌 مستخدم متصل: ${userId}`);
-    if (!userSockets.has(userId)) userSockets.set(userId, []);
-    userSockets.get(userId).push(socket.id);
+    // تخزين معرف الـ socket لكل مستخدم
+    if (!userSockets.has(socket.userId)) userSockets.set(socket.userId, []);
+    userSockets.get(socket.userId).push(socket.id);
 
+    // جلب الرسائل
     socket.on("getMessages", async (payload = {}) => {
       try {
-        
-        const { userId, receiverId } = payload;
-        if (!userId) return;
+        const userId = socket.userId;
+        const receiverId = payload.receiverId;
 
         if (receiverId) {
           const messages = await ChatMessage.findAll({
             where: {
               [Op.or]: [
-                { senderId: userId, receiverId: receiverId },
+                { senderId: userId, receiverId },
                 { senderId: receiverId, receiverId: userId },
               ],
             },
@@ -39,17 +51,18 @@ function initChatSocket(io) {
           return socket.emit("messagesLoaded", messages);
         }
 
+        // جلب الرسائل مع الأدمن إذا receiverId غير محدد
         const admins = await User.findAll({ where: { role: "admin" }, attributes: ["id"] });
         const adminIds = admins.map(a => a.id);
 
         const messages = await ChatMessage.findAll({
-        where: {
-          [Op.or]: [
-            { senderId: userId, receiverId: null },               
-            { senderId: userId, receiverId: { [Op.in]: adminIds } },
-            { senderId: { [Op.in]: adminIds }, receiverId: userId }, 
-          ],
-        },
+          where: {
+            [Op.or]: [
+              { senderId: userId, receiverId: null },
+              { senderId: userId, receiverId: { [Op.in]: adminIds } },
+              { senderId: { [Op.in]: adminIds }, receiverId: userId },
+            ],
+          },
           order: [["createdAt", "ASC"]],
           include: [
             { model: User, as: "sender", attributes: ["id", "name", "role"] },
@@ -63,9 +76,11 @@ function initChatSocket(io) {
       }
     });
 
+    // إرسال رسالة
     socket.on("sendMessage", async (data) => {
       try {
-        const { senderId, receiverId, message } = data;
+        const { receiverId, message } = data;
+        const senderId = socket.userId;
         if (!senderId || !message) return;
 
         const newMessage = await ChatMessage.create({
@@ -77,8 +92,8 @@ function initChatSocket(io) {
         const fullMessage = await ChatMessage.findOne({
           where: { id: newMessage.id },
           include: [
-            { model: User, as: "sender", attributes: ["id", "name"] },
-            { model: User, as: "receiver", attributes: ["id", "name"] },
+            { model: User, as: "sender", attributes: ["id", "name", "role"] },
+            { model: User, as: "receiver", attributes: ["id", "name", "role"] },
           ],
         });
 
@@ -102,6 +117,7 @@ function initChatSocket(io) {
           }
         }
 
+        // إرسال الرسالة لكل sockets المرتبطة بالمستلمين
         recipients.forEach(id => {
           const sockets = userSockets.get(id.toString()) || [];
           sockets.forEach(sid => io.to(sid).emit("newMessage", fullMessage));
@@ -112,14 +128,16 @@ function initChatSocket(io) {
       }
     });
 
+    // قطع الاتصال
     socket.on("disconnect", () => {
-      console.log(`❌ مستخدم قطع الاتصال: ${userId}`);
-      const sockets = userSockets.get(userId) || [];
-      userSockets.set(userId, sockets.filter(id => id !== socket.id));
+      console.log(`❌ مستخدم قطع الاتصال: ${socket.userId}`);
+      const sockets = userSockets.get(socket.userId) || [];
+      userSockets.set(socket.userId, sockets.filter(id => id !== socket.id));
     });
   });
 }
 
+// Route لجلب المستخدمين مع آخر رسالة
 router.get("/usersWithLastMessage", async (req, res) => {
   try {
     const admins = await User.findAll({ where: { role: "admin" }, attributes: ["id"] });
@@ -128,8 +146,8 @@ router.get("/usersWithLastMessage", async (req, res) => {
     const messages = await ChatMessage.findAll({
       where: {
         [Op.or]: [
-          { senderId: { [Op.notIn]: adminIds }, receiverId: { [Op.in]: adminIds } }, 
-          { senderId: { [Op.in]: adminIds }, receiverId: { [Op.notIn]: adminIds } }, 
+          { senderId: { [Op.notIn]: adminIds }, receiverId: { [Op.in]: adminIds } },
+          { senderId: { [Op.in]: adminIds }, receiverId: { [Op.notIn]: adminIds } },
           { senderId: { [Op.notIn]: adminIds }, receiverId: null },
         ],
       },
@@ -150,7 +168,6 @@ router.get("/usersWithLastMessage", async (req, res) => {
         }
       }
 
-      // إذا المستقبل ليس أدمن ونفس الرسالة ليست null
       if (msg.receiverId && !adminIds.includes(msg.receiverId) && msg.receiver) {
         if (!usersMap.has(msg.receiverId)) {
           usersMap.set(msg.receiverId, { user: msg.receiver, lastMessage: msg });
@@ -164,7 +181,5 @@ router.get("/usersWithLastMessage", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ أثناء جلب المستخدمين" });
   }
 });
-
-
 
 module.exports = { router, initChatSocket };
