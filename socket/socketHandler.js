@@ -3,7 +3,6 @@ const User = require("../models/user");
 const Room = require("../models/room");
 const Message = require("../models/message");
 
-// تخزين المستخدمين المتصلين في كل غرفة
 const roomUsers = new Map();
 
 function initializeSocketIO(io) {
@@ -15,7 +14,6 @@ function initializeSocketIO(io) {
             }
             
             const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-123456789');
-            // التحقق من وجود id أو userId في التوكن
             const userId = decoded.id || decoded.userId;
             if (!userId) {
                 return next(new Error("Invalid token - no user ID"));
@@ -37,7 +35,6 @@ function initializeSocketIO(io) {
     io.on("connection", (socket) => {
         console.log(`User ${socket.userName} connected`);
 
-        // الانضمام إلى غرفة
         socket.on("join-room", async (roomId) => {
             try {
                 const room = await Room.findByPk(roomId);
@@ -84,19 +81,16 @@ function initializeSocketIO(io) {
             }
         });
 
-        // إرسال رسالة
         socket.on("send-message", async (data) => {
             try {
                 const { roomId, content, messageType = 'text' } = data;
                 
-                // التحقق من أن المستخدم في الغرفة
                 const room = await Room.findByPk(roomId);
                 if (!room || !room.isActive) {
                     socket.emit("error", { message: "الغرفة غير موجودة" });
                     return;
                 }
 
-                // حفظ الرسالة في قاعدة البيانات
                 const message = await Message.create({
                     roomId,
                     userId: socket.userId,
@@ -104,7 +98,6 @@ function initializeSocketIO(io) {
                     messageType
                 });
 
-                // جلب معلومات المستخدم
                 const user = await User.findByPk(socket.userId, {
                     attributes: ['id', 'name']
                 });
@@ -128,12 +121,10 @@ function initializeSocketIO(io) {
             }
         });
 
-        // مغادرة الغرفة
         socket.on("leave-room", async (roomId) => {
             try {
                 socket.leave(`room-${roomId}`);
                 
-                // إزالة المستخدم من قائمة الغرفة
                 if (roomUsers.has(roomId)) {
                     const users = roomUsers.get(roomId);
                     for (let user of users) {
@@ -143,26 +134,22 @@ function initializeSocketIO(io) {
                         }
                     }
                     
-                    // إذا لم يتبق مستخدمين، حذف الغرفة من الخريطة
                     if (users.size === 0) {
                         roomUsers.delete(roomId);
                     }
                 }
 
-                // تحديث عدد المستخدمين في الغرفة
                 const room = await Room.findByPk(roomId);
                 if (room && room.currentUsers > 0) {
                     await room.update({ currentUsers: room.currentUsers - 1 });
                 }
 
-                // إعلام باقي المستخدمين
                 socket.to(`room-${roomId}`).emit("user-left", {
                     userId: socket.userId,
                     userName: socket.userName,
                     message: `${socket.userName} غادر الغرفة`
                 });
 
-                // إرسال قائمة المستخدمين المحدثة
                 if (roomUsers.has(roomId)) {
                     const currentUsers = Array.from(roomUsers.get(roomId)).map(user => ({
                         id: user.id,
@@ -176,7 +163,6 @@ function initializeSocketIO(io) {
             }
         });
 
-        // الكتابة
         socket.on("typing", (data) => {
             const { roomId, isTyping } = data;
             socket.to(`room-${roomId}`).emit("user-typing", {
@@ -189,19 +175,16 @@ function initializeSocketIO(io) {
         socket.on("disconnect", async () => {
             console.log(`User ${socket.userName} disconnected`);
             
-            // إزالة المستخدم من جميع الغرف التي كان فيها
             for (let [roomId, users] of roomUsers.entries()) {
                 for (let user of users) {
                     if (user.socketId === socket.id) {
                         users.delete(user);
                         
-                        // تحديث عدد المستخدمين
                         const room = await Room.findByPk(roomId);
                         if (room && room.currentUsers > 0) {
                             await room.update({ currentUsers: room.currentUsers - 1 });
                         }
                         
-                        // إعلام باقي المستخدمين
                         socket.to(`room-${roomId}`).emit("user-left", {
                             userId: socket.userId,
                             userName: socket.userName,
@@ -212,7 +195,6 @@ function initializeSocketIO(io) {
                     }
                 }
                 
-                // إذا لم يتبق مستخدمين، حذف الغرفة من الخريطة
                 if (users.size === 0) {
                     roomUsers.delete(roomId);
                 }
