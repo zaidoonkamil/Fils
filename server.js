@@ -60,8 +60,12 @@ app.use("/", roomsRouter);
 app.use("/", adsRouter);
 app.use("/", chat.router);
 
-chat.initChatSocket(io);
-initializeSocketIO(io);
+const chatNamespace = io.of("/chat");
+chat.initChatSocket(chatNamespace);
+
+const roomNamespace = io.of("/rooms");
+initializeSocketIO(roomNamespace);
+
 
 server.listen(1300, '0.0.0.0', () => { 
     console.log(`🚀 Server running on http://0.0.0.0:1300`);
