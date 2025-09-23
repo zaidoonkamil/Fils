@@ -61,7 +61,7 @@ app.use("/", adsRouter);
 app.use("/", chat.router);
 
 chat.initChatSocket(io);
-initializeSocketIO(io);
+//initializeSocketIO(io);
 
 server.listen(1300, '0.0.0.0', () => { 
     console.log(`🚀 Server running on http://0.0.0.0:1300`);
