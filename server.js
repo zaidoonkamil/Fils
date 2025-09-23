@@ -25,7 +25,8 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: ["https://fils.khaleeafashion.com", "http://localhost:1300"],
+        origin: "*",
+       // origin: ["https://fils.khaleeafashion.com", "http://localhost:1300"],
         methods: ["GET", "POST"],
         allowedHeaders: ["*"],
         credentials: true
