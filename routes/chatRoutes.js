@@ -4,45 +4,29 @@ const { ChatMessage, User } = require("../models");
 const { Op } = require("sequelize");
 const { sendNotificationToRole } = require("../services/notifications.js"); 
 const { sendNotificationToUser } = require("../services/notifications.js"); 
-const jwt = require('jsonwebtoken');
-require('dotenv').config();
-
-const authenticateSocketToken = (socket, next) => {
-  const token = socket.handshake.auth?.token;
-  if (!token) return next(new Error("Authentication error"));
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return next(new Error("Authentication error"));
-    socket.userId = user.id;
-    socket.userName = user.name;
-    next();
-  });
-};
 
 function initChatSocket(io) {
   const userSockets = new Map();
 
-  // استخدام الـ JWT middleware
-  io.use(authenticateSocketToken);
-
   io.on("connection", (socket) => {
-    console.log(`🔌 مستخدم متصل: ${socket.userName} (${socket.userId})`);
+    const { userId } = socket.handshake.query;
+    if (!userId) return socket.disconnect(true);
 
-    // حفظ socket لكل مستخدم
-    if (!userSockets.has(socket.userId)) userSockets.set(socket.userId, []);
-    userSockets.get(socket.userId).push(socket.id);
+    console.log(`🔌 مستخدم متصل: ${userId}`);
+    if (!userSockets.has(userId)) userSockets.set(userId, []);
+    userSockets.get(userId).push(socket.id);
 
-    // جلب الرسائل
     socket.on("getMessages", async (payload = {}) => {
       try {
-        const userId = socket.userId;
-        const receiverId = payload.receiverId;
+        
+        const { userId, receiverId } = payload;
+        if (!userId) return;
 
         if (receiverId) {
           const messages = await ChatMessage.findAll({
             where: {
               [Op.or]: [
-                { senderId: userId, receiverId },
+                { senderId: userId, receiverId: receiverId },
                 { senderId: receiverId, receiverId: userId },
               ],
             },
@@ -59,13 +43,13 @@ function initChatSocket(io) {
         const adminIds = admins.map(a => a.id);
 
         const messages = await ChatMessage.findAll({
-          where: {
-            [Op.or]: [
-              { senderId: userId, receiverId: null },
-              { senderId: userId, receiverId: { [Op.in]: adminIds } },
-              { senderId: { [Op.in]: adminIds }, receiverId: userId },
-            ],
-          },
+        where: {
+          [Op.or]: [
+            { senderId: userId, receiverId: null },               
+            { senderId: userId, receiverId: { [Op.in]: adminIds } },
+            { senderId: { [Op.in]: adminIds }, receiverId: userId }, 
+          ],
+        },
           order: [["createdAt", "ASC"]],
           include: [
             { model: User, as: "sender", attributes: ["id", "name", "role"] },
@@ -79,11 +63,10 @@ function initChatSocket(io) {
       }
     });
 
-    // إرسال الرسائل
+
     socket.on("sendMessage", async (data) => {
       try {
-        const senderId = socket.userId;
-        const { receiverId, message } = data;
+        const { senderId, receiverId, message } = data;
         if (!senderId || !message) return;
 
         const newMessage = await ChatMessage.create({
@@ -130,11 +113,10 @@ function initChatSocket(io) {
       }
     });
 
-    // قطع الاتصال
     socket.on("disconnect", () => {
-      console.log(`❌ مستخدم قطع الاتصال: ${socket.userId}`);
-      const sockets = userSockets.get(socket.userId) || [];
-      userSockets.set(socket.userId, sockets.filter(id => id !== socket.id));
+      console.log(`❌ مستخدم قطع الاتصال: ${userId}`);
+      const sockets = userSockets.get(userId) || [];
+      userSockets.set(userId, sockets.filter(id => id !== socket.id));
     });
   });
 }
@@ -147,8 +129,8 @@ router.get("/usersWithLastMessage", async (req, res) => {
     const messages = await ChatMessage.findAll({
       where: {
         [Op.or]: [
-          { senderId: { [Op.notIn]: adminIds }, receiverId: { [Op.in]: adminIds } },
-          { senderId: { [Op.in]: adminIds }, receiverId: { [Op.notIn]: adminIds } },
+          { senderId: { [Op.notIn]: adminIds }, receiverId: { [Op.in]: adminIds } }, 
+          { senderId: { [Op.in]: adminIds }, receiverId: { [Op.notIn]: adminIds } }, 
           { senderId: { [Op.notIn]: adminIds }, receiverId: null },
         ],
       },
@@ -169,6 +151,7 @@ router.get("/usersWithLastMessage", async (req, res) => {
         }
       }
 
+      // إذا المستقبل ليس أدمن ونفس الرسالة ليست null
       if (msg.receiverId && !adminIds.includes(msg.receiverId) && msg.receiver) {
         if (!usersMap.has(msg.receiverId)) {
           usersMap.set(msg.receiverId, { user: msg.receiver, lastMessage: msg });
@@ -182,5 +165,7 @@ router.get("/usersWithLastMessage", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ أثناء جلب المستخدمين" });
   }
 });
+
+
 
 module.exports = { router, initChatSocket };
