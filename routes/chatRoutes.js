@@ -6,15 +6,15 @@ const { sendNotificationToRole } = require("../services/notifications.js");
 const { sendNotificationToUser } = require("../services/notifications.js"); 
 
 function initChatSocket(io) {
-  const userSockets = new Map();
+  const userSocketsById  = new Map();
 
   io.on("connection", (socket) => {
     const { userId } = socket.handshake.query;
     if (!userId) return socket.disconnect(true);
 
     console.log(`🔌 مستخدم متصل: ${userId}`);
-    if (!userSockets.has(userId)) userSockets.set(userId, []);
-    userSockets.get(userId).push(socket.id);
+    if (!userSocketsById .has(userId)) userSocketsById .set(userId, []);
+    userSocketsById .get(userId).push(socket.id);
 
     socket.on("getMessages", async (payload = {}) => {
       try {
@@ -104,7 +104,7 @@ function initChatSocket(io) {
         }
 
         recipients.forEach(id => {
-          const sockets = userSockets.get(id.toString()) || [];
+          const sockets = userSocketsById .get(id.toString()) || [];
           sockets.forEach(sid => io.to(sid).emit("newMessage", fullMessage));
         });
 
@@ -115,8 +115,8 @@ function initChatSocket(io) {
 
     socket.on("disconnect", () => {
       console.log(`❌ مستخدم قطع الاتصال: ${userId}`);
-      const sockets = userSockets.get(userId) || [];
-      userSockets.set(userId, sockets.filter(id => id !== socket.id));
+      const sockets = userSocketsById .get(userId) || [];
+      userSocketsById .set(userId, sockets.filter(id => id !== socket.id));
     });
   });
 }
