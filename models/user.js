@@ -65,9 +65,15 @@ const User = sequelize.define("User", {
         defaultValue: false,
     },
     note: {
-    type: DataTypes.TEXT,
-    allowNull: true,
+        type: DataTypes.TEXT,
+        allowNull: true,
     },
+    isActive: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+    },
+
 }, {
     initialAutoIncrement: 10000,
     timestamps: true,

@@ -357,6 +357,34 @@ router.post("/logout", upload.none(), async (req, res) => {
   }
 });
 
+router.patch("/users/:id/status", async (req, res) => {
+  const { id } = req.params;
+  const { isActive } = req.body;
+
+  try {
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    user.isActive = isActive;
+    await user.save();
+
+    res.json({
+      message: `تم تحديث حالة المستخدم إلى ${isActive ? "مفعل ✅" : "محظور 🚫"}`,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        isActive: user.isActive,
+      },
+    });
+  } catch (err) {
+    console.error("❌ خطأ أثناء تحديث الحالة:", err);
+    res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
 router.get("/allusers", async (req, res) => {
     try {
         const users = await User.findAll(); 
@@ -406,6 +434,10 @@ router.get("/profile", authenticateToken, async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ error: "تم حظر حسابك من قبل الإدارة" });
     }
 
     const userData = user.toJSON();
