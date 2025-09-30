@@ -37,9 +37,8 @@ const io = socketIo(server, {
 app.use(express.json());
 app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
-app.use(cors({
-  origin: "*"
-}));
+app.use(cors({ origin: "*" }));
+
 
 sequelize.sync({
      alter: true,
@@ -50,6 +49,14 @@ sequelize.sync({
 
 app.get("/", (req, res) => {
     res.sendFile(__dirname + "/public/index.html");
+});
+
+// لازم قبل أي routes
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*"); // السماح لأي دومين
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"); // السماح بكل الميثودات
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization"); // السماح بكل الهيدرات المهمة
+  next();
 });
 
 app.use("/", usersRouter);
