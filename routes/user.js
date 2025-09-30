@@ -272,7 +272,7 @@ router.post("/login", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "البريد الإلكتروني غير صحيح" });
     }
 
-    if (user.isLoggedIn) {
+    if (user.role !== 'admin' && user.isLoggedIn) {
       return res.status(403).json({ error: "لا يمكن تسجيل الدخول من أكثر من جهاز في نفس الوقت" });
     }
 
