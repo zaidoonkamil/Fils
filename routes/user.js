@@ -18,22 +18,6 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 
-router.put("/update-isActive", async (req, res) => {
-  try {
-    const [updatedCount] = await User.update(
-      { isActive: true }, // القيمة التي تريد تعيينها
-      { where: {} }       // كل المستخدمين
-    );
-
-    res.status(200).json({
-      message: `تم تحديث ${updatedCount} مستخدمين بنجاح`,
-    });
-  } catch (err) {
-    console.error("❌ خطأ أثناء تحديث isActive:", err);
-    res.status(500).json({ error: "حدث خطأ أثناء تحديث المستخدمين" });
-  }
-});
-
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -735,5 +719,51 @@ router.delete("/store/:shopId", async (req, res) => {
     });
   }
 });
+
+router.get("/admin/stats", async (req, res) => {
+  try {
+    const totalUsers = await User.count();
+
+    const totalAgents = await User.count({ where: { role: "agent" } });
+
+    const activeUsers = await User.count({ where: { isActive: true } });
+
+    const totalSawa = await User.sum("sawa") || 0;
+
+    const totalGems = await User.sum("Jewel") || 0;
+
+    const totalStoreItems = await IdShop.count();
+
+    const availableStoreItems = await IdShop.count({ where: { isAvailable: true } });
+
+    const activePercentage = totalUsers > 0 ? ((activeUsers / totalUsers) * 100).toFixed(1) : 0;
+
+    const totalAdmins = await User.count({ where: { role: "admin" } });
+    const totalUsersOnly = await User.count({ where: { role: "user" } });
+    const totalVerifiedUsers = await User.count({ where: { isVerified: true } });
+    const totalUnverifiedUsers = await User.count({ where: { isVerified: false } });
+
+    res.status(200).json({
+      totalUsers,
+      totalAgents,
+      activeUsers,
+      totalSawa,
+      totalGems,
+      totalStoreItems,
+      availableStoreItems,
+      activePercentage,
+      extra: {
+        totalAdmins,
+        totalUsersOnly,
+        totalVerifiedUsers,
+        totalUnverifiedUsers,
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error fetching stats:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 
 module.exports = router;
