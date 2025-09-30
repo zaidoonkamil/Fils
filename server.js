@@ -18,7 +18,7 @@ const roomsRouter = require("./routes/rooms.js");
 const adsRouter = require("./routes/ads");
 const chat = require("./routes/chatRoutes");
 const initializeSocketIO = require("./socket/socketHandler.js");
-
+const cors = require("cors");
 require("./cron");
 
 const app = express();
@@ -37,6 +37,9 @@ const io = socketIo(server, {
 app.use(express.json());
 app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
+app.use(cors({
+  origin: "*"
+}));
 
 sequelize.sync({
      alter: true,
