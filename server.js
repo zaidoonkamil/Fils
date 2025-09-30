@@ -34,10 +34,18 @@ const io = socketIo(server, {
     allowEIO3: true
 });
 
+app.use(cors({ origin: "*" }));
 app.use(express.json());
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*"); 
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"); 
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization"); 
+  next();
+});
+
 app.use("/uploads", express.static("./" + "uploads"));
 app.use(express.static("public"));
-app.use(cors({ origin: "*" }));
 
 
 sequelize.sync({
@@ -51,13 +59,7 @@ app.get("/", (req, res) => {
     res.sendFile(__dirname + "/public/index.html");
 });
 
-// لازم قبل أي routes
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); // السماح لأي دومين
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"); // السماح بكل الميثودات
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization"); // السماح بكل الهيدرات المهمة
-  next();
-});
+
 
 app.use("/", usersRouter);
 app.use("/", sendmonyRouter);
