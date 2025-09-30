@@ -18,6 +18,21 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 
+router.put("/update-isActive", async (req, res) => {
+  try {
+    const [updatedCount] = await User.update(
+      { isActive: true }, // القيمة التي تريد تعيينها
+      { where: {} }       // كل المستخدمين
+    );
+
+    res.status(200).json({
+      message: `تم تحديث ${updatedCount} مستخدمين بنجاح`,
+    });
+  } catch (err) {
+    console.error("❌ خطأ أثناء تحديث isActive:", err);
+    res.status(500).json({ error: "حدث خطأ أثناء تحديث المستخدمين" });
+  }
+});
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
