@@ -778,15 +778,24 @@ router.get("/admin/stats", async (req, res) => {
   }
 });
 
-// Admin routes for settings management
 router.get("/admin/settings", async (req, res) => {
   try {
+    const { page = 1, limit = 20 } = req.query;
 
-    const settings = await Settings.findAll({
-      where: { isActive: true }
+    const offset = (page - 1) * limit;
+
+    const { count, rows: settings } = await Settings.findAndCountAll({
+      where: { isActive: true },
+      limit: parseInt(limit), 
+      offset: parseInt(offset),
     });
 
-    res.status(200).json(settings);
+    res.status(200).json({
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      settings,
+    });
   } catch (err) {
     console.error("❌ Error fetching settings:", err);
     res.status(500).json({ error: "Internal Server Error" });
