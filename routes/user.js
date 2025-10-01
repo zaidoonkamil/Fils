@@ -386,13 +386,26 @@ router.patch("/users/:id/status", async (req, res) => {
 });
 
 router.get("/allusers", async (req, res) => {
-    try {
-        const users = await User.findAll(); 
-        res.status(200).json(users); 
-    } catch (err) {
-        console.error("❌ Error fetching users:", err);
-        res.status(500).json({ error: "Internal Server Error" });
-    }
+  try {
+    const { page = 1, limit = 10 } = req.query; 
+
+    const offset = (page - 1) * limit; 
+
+    const { count, rows: users } = await User.findAndCountAll({
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+
+    res.status(200).json({
+      totalUsers: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      users,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching users:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 router.get("/users", async (req, res) => {
