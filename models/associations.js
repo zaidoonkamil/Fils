@@ -1,6 +1,7 @@
 const User = require("./user");
 const Room = require("./room");
 const Message = require("./message");
+const Settings = require("./settings");
 
 // تعريف العلاقات
 Room.belongsTo(User, { 
@@ -26,5 +27,6 @@ Message.belongsTo(Room, {
 module.exports = {
     User,
     Room,
-    Message
+    Message,
+    Settings
 };

@@ -9,6 +9,7 @@ dotenv.config();
 const multer = require("multer");
 const upload = multer();
 const { User, UserDevice, IdShop } = require('../models');
+const Settings = require('../models/settings');
 const UserCounter = require("../models/usercounters");
 const Counter = require("../models/counter");
 const { Op } = require("sequelize");
@@ -456,7 +457,13 @@ router.get("/profile", authenticateToken, async (req, res) => {
       return { ...counter, remainingDays: null };
     });
 
-    userData.dolar = Number((userData.sawa * 1.25).toFixed(2))
+    // Get conversion rate from settings, default to 1.25 if not found
+    const conversionRateSetting = await Settings.findOne({ 
+      where: { key: 'sawa_to_dollar_rate', isActive: true } 
+    });
+    const conversionRate = conversionRateSetting ? parseFloat(conversionRateSetting.value) : 1.25;
+    
+    userData.dolar = Number((userData.sawa * conversionRate).toFixed(2))
 
     let totalPoints = 0;
     let totalGems = 0;
@@ -522,7 +529,13 @@ router.get("/users/:id", async (req, res) => {
       }
     });
 
-    userData.dolar = Number((userData.sawa * 1.25).toFixed(2))
+    // Get conversion rate from settings, default to 1.25 if not found
+    const conversionRateSetting2 = await Settings.findOne({ 
+      where: { key: 'sawa_to_dollar_rate', isActive: true } 
+    });
+    const conversionRate2 = conversionRateSetting2 ? parseFloat(conversionRateSetting2.value) : 1.25;
+    
+    userData.dolar = Number((userData.sawa * conversionRate2).toFixed(2))
 
 
     let totalPoints = 0;
@@ -761,6 +774,77 @@ router.get("/admin/stats", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching stats:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Admin routes for settings management
+router.get("/admin/settings", authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Access denied. Admin role required." });
+    }
+
+    const settings = await Settings.findAll({
+      where: { isActive: true }
+    });
+
+    res.status(200).json(settings);
+  } catch (err) {
+    console.error("❌ Error fetching settings:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/admin/settings", authenticateToken, upload.none(), async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Access denied. Admin role required." });
+    }
+
+    const { key, value, description } = req.body;
+
+    if (!key || value === undefined) {
+      return res.status(400).json({ error: "Key and value are required" });
+    }
+
+    const existingSetting = await Settings.findOne({ where: { key } });
+
+    if (existingSetting) {
+      await existingSetting.update({ value, description });
+      res.status(200).json({ 
+        message: "Setting updated successfully", 
+        setting: existingSetting 
+      });
+    } else {
+      const newSetting = await Settings.create({ key, value, description });
+      res.status(201).json({ 
+        message: "Setting created successfully", 
+        setting: newSetting 
+      });
+    }
+  } catch (err) {
+    console.error("❌ Error managing setting:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/settings/:key", authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Access denied. Admin role required." });
+    }
+
+    const { key } = req.params;
+    const setting = await Settings.findOne({ where: { key, isActive: true } });
+
+    if (!setting) {
+      return res.status(404).json({ error: "Setting not found" });
+    }
+
+    res.status(200).json(setting);
+  } catch (err) {
+    console.error("❌ Error fetching setting:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
