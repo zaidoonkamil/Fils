@@ -3,6 +3,7 @@ const router = express.Router();
 const Room = require("../models/room");
 const Message = require("../models/message");
 const User = require("../models/user");
+const Settings = require("../models/settings");
 const jwt = require("jsonwebtoken");
 
 // Middleware للتحقق من التوكن
@@ -127,36 +128,45 @@ router.post("/test-token", async (req, res) => {
 // إنشاء غرفة جديدة
 router.post("/create-room", authenticateToken, async (req, res) => {
     try {
-        const { name, description, cost, maxUsers, category } = req.body;
+        const { name, description } = req.body;
+        
+        // الحصول على إعدادات الادمن للغرف
+        const roomSettings = await Promise.all([
+            Settings.findOne({ where: { key: 'room_creation_cost', isActive: true } }),
+            Settings.findOne({ where: { key: 'room_max_users', isActive: true } })
+        ]);
+        
+        const roomCost = roomSettings[0] ? parseInt(roomSettings[0].value) : 10;
+        const maxUsers = roomSettings[1] ? parseInt(roomSettings[1].value) : 50;
         
         // التحقق من وجود النقاط الكافية
-        if (req.user.sawa < cost) {
+        if (req.user.sawa < roomCost) {
             return res.status(400).json({ 
                 error: "نقاط غير كافية لإنشاء الغرفة",
-                required: cost,
+                required: roomCost,
                 available: req.user.sawa
             });
         }
 
-        // إنشاء الغرفة
+        // إنشاء الغرفة مع الإعدادات المتاحة فقط للادمن
         const room = await Room.create({
             name,
             description,
             creatorId: req.user.id,
-            cost,
-            maxUsers: maxUsers || 50,
-            category: category || 'general'
+            cost: roomCost, // دائماً الفئة
+            maxUsers: maxUsers, // من إعدادات الادمن
+            category: 'general' // دائماً عام
         });
 
         // خصم النقاط من المستخدم
         await req.user.update({
-            sawa: req.user.sawa - cost
+            sawa: req.user.sawa - roomCost
         });
 
         res.status(201).json({
             message: "تم إنشاء الغرفة بنجاح",
             room,
-            remainingSawa: req.user.sawa - cost
+            remainingSawa: req.user.sawa - roomCost
         });
 
     } catch (error) {
@@ -235,32 +245,39 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
     }
 });
 
-// الحصول على رسائل غرفة معينة
-router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
+// الحصول على رسائل غرفة معينة - آخر 30 رسالة فقط
+router.get("/room/:roomId/messages", async (req, res) => {
     try {
         const { roomId } = req.params;
-        const { page = 1, limit = 50 } = req.query;
 
-        const messages = await Message.findAndCountAll({
-            where: { 
-                roomId,
-                isDeleted: false
-            },
-            include: [{
-                model: User,
-                as: 'user',
-                attributes: ['id', 'name']
-            }],
-            order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset: (parseInt(page) - 1) * parseInt(limit)
-        });
+        // جلب آخر 30 رسالة فقط مع معلومات إجمالية
+        const [messages, totalCount] = await Promise.all([
+            Message.findAll({
+                where: { 
+                    roomId,
+                    isDeleted: false
+                },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'name']
+                }],
+                order: [['createdAt', 'DESC']],
+                limit: 30
+            }),
+            Message.count({
+                where: { 
+                    roomId,
+                    isDeleted: false
+                }
+            })
+        ]);
 
         res.json({
-            messages: messages.rows.reverse(), // عكس الترتيب لعرض الرسائل من الأقدم للأحدث
-            total: messages.count,
-            currentPage: parseInt(page),
-            totalPages: Math.ceil(messages.count / parseInt(limit))
+            messages: messages.reverse(), // عكس الترتيب لعرض الرسائل من الأقدم للأحدث
+            total: totalCount,
+            displayedCount: messages.length,
+            message: "عرض آخر 30 رسالة فقط، باقي الرسائل محفوظة في قاعدة البيانات"
         });
 
     } catch (error) {
@@ -269,8 +286,7 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
     }
 });
 
-// حذف غرفة (للمنشئ فقط)
-router.delete("/room/:roomId", authenticateToken, async (req, res) => {
+router.delete("/room/:roomId", async (req, res) => {
     try {
         const { roomId } = req.params;
         
@@ -278,10 +294,6 @@ router.delete("/room/:roomId", authenticateToken, async (req, res) => {
         
         if (!room) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
-        }
-
-        if (room.creatorId !== req.user.id) {
-            return res.status(403).json({ error: "غير مصرح لك بحذف هذه الغرفة" });
         }
 
         await room.update({ isActive: false });
