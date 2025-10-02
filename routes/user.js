@@ -846,6 +846,7 @@ router.post("/admin/settings", upload.none(), async (req, res) => {
 
 router.get("/admin/settings/:key", async (req, res) => {
   try {
+
     const { key } = req.params;
     const setting = await Settings.findOne({ where: { key, isActive: true } });
 
@@ -860,57 +861,5 @@ router.get("/admin/settings/:key", async (req, res) => {
   }
 });
 
-// Admin route لتحديث إعدادات الغرف وتطبيقها على الغرف الموجودة
-router.post("/admin/room-settings", upload.none(), async (req, res) => {
-  try {
-    const { creation_cost, max_users } = req.body;
-
-    const settingsUpdates = [];
-    
-    // تحديث تكلفة إنشاء الغرف
-    if (creation_cost !== undefined) {
-      const costSetting = await Settings.findOne({ where: { key: 'room_creation_cost' } });
-      if (costSetting) {
-        await costSetting.update({ value: creation_cost.toString() });
-        settingsUpdates.push('room_creation_cost updated');
-      } else {
-        await Settings.create({
-          key: 'room_creation_cost',
-          value: creation_cost.toString(),
-          description: 'تكلفة إنشاء غرفة جديدة',
-          isActive: true
-        });
-        settingsUpdates.push('room_creation_cost created');
-      }
-    }
-
-    // تحديث الحد الأقصى للمستخدمين
-    if (max_users !== undefined) {
-      const maxUsersSetting = await Settings.findOne({ where: { key: 'room_max_users' } });
-      if (maxUsersSetting) {
-        await maxUsersSetting.update({ value: max_users.toString() });
-        settingsUpdates.push('room_max_users updated');
-      } else {
-        await Settings.create({
-          key: 'room_max_users',
-          value: max_users.toString(),
-          description: 'الحد الأقصى للمستخدمين في الغرفة',
-          isActive: true
-        });
-        settingsUpdates.push('room_max_users created');
-      }
-    }
-
-    res.status(200).json({
-      message: "تم تحديث إعدادات الغرف بنجاح",
-      updates: settingsUpdates,
-      note: "الإعدادات الجديدة ستطبق على الغرف الجديدة فقط"
-    });
-
-  } catch (err) {
-    console.error("❌ Error updating room settings:", err);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
 
 module.exports = router;
