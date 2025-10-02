@@ -4,6 +4,7 @@ const Room = require("../models/room");
 const Message = require("../models/message");
 const User = require("../models/user");
 const jwt = require("jsonwebtoken");
+const Settings = require("../models/settings");
 
 // Middleware للتحقق من التوكن
 const authenticateToken = async (req, res, next) => {
@@ -239,7 +240,7 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
 router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
-        const { page = 1, limit = 50 } = req.query;
+        const { page = 1, limit = 30 } = req.query;
 
         const messages = await Message.findAndCountAll({
             where: { 
@@ -270,7 +271,7 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
 });
 
 // حذف غرفة (للمنشئ فقط)
-router.delete("/room/:roomId", authenticateToken, async (req, res) => {
+router.delete("/room/:roomId", async (req, res) => {
     try {
         const { roomId } = req.params;
         
@@ -278,10 +279,6 @@ router.delete("/room/:roomId", authenticateToken, async (req, res) => {
         
         if (!room) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
-        }
-
-        if (room.creatorId !== req.user.id) {
-            return res.status(403).json({ error: "غير مصرح لك بحذف هذه الغرفة" });
         }
 
         await room.update({ isActive: false });
@@ -292,6 +289,21 @@ router.delete("/room/:roomId", authenticateToken, async (req, res) => {
         console.error("خطأ في حذف الغرفة:", error);
         res.status(500).json({ error: "خطأ في حذف الغرفة" });
     }
+});
+
+router.get("/room-settings", async (req, res) => {
+  try {
+    const costSetting = await Settings.findOne({ where: { key: "room_creation_cost" } });
+    const maxUsersSetting = await Settings.findOne({ where: { key: "room_max_users" } });
+
+    res.json({
+      room_creation_cost: costSetting ? parseInt(costSetting.value) : 0,
+      room_max_users: maxUsersSetting ? parseInt(maxUsersSetting.value) : 50,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching room settings:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 module.exports = router;
