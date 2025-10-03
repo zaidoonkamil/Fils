@@ -9,6 +9,7 @@ dotenv.config();
 const multer = require("multer");
 const upload = multer();
 const { User, UserDevice, IdShop } = require('../models');
+const Tearms = require("../models/TermsAndConditions");
 const Settings = require('../models/settings');
 const UserCounter = require("../models/usercounters");
 const Counter = require("../models/counter");
@@ -859,6 +860,39 @@ router.get("/admin/settings/:key", async (req, res) => {
     console.error("❌ Error fetching setting:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
+});
+
+router.get("/terms", async (req, res) => {
+    try {
+        const terms = await Tearms.findAll();
+        res.status(200).json(terms);
+    } catch (error) {
+        console.error("Error fetching terms:", error);
+        res.status(500).json({ error: "Failed to fetch terms" });
+    }
+});
+
+router.post("/terms", upload.none(), async (req, res) => {
+    try {
+        const { content } = req.body;
+
+        if (!content) {
+            return res.status(400).json({ error: "Content is required" });
+        }
+        const existingTerm = await Tearms.findOne();
+
+        if (existingTerm) {
+            existingTerm.description = content;
+            await existingTerm.save();
+            return res.status(200).json({ message: "Term updated successfully", term: existingTerm });
+        } else {
+            const newTerm = await Tearms.create({ description: content });
+            return res.status(201).json({ message: "Term created successfully", term: newTerm });
+        }
+    } catch (error) {
+        console.error("Error creating or updating term:", error);
+        res.status(500).json({ error: "Failed to create or update term" });
+    }
 });
 
 
