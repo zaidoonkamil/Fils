@@ -19,17 +19,44 @@ router.post("/join-game/:id", async (req, res) => {
     const user = await User.findByPk(userId);
     if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
 
+    const existing = await GameRoomUser.findOne({
+      where: { userId },
+      include: {
+        model: GameRoom,
+        where: { status: { [Op.not]: "finished" } },
+        include: [
+          {
+            model: GameRoomUser,
+            include: {
+              model: User,
+              attributes: ["id", "name"]
+            }
+          }
+        ]
+      }
+    });
+
+    if (existing) {
+      const room = existing.GameRoom;
+      const players = room.GameRoomUsers.map(gru => ({
+        id: gru.User.id,
+        name: gru.User.name
+      }));
+
+      return res.json({
+        message: "أنت بالفعل في مباراة حالية",
+        roomId: room.id,
+        status: room.status,
+        playersCount: players.length,
+        players
+      });
+    }
+
     if (user.card < 1)
       return res.status(400).json({ error: "لا يوجد لديك بطاقة للدخول للعبة" });
 
     user.card -= 1;
     await user.save();
-
-    const existing = await GameRoomUser.findOne({
-      where: { userId },
-      include: { model: GameRoom, where: { status: { [Op.not]: "finished" } } },
-    });
-    if (existing) return res.status(400).json({ error: "أنت بالفعل في مباراة أخرى!" });
 
     let room = await GameRoom.findOne({
       where: { status: "waiting" },
@@ -43,7 +70,7 @@ router.post("/join-game/:id", async (req, res) => {
 
     const players = await GameRoomUser.findAll({
       where: { roomId: room.id },
-      include: User, 
+      include: User,
     });
 
     if (players.length === 4) {
