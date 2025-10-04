@@ -471,7 +471,6 @@ router.get("/profile", authenticateToken, async (req, res) => {
       return { ...counter, remainingDays: null };
     });
 
-    // Get conversion rate from settings, default to 1.25 if not found
     const conversionRateSetting = await Settings.findOne({ 
       where: { key: 'sawa_to_dollar_rate', isActive: true } 
     });

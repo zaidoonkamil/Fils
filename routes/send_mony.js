@@ -546,6 +546,7 @@ router.get("/withdrawalRequest", async (req, res) => {
 router.delete("/withdrawalRequest/:id", async (req, res) => {
   try {
     const requestId = req.params.id;
+    const { approved } = req.body;
 
     const request = await WithdrawalRequest.findOne({
       where: { id: requestId },
@@ -559,12 +560,20 @@ router.delete("/withdrawalRequest/:id", async (req, res) => {
     const user = request.user;
 
     await request.destroy();
-
-    await sendNotificationToUser(
-      user.id,
-      `تمت معالجة طلب السحب الخاص بك بمبلغ ${request.amount} عبر ${request.method}.`,
-      "إشعار طلب سحب"
-    );
+    
+    if (approved) {
+      await sendNotificationToUser(
+        user.id,
+        `تمت معالجة طلب السحب الخاص بك بمبلغ ${request.amount} عبر ${request.method}.`,
+        "إشعار طلب سحب"
+      );
+    } else {
+      await sendNotificationToUser(
+        user.id,
+        `تم رفض طلب السحب الخاص بك بمبلغ ${request.amount}.`,
+        "إشعار طلب سحب"
+      );
+    }
 
     res.status(200).json({ message: "تم حذف طلب السحب وإبلاغ المستخدم" });
 
