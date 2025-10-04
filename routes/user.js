@@ -450,10 +450,6 @@ router.get("/profile", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    if (!user.isActive) {
-      return res.status(403).json({ error: "تم حظر حسابك من قبل الإدارة" });
-    }
-
     const userData = user.toJSON();
 
     userData.UserCounters = userData.UserCounters.map((counter) => {
