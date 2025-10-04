@@ -60,7 +60,7 @@ router.post("/join-game/:id", async (req, res) => {
 
     let room = await GameRoom.findOne({
       where: { status: "waiting" },
-      include: { model: GameRoomUser },
+      include: { model: GameRoomUser, include: User },
       order: [["createdAt", "ASC"]],
     });
 
@@ -72,6 +72,18 @@ router.post("/join-game/:id", async (req, res) => {
       where: { roomId: room.id },
       include: User,
     });
+
+    // توحيد الرد
+    const response = {
+      message: players.length === 4 ? "اللعبة اكتملت" : "تم الانضمام للغرفة، انتظر اكتمال 4 لاعبين",
+      roomId: room.id,
+      status: players.length === 4 ? "finished" : "waiting",
+      playersCount: players.length,
+      players: players.map(p => ({
+        id: p.User.id,
+        name: p.User.name
+      }))
+    };
 
     if (players.length === 4) {
       const shuffledPlayers = shuffle(players);
@@ -87,20 +99,12 @@ router.post("/join-game/:id", async (req, res) => {
       room.status = "finished";
       await room.save();
 
-      return res.json({
-        message: "اللعبة اكتملت",
-        winner: winner.userId,
-        rewardGems,
-        players: shuffledPlayers.map(p => p.userId),
-      });
+      response.winner = winner.userId;
+      response.rewardGems = rewardGems;
     }
 
-    res.json({
-      message: "تم الانضمام للغرفة، انتظر اكتمال 4 لاعبين",
-      roomId: room.id,
-      currentPlayers: players.map(p => p.userId),
-      playersCount: players.length,
-    });
+    res.json(response);
+
   } catch (err) {
     console.error("❌ خطأ أثناء الانضمام للعبة:", err);
     res.status(500).json({ error: "حدث خطأ أثناء الدخول للعبة" });
