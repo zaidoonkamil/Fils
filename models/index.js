@@ -21,10 +21,10 @@ UserCounter.belongsTo(Counter, { foreignKey: 'counterId', constraints: false });
 User.hasOne(DailyAction, { foreignKey: "user_id", constraints: false });
 DailyAction.belongsTo(User, { foreignKey: "user_id", constraints: false });
 
-User.hasMany(TransferHistory, { as: 'SentTransfers', foreignKey: 'senderId', constraints: false });
-User.hasMany(TransferHistory, { as: 'ReceivedTransfers', foreignKey: 'receiverId', constraints: false });
-TransferHistory.belongsTo(User, { as: 'Sender', foreignKey: 'senderId', constraints: false });
-TransferHistory.belongsTo(User, { as: 'Receiver', foreignKey: 'receiverId', constraints: false });
+User.hasMany(TransferHistory, { as: 'SentTransfers', foreignKey: 'senderId', onDelete: 'CASCADE' });
+User.hasMany(TransferHistory, { as: 'ReceivedTransfers', foreignKey: 'receiverId', onDelete: 'CASCADE' });
+TransferHistory.belongsTo(User, { as: 'Sender', foreignKey: 'senderId', onDelete: 'CASCADE' });
+TransferHistory.belongsTo(User, { as: 'Receiver', foreignKey: 'receiverId', onDelete: 'CASCADE' });
 
 UserCounter.hasMany(CounterSale, { foreignKey: 'userCounterId', constraints: false });
 CounterSale.belongsTo(UserCounter, { foreignKey: 'userCounterId', constraints: false });
@@ -32,8 +32,8 @@ CounterSale.belongsTo(UserCounter, { foreignKey: 'userCounterId', constraints: f
 User.hasMany(CounterSale, { foreignKey: 'userId', constraints: false });
 CounterSale.belongsTo(User, { foreignKey: 'userId', constraints: false });
 
-WithdrawalRequest.belongsTo(User, { foreignKey: 'userId', as: 'user', constraints: false });
-User.hasMany(WithdrawalRequest, { foreignKey: 'userId', as: 'withdrawalRequests', constraints: false });
+WithdrawalRequest.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
+User.hasMany(WithdrawalRequest, { foreignKey: 'userId', as: 'withdrawalRequests', onDelete: 'CASCADE' });
 
 User.hasMany(UserDevice, { foreignKey: 'user_id', as: 'devices', onDelete: 'CASCADE' });
 UserDevice.belongsTo(User, { foreignKey: 'user_id', as: 'user', onDelete: 'CASCADE' });
