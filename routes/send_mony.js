@@ -546,8 +546,8 @@ router.get("/withdrawalRequest", async (req, res) => {
 router.delete("/withdrawalRequest/:id", async (req, res) => {
   try {
     const requestId = req.params.id;
-    const { approved } = req.body;
-
+    const approved = req.query.approved === "true";
+    
     const request = await WithdrawalRequest.findOne({
       where: { id: requestId },
       include: [{ model: User, as: "user" }]
