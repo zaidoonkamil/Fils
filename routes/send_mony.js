@@ -567,7 +567,7 @@ router.get("/withdrawalRequest/processed", async (req, res) => {
 
     const { count, rows: requests } = await WithdrawalRequest.findAndCountAll({
       where: { 
-        status: ["مكتمل", "مرفوض"],
+        status: ["مكتمل", "مرفوض","قيد الانتظار"],
         userId: userId
       },
       order: [["createdAt", "DESC"]],
