@@ -11,16 +11,15 @@ const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.post("/add-images-column", async (req, res) => {
+router.post("/add-status-column", async (req, res) => {
   try {
-    // إضافة العمود images
-    await sequelize.getQueryInterface().addColumn("WithdrawalRequests", "images", {
-      type: DataTypes.JSON,
+    await sequelize.getQueryInterface().addColumn("WithdrawalRequests", "status", {
+      type: DataTypes.ENUM("قيد الانتظار", "مكتمل", "مرفوض"),
       allowNull: false,
-      defaultValue: [] // قيمة افتراضية فارغة
+      defaultValue: "قيد الانتظار"
     });
 
-    res.status(200).json({ message: "تم إضافة العمود images بنجاح" });
+    res.status(200).json({ message: "تم إضافة العمود status بنجاح" });
   } catch (error) {
     console.error("❌ خطأ أثناء إضافة العمود:", error);
     res.status(500).json({ message: "حدث خطأ أثناء إضافة العمود", error: error.message });
