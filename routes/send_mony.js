@@ -11,18 +11,28 @@ const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.post("/add-status-column", async (req, res) => {
+router.post("/add-withdrawal-columns", async (req, res) => {
   try {
-    await sequelize.getQueryInterface().addColumn("WithdrawalRequests", "status", {
+    const queryInterface = sequelize.getQueryInterface();
+
+    // إضافة عمود images
+    await queryInterface.addColumn("WithdrawalRequests", "images", {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: "[]"
+    }).catch(() => {}); // يتجاهل الخطأ إذا كان العمود موجود
+
+    // إضافة عمود status
+    await queryInterface.addColumn("WithdrawalRequests", "status", {
       type: DataTypes.ENUM("قيد الانتظار", "مكتمل", "مرفوض"),
       allowNull: false,
       defaultValue: "قيد الانتظار"
-    });
+    }).catch(() => {}); // يتجاهل الخطأ إذا كان العمود موجود
 
-    res.status(200).json({ message: "تم إضافة العمود status بنجاح" });
+    res.status(200).json({ message: "تم إضافة الأعمدة بنجاح أو كانت موجودة مسبقًا" });
   } catch (error) {
-    console.error("❌ خطأ أثناء إضافة العمود:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء إضافة العمود", error: error.message });
+    console.error("❌ خطأ أثناء إضافة الأعمدة:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء إضافة الأعمدة", error: error.message });
   }
 });
 
