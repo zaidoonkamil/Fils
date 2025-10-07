@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const multer = require("multer");
-const upload = multer();
 const { User, DailyAction, UserCounter, Counter } = require("../models");
 const { Op } = require("sequelize");
 const TransferHistory = require("../models/transferHistory");
