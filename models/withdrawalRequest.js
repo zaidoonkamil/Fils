@@ -16,7 +16,7 @@ const WithdrawalRequest = sequelize.define("WithdrawalRequest", {
     allowNull: false,
   },
   method: {
-    type: DataTypes.ENUM("ماستر كارد", "زين كاش"),
+    type: DataTypes.ENUM("ماستر كارد", "زين كاش", "USDT"),
     allowNull: false,
   },
   accountNumber: {

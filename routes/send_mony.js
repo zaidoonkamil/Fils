@@ -435,7 +435,6 @@ router.post("/deposit-sawa", upload.none(), async (req, res) => {
             return res.status(400).json({ error: "Deposit amount cannot be zero" });
         }
 
-        // جلب المستخدم
         const user = await User.findOne({
             where: { id: userId }
         });
