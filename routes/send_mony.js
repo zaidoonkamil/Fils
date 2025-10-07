@@ -11,31 +11,6 @@ const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.post("/add-withdrawal-columns", async (req, res) => {
-  try {
-    const queryInterface = sequelize.getQueryInterface();
-
-    // إضافة عمود images
-    await queryInterface.addColumn("WithdrawalRequests", "images", {
-      type: DataTypes.JSON,
-      allowNull: false,
-      defaultValue: "[]"
-    }).catch(() => {}); // يتجاهل الخطأ إذا كان العمود موجود
-
-    // إضافة عمود status
-    await queryInterface.addColumn("WithdrawalRequests", "status", {
-      type: DataTypes.ENUM("قيد الانتظار", "مكتمل", "مرفوض"),
-      allowNull: false,
-      defaultValue: "قيد الانتظار"
-    }).catch(() => {}); // يتجاهل الخطأ إذا كان العمود موجود
-
-    res.status(200).json({ message: "تم إضافة الأعمدة بنجاح أو كانت موجودة مسبقًا" });
-  } catch (error) {
-    console.error("❌ خطأ أثناء إضافة الأعمدة:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء إضافة الأعمدة", error: error.message });
-  }
-});
-
 
 router.post("/daily-action", upload.none(), async (req, res) => {
   const { user_id } = req.body;
@@ -581,9 +556,23 @@ router.get("/withdrawalRequest/pending", async (req, res) => {
 
 router.get("/withdrawalRequest/processed", async (req, res) => {
   try {
-    const requests = await WithdrawalRequest.findAll({
-      where: { status: ["مكتمل", "مرفوض"] },
+    const userId = req.query.userId;
+    if (!userId) {
+      return res.status(400).json({ message: "يجب تحديد userId" });
+    }
+
+    const page = parseInt(req.query.page) || 1; 
+    const limit = parseInt(req.query.limit) || 30; 
+    const offset = (page - 1) * limit;
+
+    const { count, rows: requests } = await WithdrawalRequest.findAndCountAll({
+      where: { 
+        status: ["مكتمل", "مرفوض"],
+        userId: userId
+      },
       order: [["createdAt", "DESC"]],
+      limit,
+      offset,
       attributes: ["id", "amount", "method", "accountNumber", "status", "images", "createdAt"],
       include: [
         {
@@ -594,9 +583,17 @@ router.get("/withdrawalRequest/processed", async (req, res) => {
       ],
     });
 
-    res.status(200).json({ requests });
+    res.status(200).json({
+      requests,
+      pagination: {
+        total: count,        
+        page,               
+        limit,                
+        totalPages: Math.ceil(count / limit),
+      },
+    });
   } catch (error) {
-    console.error("❌ خطأ أثناء جلب الطلبات المكتملة أو المرفوضة:", error);
+    console.error("❌ خطأ أثناء جلب الطلبات المكتملة أو المرفوضة للمستخدم:", error);
     res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
   }
 });
