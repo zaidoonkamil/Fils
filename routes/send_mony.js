@@ -11,14 +11,19 @@ const upload = require("../middlewares/uploads");
 const { QueryTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.post("/remove-extra-index", async (req, res) => {
+router.post("/add-images-column", async (req, res) => {
   try {
-    await sequelize.query(`ALTER TABLE Users DROP INDEX email;`);
+    // إضافة العمود images
+    await sequelize.getQueryInterface().addColumn("WithdrawalRequests", "images", {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [] // قيمة افتراضية فارغة
+    });
 
-    res.status(200).json({ message: "تم إزالة الفهرس الزائد على عمود email بنجاح" });
+    res.status(200).json({ message: "تم إضافة العمود images بنجاح" });
   } catch (error) {
-    console.error("❌ خطأ أثناء إزالة الفهرس:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء إزالة الفهرس", error: error.message });
+    console.error("❌ خطأ أثناء إضافة العمود:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء إضافة العمود", error: error.message });
   }
 });
 
