@@ -22,7 +22,11 @@ const WithdrawalRequest = sequelize.define("WithdrawalRequest", {
   accountNumber: {
     type: DataTypes.STRING,
     allowNull: false,
-  }
+  },
+  status: {
+    type: DataTypes.ENUM("قيد الانتظار", "مكتمل", "مرفوض"),
+    defaultValue: "قيد الانتظار",
+  },
 }, {
   timestamps: true,
 });

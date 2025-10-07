@@ -504,7 +504,8 @@ router.post("/withdrawalRequest", upload.none(), async (req, res) => {
       userId,
       amount: netAmount,  
       method,
-      accountNumber
+      accountNumber,
+      status: "قيد الانتظار"
     });
 
     await sendNotificationToRole(
@@ -516,7 +517,8 @@ router.post("/withdrawalRequest", upload.none(), async (req, res) => {
     res.status(201).json({
       message: `تم إرسال طلب السحب بنجاح وتم خصم ${withdrawalAmount} من رصيدك (بما يشمل العمولة)`,
       newBalance: user.sawa,
-      request: newRequest
+      request: newRequest,
+
     });
   } catch (error) {
     console.error("❌ خطأ أثناء إنشاء طلب السحب:", error);
@@ -524,9 +526,10 @@ router.post("/withdrawalRequest", upload.none(), async (req, res) => {
   }
 });
 
-router.get("/withdrawalRequest", async (req, res) => {
+router.get("/withdrawalRequest/pending", async (req, res) => {
   try {
     const requests = await WithdrawalRequest.findAll({
+      where: { status: "قيد الانتظار" },
       order: [["createdAt", "DESC"]],
       include: [
         {
@@ -539,15 +542,40 @@ router.get("/withdrawalRequest", async (req, res) => {
 
     res.status(200).json({ requests });
   } catch (error) {
-    console.error("❌ خطأ أثناء جلب السجل:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء جلب السجل", error: error.message });
+    console.error("❌ خطأ أثناء جلب الطلبات قيد الانتظار:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
   }
 });
 
-router.delete("/withdrawalRequest/:id", async (req, res) => {
+router.get("/withdrawalRequest/processed", async (req, res) => {
+  try {
+    const requests = await WithdrawalRequest.findAll({
+      where: { status: ["مكتمل", "مرفوض"] },
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "phone", "location", "role"],
+        },
+      ],
+    });
+
+    res.status(200).json({ requests });
+  } catch (error) {
+    console.error("❌ خطأ أثناء جلب الطلبات المكتملة أو المرفوضة:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
+  }
+});
+
+router.post("/withdrawalRequest/:id/status", async (req, res) => {
   try {
     const requestId = req.params.id;
-    const approved = req.query.approved === "true";
+    const { status } = req.body;
+
+    if (!["مكتمل", "مرفوض"].includes(status)) {
+      return res.status(400).json({ message: "قيمة الحالة غير صحيحة" });
+    }
 
     const request = await WithdrawalRequest.findOne({
       where: { id: requestId },
@@ -558,88 +586,38 @@ router.delete("/withdrawalRequest/:id", async (req, res) => {
       return res.status(404).json({ message: "طلب السحب غير موجود" });
     }
 
+    request.status = status;
+    await request.save();
+
     const user = request.user;
 
-    await request.destroy();
-
     if (user) {
-      if (approved) {
+      if (status === "مكتمل") {
         await sendNotificationToUser(
           user.id,
           `تمت معالجة طلب السحب الخاص بك بمبلغ ${request.amount} عبر ${request.method}.`,
           "إشعار طلب سحب"
         );
       } else {
+        user.sawa += request.amount;
+        await user.save();
+
         await sendNotificationToUser(
           user.id,
-          `تم رفض طلب السحب الخاص بك بمبلغ ${request.amount}.`,
+          `تم رفض طلب السحب الخاص بك بمبلغ ${request.amount} وتمت إعادة المبلغ إلى رصيدك.`,
           "إشعار طلب سحب"
         );
       }
     }
 
-    res.status(200).json({ message: "تم حذف طلب السحب وإبلاغ المستخدم (إذا كان موجود)" });
-
-  } catch (error) {
-    console.error("❌ خطأ أثناء حذف الطلب:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء حذف الطلب", error: error.message });
-  }
-});
-
-
-
-router.post("/fix-withdrawal-enum", async (req, res) => {
-  try {
-    const result = await sequelize.query(
-      "SHOW COLUMNS FROM WithdrawalRequests LIKE 'method';",
-      { type: QueryTypes.SELECT }
-    );
-
-    if (!result || result.length === 0) {
-      return res.status(404).json({ message: "العمود method غير موجود." });
-    }
-
-    // احصل على نوع العمود من النتيجة
-    const columnType = result[0].Type;
-
-    if (!columnType) {
-      return res.status(500).json({ message: "تعذر قراءة نوع العمود method." });
-    }
-
-    // استخرج القيم الحالية من ENUM
-    const matches = columnType.match(/enum\((.*)\)/);
-    let values = [];
-
-    if (matches && matches[1]) {
-      values = matches[1].split(",").map(v => v.replace(/'/g, "").trim());
-    }
-
-    // أضف القيمة الجديدة إن لم تكن موجودة
-    if (!values.includes("USDT")) {
-      values.push("USDT");
-
-      const newEnum = values.map(v => `'${v}'`).join(",");
-
-      await sequelize.query(
-        `ALTER TABLE WithdrawalRequests MODIFY COLUMN method ENUM(${newEnum}) NOT NULL;`
-      );
-
-      return res.status(200).json({
-        message: "✅ تم تحديث ENUM بنجاح وإضافة USDT.",
-        newValues: values
-      });
-    } else {
-      return res.status(200).json({
-        message: "✅ القيمة USDT موجودة مسبقًا.",
-        currentValues: values
-      });
-    }
-  } catch (error) {
-    console.error("❌ خطأ أثناء تعديل ENUM:", error);
-    res.status(500).json({
-      message: "حدث خطأ أثناء تعديل ENUM",
-      error: error.message
+    res.status(200).json({
+      message: `تم تحديث حالة الطلب إلى ${status}`,
+      request
     });
+
+  } catch (error) {
+    console.error("❌ خطأ أثناء تحديث حالة الطلب:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء تحديث الحالة", error: error.message });
   }
 });
 
