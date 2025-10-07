@@ -68,6 +68,10 @@ const User = sequelize.define("User", {
         type: DataTypes.TEXT,
         allowNull: true,
     },
+    url: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+    },
     isActive: {
         type: DataTypes.BOOLEAN,
         allowNull: false,

@@ -20,6 +20,30 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 
+router.put("/users/update-url", async (req, res) => {
+  try {
+    const { url } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ message: "يرجى إدخال قيمة URL" });
+    }
+
+    // تحديث كل المستخدمين
+    const [updatedCount] = await User.update(
+      { url }, // القيم الجديدة
+      { where: {} } // بدون شرط => لجميع المستخدمين
+    );
+
+    res.status(200).json({
+      message: `تم تحديث URL لجميع المستخدمين بنجاح`,
+      updatedUsersCount: updatedCount
+    });
+  } catch (error) {
+    console.error("❌ خطأ أثناء تحديث URL:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء التحديث", error: error.message });
+  }
+});
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -172,7 +196,7 @@ router.delete("/users/:id", async (req, res) => {
 });
 
 router.post("/users", upload.none() ,async (req, res) => {
-    const { id, name, email, location ,password , note, role = 'user'} = req.body;
+    const { id, name, email, location ,password , note, url, role = 'user'} = req.body;
     let phone = req.body.phone;
     try {
         const existingUser = await User.findOne({ where: { email } });
@@ -189,7 +213,7 @@ router.post("/users", upload.none() ,async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, saltRounds);
         const isVerified = role === "admin" || role === "agent";
 
-        const user = await User.create({ id: id || undefined, name, email, isVerified, phone, location, password: hashedPassword, note: note || null , role });
+        const user = await User.create({ id: id || undefined, name, email, isVerified, phone, location, password: hashedPassword, note: note || null , url: url || null , role });
 
         res.status(201).json({
         id: id || undefined,
@@ -199,6 +223,7 @@ router.post("/users", upload.none() ,async (req, res) => {
         location: user.location,
         role: role,
         note: user.note,
+        url: user.url,
         isVerified: user.isVerified,
         isLoggedIn: user.isLoggedIn, 
         createdAt: user.createdAt,
@@ -211,7 +236,7 @@ router.post("/users", upload.none() ,async (req, res) => {
 });
 
 router.post("/users/always-verified", upload.none(), async (req, res) => {
-  const { id, name, email, location, password, note, role = "user" } = req.body;
+  const { id, name, email, location, password, note, url, role = "user" } = req.body;
   let phone = req.body.phone;
 
   try {
@@ -238,6 +263,7 @@ router.post("/users/always-verified", upload.none(), async (req, res) => {
       location,
       password: hashedPassword,
       note: note || null,
+      url: url || null,
       role,
     });
 
@@ -249,6 +275,7 @@ router.post("/users/always-verified", upload.none(), async (req, res) => {
       location: user.location,
       role: user.role,
       note: user.note,
+      url: user.url,
       isVerified: user.isVerified,
       isLoggedIn: user.isLoggedIn,
       createdAt: user.createdAt,
@@ -575,7 +602,7 @@ router.get("/roleAgents", async (req, res) => {
   try {
     const agents = await User.findAll({
       where: { role: "agent" },
-      attributes: ["id", "name", "phone", "sawa", "location","note", "createdAt"],
+      attributes: ["id", "name", "phone", "sawa", "location","note", "createdAt", "url"],
       order: [["createdAt", "DESC"]],
     });
 
