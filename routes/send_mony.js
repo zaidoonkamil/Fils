@@ -470,8 +470,8 @@ router.post("/deposit-sawa", upload.none(), async (req, res) => {
 
 router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) => {
   try {
-    const commission = 0;
     const { userId, amount, method, accountNumber } = req.body;
+
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "جميع الحقول مطلوبة" });
     }
@@ -481,37 +481,44 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
     }
 
     const withdrawalAmount = parseFloat(amount);
-
     if (isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
-      return res.status(400).json({ message: "المبلغ الذي تمتلكه غير كافي" });
+      return res.status(400).json({ message: "المبلغ غير صالح" });
     }
+
+    const commissionSetting = await Settings.findOne({ where: { key: "withdrawal_commission" } });
+    const minAmountSetting = await Settings.findOne({ where: { key: "withdrawal_min_amount" } });
+
+    const commissionRate = commissionSetting ? parseFloat(commissionSetting.value) : 0;
+    const minAmount = minAmountSetting ? parseFloat(minAmountSetting.value) : 6400;
 
     const user = await User.findOne({ where: { id: userId } });
-    if (!user) {
-      return res.status(404).json({ message: "المستخدم غير موجود" });
-    }
+    if (!user) return res.status(404).json({ message: "المستخدم غير موجود" });
 
     if (user.sawa < withdrawalAmount) {
       return res.status(400).json({ message: "رصيدك غير كافٍ" });
     }
 
+    const commission = withdrawalAmount * commissionRate;
     const netAmount = withdrawalAmount - commission;
 
-    if (netAmount < 6400) {
-      return res.status(400).json({ message: "الحد الأدنى للمبلغ الصافي بعد خصم العمولة هو 6400" });
+    if (netAmount < minAmount) {
+      return res.status(400).json({
+        message: `الحد الأدنى للسحب هو ${minAmount} بعد خصم العمولة`,
+      });
     }
 
     user.sawa -= withdrawalAmount;
     await user.save();
+
     const images = req.files.map(file => file.filename);
 
     const newRequest = await WithdrawalRequest.create({
       userId,
-      amount: netAmount,  
+      amount: netAmount,
       method,
       accountNumber,
       images,
-      status: "قيد الانتظار"
+      status: "قيد الانتظار",
     });
 
     await sendNotificationToRole(
@@ -521,10 +528,9 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
     );
 
     res.status(201).json({
-      message: `تم إرسال طلب السحب بنجاح وتم خصم ${withdrawalAmount} من رصيدك (بما يشمل العمولة)`,
+      message: `تم إرسال طلب السحب بنجاح. تم خصم ${withdrawalAmount} من رصيدك (بما يشمل العمولة ${commission.toFixed(2)})`,
       newBalance: user.sawa,
       request: newRequest,
-
     });
   } catch (error) {
     console.error("❌ خطأ أثناء إنشاء طلب السحب:", error);

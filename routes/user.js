@@ -20,36 +20,6 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 
-
-router.put("/users/add-url-column", async (req, res) => {
-  try {
-    // تحقق إذا العمود موجود
-    const [results] = await sequelize.query(`
-      SHOW COLUMNS FROM Users LIKE 'url';
-    `);
-
-    if (results.length === 0) {
-      // العمود غير موجود، نضيفه
-      await sequelize.query(`
-        ALTER TABLE Users ADD COLUMN url TEXT;
-      `);
-    }
-
-    // تحديث جميع المستخدمين بالقيمة الثابتة
-    await sequelize.query(`
-      UPDATE Users SET url = 'https://t.me/napol_tg';
-    `);
-
-    res.status(200).json({
-      message: "تم إضافة العمود url وتحديثه لجميع المستخدمين بنجاح",
-    });
-  } catch (error) {
-    console.error("❌ خطأ أثناء إضافة العمود URL:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء إضافة العمود URL", error: error.message });
-  }
-});
-
-
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {

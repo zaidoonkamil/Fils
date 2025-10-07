@@ -3,7 +3,6 @@ const sequelize = require('../config/db');
 
 async function initializeSettings() {
   try {
-    // إعدادات التحويل من السوا إلى الدولار
     const dollarRateSetting = await Settings.findOne({ 
       where: { key: 'sawa_to_dollar_rate' } 
     });
@@ -20,7 +19,32 @@ async function initializeSettings() {
       console.log('ℹ️ sawa_to_dollar_rate setting already exists');
     }
 
-    // إعدادات إنشاء الغرف
+    const withdrawalCommissionSetting = await Settings.findOne({
+      where: { key: 'withdrawal_commission' },
+    });
+
+    if (!withdrawalCommissionSetting) {
+      await Settings.create({
+        key: 'withdrawal_commission',
+        value: '0',
+        description: 'نسبة العمولة المفروضة على السحب (مثلاً 0.05 = 5%)',
+        isActive: true,
+      });
+      console.log('✅ Default withdrawal_commission setting created successfully');
+    }
+
+    const withdrawalMinAmountSetting = await Settings.findOne({
+      where: { key: 'withdrawal_min_amount' },
+    });
+    if (!withdrawalMinAmountSetting) {
+      await Settings.create({
+        key: 'withdrawal_min_amount',
+        value: '6400',
+        description: 'الحد الأدنى للمبلغ الذي يمكن سحبه بعد خصم العمولة',
+        isActive: true,
+      });
+      console.log('✅ Default withdrawal_min_amount setting created successfully');
+    }
     const roomCostSetting = await Settings.findOne({ 
       where: { key: 'room_creation_cost' } 
     });
