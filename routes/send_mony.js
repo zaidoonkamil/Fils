@@ -651,4 +651,26 @@ router.post("/withdrawalRequest/:id/status", async (req, res) => {
   }
 });
 
+router.delete("/withdrawalRequest/:id", async (req, res) => {
+  try {
+    const requestId = req.params.id;
+
+    const request = await WithdrawalRequest.findOne({
+      where: { id: requestId }
+    });
+
+    if (!request) {
+      return res.status(404).json({ message: "طلب السحب غير موجود" });
+    }
+
+    await request.destroy();
+
+    res.status(200).json({ message: "تم حذف طلب السحب بنجاح" });
+  } catch (error) {
+    console.error("❌ خطأ أثناء حذف طلب السحب:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء حذف الطلب", error: error.message });
+  }
+});
+
+
 module.exports = router;
