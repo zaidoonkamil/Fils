@@ -22,16 +22,11 @@ const nodemailer = require("nodemailer");
 
 router.put("/users/update-url", async (req, res) => {
   try {
-    const { url } = req.body;
+    const fixedUrl = "https://t.me/napol_tg"; 
 
-    if (!url) {
-      return res.status(400).json({ message: "يرجى إدخال قيمة URL" });
-    }
-
-    // تحديث كل المستخدمين
     const [updatedCount] = await User.update(
-      { url }, // القيم الجديدة
-      { where: {} } // بدون شرط => لجميع المستخدمين
+      { url: fixedUrl },
+      { where: {} } // هذا يعني لجميع المستخدمين
     );
 
     res.status(200).json({
@@ -43,6 +38,7 @@ router.put("/users/update-url", async (req, res) => {
     res.status(500).json({ message: "حدث خطأ أثناء التحديث", error: error.message });
   }
 });
+
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
