@@ -11,6 +11,16 @@ const upload = require("../middlewares/uploads");
 const { QueryTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
+router.get("/sync/withdrawalRequest", async (req, res) => {
+  try {
+    await sequelize.sync({ alter: true });
+    res.json({ message: "✅ تم تحديث جدول WithdrawalRequests بنجاح!" });
+  } catch (error) {
+    console.error("❌ خطأ أثناء تعديل الجدول:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء تعديل الجدول", error: error.message });
+  }
+});
+
 router.post("/daily-action", upload.none(), async (req, res) => {
   const { user_id } = req.body;
 
