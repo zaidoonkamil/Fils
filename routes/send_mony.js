@@ -8,7 +8,7 @@ const WithdrawalRequest = require("../models/withdrawalRequest");
 const { sendNotificationToRole } = require("../services/notifications");
 const { sendNotificationToUser } = require("../services/notifications");
 const upload = require("../middlewares/uploads");
-const { QueryTypes } = require("sequelize");
+const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
 router.post("/add-images-column", async (req, res) => {
