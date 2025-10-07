@@ -11,15 +11,17 @@ const upload = require("../middlewares/uploads");
 const { QueryTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.get("/sync/withdrawalRequest", async (req, res) => {
+router.post("/remove-extra-index", async (req, res) => {
   try {
-    await sequelize.sync({ alter: true });
-    res.json({ message: "✅ تم تحديث جدول WithdrawalRequests بنجاح!" });
+    await sequelize.query(`ALTER TABLE Users DROP INDEX email;`);
+
+    res.status(200).json({ message: "تم إزالة الفهرس الزائد على عمود email بنجاح" });
   } catch (error) {
-    console.error("❌ خطأ أثناء تعديل الجدول:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء تعديل الجدول", error: error.message });
+    console.error("❌ خطأ أثناء إزالة الفهرس:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء إزالة الفهرس", error: error.message });
   }
 });
+
 
 router.post("/daily-action", upload.none(), async (req, res) => {
   const { user_id } = req.body;
