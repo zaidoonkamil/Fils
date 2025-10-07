@@ -8,6 +8,8 @@ const TransferHistory = require("../models/transferHistory");
 const WithdrawalRequest = require("../models/withdrawalRequest");
 const { sendNotificationToRole } = require("../services/notifications");
 const { sendNotificationToUser } = require("../services/notifications");
+const { QueryTypes } = require("sequelize");
+const sequelize = require("../config/db");
 
 router.post("/daily-action", upload.none(), async (req, res) => {
   const { user_id } = req.body;
@@ -584,5 +586,58 @@ router.delete("/withdrawalRequest/:id", async (req, res) => {
   }
 });
 
+
+router.post("/fix-withdrawal-enum", async (req, res) => {
+  try {
+    // اجلب القيم الحالية للـ ENUM من قاعدة البيانات
+    const [result] = await sequelize.query(
+      "SHOW COLUMNS FROM WithdrawalRequests LIKE 'method';",
+      { type: QueryTypes.SHOW }
+    );
+
+    if (!result) {
+      return res.status(404).json({ message: "العمود method غير موجود." });
+    }
+
+    // النص الكامل لتعريف العمود
+    const columnType = result.Type;
+
+    // استخرج القيم الحالية من ENUM
+    const matches = columnType.match(/enum\((.*)\)/);
+    let values = [];
+
+    if (matches && matches[1]) {
+      values = matches[1].split(",").map(v => v.replace(/'/g, "").trim());
+    }
+
+    // إذا كانت القيمة USDT غير موجودة، نضيفها
+    if (!values.includes("USDT")) {
+      values.push("USDT");
+
+      const newEnum = values.map(v => `'${v}'`).join(",");
+
+      // تعديل العمود لإضافة القيمة الجديدة
+      await sequelize.query(
+        `ALTER TABLE WithdrawalRequests MODIFY COLUMN method ENUM(${newEnum}) NOT NULL;`
+      );
+
+      return res.status(200).json({
+        message: "✅ تم تحديث ENUM بنجاح وإضافة USDT.",
+        newValues: values
+      });
+    } else {
+      return res.status(200).json({
+        message: "✅ القيمة USDT موجودة مسبقًا.",
+        currentValues: values
+      });
+    }
+  } catch (error) {
+    console.error("❌ خطأ أثناء تعديل ENUM:", error);
+    res.status(500).json({
+      message: "حدث خطأ أثناء تعديل ENUM",
+      error: error.message
+    });
+  }
+});
 
 module.exports = router;
