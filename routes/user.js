@@ -23,16 +23,21 @@ const nodemailer = require("nodemailer");
 
 router.put("/users/add-url-column", async (req, res) => {
   try {
-    // SQL لإضافة العمود إذا لم يكن موجود
-    await sequelize.query(`
-      ALTER TABLE Users 
-      ADD COLUMN IF NOT EXISTS url TEXT;
+    // تحقق إذا العمود موجود
+    const [results] = await sequelize.query(`
+      SHOW COLUMNS FROM Users LIKE 'url';
     `);
 
+    if (results.length === 0) {
+      // العمود غير موجود، نضيفه
+      await sequelize.query(`
+        ALTER TABLE Users ADD COLUMN url TEXT;
+      `);
+    }
+
     // تحديث جميع المستخدمين بالقيمة الثابتة
-    const [updatedCount] = await sequelize.query(`
-      UPDATE Users 
-      SET url = 'https://t.me/napol_tg';
+    await sequelize.query(`
+      UPDATE Users SET url = 'https://t.me/napol_tg';
     `);
 
     res.status(200).json({
@@ -43,7 +48,6 @@ router.put("/users/add-url-column", async (req, res) => {
     res.status(500).json({ message: "حدث خطأ أثناء إضافة العمود URL", error: error.message });
   }
 });
-
 
 
 const transporter = nodemailer.createTransport({
