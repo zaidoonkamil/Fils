@@ -587,20 +587,24 @@ router.delete("/withdrawalRequest/:id", async (req, res) => {
 });
 
 
+
 router.post("/fix-withdrawal-enum", async (req, res) => {
   try {
-    // اجلب القيم الحالية للـ ENUM من قاعدة البيانات
-    const [result] = await sequelize.query(
+    const result = await sequelize.query(
       "SHOW COLUMNS FROM WithdrawalRequests LIKE 'method';",
-      { type: QueryTypes.SHOW }
+      { type: QueryTypes.SELECT }
     );
 
-    if (!result) {
+    if (!result || result.length === 0) {
       return res.status(404).json({ message: "العمود method غير موجود." });
     }
 
-    // النص الكامل لتعريف العمود
-    const columnType = result.Type;
+    // احصل على نوع العمود من النتيجة
+    const columnType = result[0].Type;
+
+    if (!columnType) {
+      return res.status(500).json({ message: "تعذر قراءة نوع العمود method." });
+    }
 
     // استخرج القيم الحالية من ENUM
     const matches = columnType.match(/enum\((.*)\)/);
@@ -610,13 +614,12 @@ router.post("/fix-withdrawal-enum", async (req, res) => {
       values = matches[1].split(",").map(v => v.replace(/'/g, "").trim());
     }
 
-    // إذا كانت القيمة USDT غير موجودة، نضيفها
+    // أضف القيمة الجديدة إن لم تكن موجودة
     if (!values.includes("USDT")) {
       values.push("USDT");
 
       const newEnum = values.map(v => `'${v}'`).join(",");
 
-      // تعديل العمود لإضافة القيمة الجديدة
       await sequelize.query(
         `ALTER TABLE WithdrawalRequests MODIFY COLUMN method ENUM(${newEnum}) NOT NULL;`
       );
