@@ -7,6 +7,10 @@ const WithdrawalRequest = sequelize.define("WithdrawalRequest", {
     autoIncrement: true,
     primaryKey: true,
   },
+  images: {
+    type: DataTypes.JSON,
+    allowNull: false
+  },
   userId: {
     type: DataTypes.INTEGER,
     allowNull: false,

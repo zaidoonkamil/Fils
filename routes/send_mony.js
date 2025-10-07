@@ -8,6 +8,7 @@ const TransferHistory = require("../models/transferHistory");
 const WithdrawalRequest = require("../models/withdrawalRequest");
 const { sendNotificationToRole } = require("../services/notifications");
 const { sendNotificationToUser } = require("../services/notifications");
+const upload = require("../middlewares/uploads");
 const { QueryTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
@@ -467,10 +468,13 @@ router.post("/deposit-sawa", upload.none(), async (req, res) => {
     }
 });
 
-router.post("/withdrawalRequest", upload.none(), async (req, res) => {
+router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) => {
   try {
     const commission = 0;
     const { userId, amount, method, accountNumber } = req.body;
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "جميع الحقول مطلوبة" });
+    }
 
     if (!userId || !amount || !method || !accountNumber) {
       return res.status(400).json({ message: "يرجى إدخال جميع الحقول" });
@@ -499,12 +503,14 @@ router.post("/withdrawalRequest", upload.none(), async (req, res) => {
 
     user.sawa -= withdrawalAmount;
     await user.save();
+    const images = req.files.map(file => file.filename);
 
     const newRequest = await WithdrawalRequest.create({
       userId,
       amount: netAmount,  
       method,
       accountNumber,
+      images,
       status: "قيد الانتظار"
     });
 
@@ -531,6 +537,7 @@ router.get("/withdrawalRequest/pending", async (req, res) => {
     const requests = await WithdrawalRequest.findAll({
       where: { status: "قيد الانتظار" },
       order: [["createdAt", "DESC"]],
+      attributes: ["id", "amount", "method", "accountNumber", "status", "images", "createdAt"],
       include: [
         {
           model: User,
@@ -552,6 +559,7 @@ router.get("/withdrawalRequest/processed", async (req, res) => {
     const requests = await WithdrawalRequest.findAll({
       where: { status: ["مكتمل", "مرفوض"] },
       order: [["createdAt", "DESC"]],
+      attributes: ["id", "amount", "method", "accountNumber", "status", "images", "createdAt"],
       include: [
         {
           model: User,
