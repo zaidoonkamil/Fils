@@ -48,7 +48,7 @@ app.use(express.static("public"));
 
 
 sequelize.sync({
-     alter: true,
+     force: false,
     logging: console.log })
     .then(() => {
     console.log("✅ Database & User table synced!");
