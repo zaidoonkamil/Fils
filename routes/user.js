@@ -20,24 +20,30 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 
-router.put("/users/update-url", async (req, res) => {
-  try {
-    const fixedUrl = "https://t.me/napol_tg"; 
 
-    const [updatedCount] = await User.update(
-      { url: fixedUrl },
-      { where: {} } // هذا يعني لجميع المستخدمين
-    );
+router.put("/users/add-url-column", async (req, res) => {
+  try {
+    // SQL لإضافة العمود إذا لم يكن موجود
+    await sequelize.query(`
+      ALTER TABLE Users 
+      ADD COLUMN IF NOT EXISTS url TEXT;
+    `);
+
+    // تحديث جميع المستخدمين بالقيمة الثابتة
+    const [updatedCount] = await sequelize.query(`
+      UPDATE Users 
+      SET url = 'https://t.me/napol_tg';
+    `);
 
     res.status(200).json({
-      message: `تم تحديث URL لجميع المستخدمين بنجاح`,
-      updatedUsersCount: updatedCount
+      message: "تم إضافة العمود url وتحديثه لجميع المستخدمين بنجاح",
     });
   } catch (error) {
-    console.error("❌ خطأ أثناء تحديث URL:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء التحديث", error: error.message });
+    console.error("❌ خطأ أثناء إضافة العمود URL:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء إضافة العمود URL", error: error.message });
   }
 });
+
 
 
 const transporter = nodemailer.createTransport({
