@@ -19,6 +19,114 @@ const OtpCode = require("../models/OtpCode");
 const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
+const AgentRequest = require('../models/AgentRequest');
+
+router.post("/request-agent", upload.none(), async (req, res) => {
+  try {
+    const userId = req.query.id;
+    const { url } = req.body;
+
+    const user = await User.findByPk(userId);
+    if (user.role === "agent") {
+      return res.status(400).json({ error: "أنت بالفعل وكيل" });
+    }
+
+    const existingRequest = await AgentRequest.findOne({
+      where: { userId, status: "قيد الانتظار" },
+    });
+
+    if (existingRequest) {
+      return res.status(400).json({ error: "لديك طلب وكالة قيد المراجعة بالفعل" });
+    }
+
+    const newRequest = await AgentRequest.create({
+      userId,
+      url: url || null,
+    });
+
+    res.status(201).json({
+      message: "تم إرسال طلب الوكالة بنجاح ✅ سيتم مراجعته قريبًا",
+      request: newRequest,
+    });
+  } catch (err) {
+    console.error("❌ Error requesting agent:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/agent-requests", async (req, res) => {
+  try {
+    const requests = await AgentRequest.findAll({
+      where: { status: "قيد الانتظار" },
+      include: {
+        model: User,
+        attributes: ["id", "name", "email", "phone", "role"],
+      },
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json(requests);
+  } catch (err) {
+    console.error("❌ Error fetching agent requests:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/admin/agent-requests/:id/action", upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action } = req.body;
+
+    const request = await AgentRequest.findByPk(id, { include: User });
+    if (!request) {
+      return res.status(404).json({ error: "الطلب غير موجود" });
+    }
+
+    if (request.status !== "قيد الانتظار") {
+      return res.status(400).json({ error: "تم التعامل مع هذا الطلب سابقًا" });
+    }
+
+    const user = request.User;
+
+    if (action === "مكتمل") {
+      request.status = "مكتمل";
+      await request.save();
+
+      try {
+        await sendNotificationToUser(
+          user.id,
+          "تمت الموافقة على طلبك لتصبح وكيلًا 🎉",
+          "طلب وكالة"
+        );
+      } catch (notifyErr) {
+        console.warn("⚠️ Failed to send notification:", notifyErr);
+      }
+
+      res.status(200).json({ message: "✅ تم الموافقة على الطلب والمستخدم أصبح وكيلًا" });
+    } else if (action === "مرفوض") {
+      request.status = "مرفوض";
+      await request.save();
+
+      try {
+        await sendNotificationToUser(
+          request.User.id,
+          "تم رفض طلبك لتصبح وكيلًا ❌",
+          "طلب وكالة"
+        );
+      } catch (notifyErr) {
+        console.warn("⚠️ Failed to send notification:", notifyErr);
+      }
+
+      res.status(200).json({ message: "❌ تم رفض طلب الوكالة" });
+    } else {
+      res.status(400).json({ error: "قيمة action غير صالحة" });
+    }
+  } catch (err) {
+    console.error("❌ Error processing agent request:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
