@@ -8,15 +8,32 @@ async function initializeSettings() {
     });
 
     if (!dollarRateSetting) {
+          await Settings.create({
+            key: 'sawa_to_dollar_rate',
+            value: '1.25',
+            description: 'نسبة تحويل السوا إلى الدولار',
+            isActive: true
+          });
+          console.log('✅ Default sawa_to_dollar_rate setting created successfully');
+        } else {
+          console.log('ℹ️ sawa_to_dollar_rate setting already exists');
+        }
+
+    
+    const counterDurationSetting = await Settings.findOne({
+      where: { key: 'counter_duration_days' },
+    });
+
+    if (!counterDurationSetting) {
       await Settings.create({
-        key: 'sawa_to_dollar_rate',
-        value: '1.25',
-        description: 'نسبة تحويل السوا إلى الدولار',
-        isActive: true
+        key: 'counter_duration_days',
+        value: '365',
+        description: 'عدد الأيام التي يستمر فيها العداد بعد الشراء',
+        isActive: true,
       });
-      console.log('✅ Default sawa_to_dollar_rate setting created successfully');
+      console.log('✅ Default counter_duration_days setting created successfully');
     } else {
-      console.log('ℹ️ sawa_to_dollar_rate setting already exists');
+      console.log('ℹ️ counter_duration_days setting already exists');
     }
 
     const withdrawalCommissionSetting = await Settings.findOne({

@@ -59,14 +59,21 @@ router.post("/assign-counter", upload.none(), async (req, res) => {
     if (user.sawa < counter.price) {
       return res.status(400).json({ error: "رصيد sawa غير كافي لشراء هذا العداد" });
     }
-    
-if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
-  user.sawa -= counter.price;
-}    await user.save();
+
+    if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
+      user.sawa -= counter.price;
+    }
+    await user.save();
+
+    const durationSetting = await Settings.findOne({
+      where: { key: "counter_duration_days", isActive: true },
+    });
+
+    const durationDays = durationSetting ? parseInt(durationSetting.value) : 365;
 
     const now = new Date();
-    const oneYearLater = new Date();
-    oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + durationDays);
 
     const assign = await UserCounter.create({
       userId,
@@ -75,15 +82,14 @@ if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
       type: counter.type,
       price: counter.price,
       startDate: now,
-      endDate: oneYearLater
+      endDate,
     });
 
     res.status(201).json({
-      message: "تم إضافة العداد للمستخدم",
+      message: `تم إضافة العداد للمستخدم لمدة ${durationDays} يوم`,
       assign,
-      remainingSawa: user.sawa
+      remainingSawa: user.sawa,
     });
-
   } catch (err) {
     console.error("❌ Error assigning counter:", err);
     res.status(500).json({ error: "Internal Server Error" });
