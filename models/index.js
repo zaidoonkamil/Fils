@@ -1,4 +1,7 @@
 const User = require("./user");
+const Room = require("./room");
+const Message = require("./message");
+const Settings = require("./settings");
 const Counter = require("./counter");
 const UserCounter = require("./usercounters");
 const DailyAction = require("./DailyAction");
@@ -11,6 +14,15 @@ const GameRoomUser = require("./GameRoomUser");
 const GameResult = require("./GameResult");
 const IdShop = require("./IdShop");
 const ChatMessage = require("./ChatMessage");
+const Referrals = require('./referrals');
+const Tearms = require("./TermsAndConditions");
+const AgentRequest = require('./AgentRequest');
+const OtpCode = require("./OtpCode");
+
+Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
+Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
+Message.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
+Message.belongsTo(Room, { foreignKey: 'roomId', as: 'room', onDelete: 'CASCADE' });
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -39,16 +51,20 @@ User.hasMany(UserDevice, { foreignKey: 'user_id', as: 'devices', onDelete: 'CASC
 UserDevice.belongsTo(User, { foreignKey: 'user_id', as: 'user', onDelete: 'CASCADE' });
 
 ChatMessage.belongsTo(User, { as: "sender", foreignKey: "senderId" , onDelete: 'CASCADE'});
-ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId" , onDelete: 'CASCADE' });
-
-User.hasMany(ChatMessage, { as: "sentMessages", foreignKey: "senderId" , onDelete: 'CASCADE' });
+ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId" , onDelete: 'CASCADE'});
+User.hasMany(ChatMessage, { as: "sentMessages", foreignKey: "senderId" , onDelete: 'CASCADE'});
 User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId" , onDelete: 'CASCADE'});
 
 module.exports = {
   User,
-  DailyAction,
+  Referrals,
+  Room,
+  OtpCode,
+  Message,
+  Settings,
   Counter,
   UserCounter,
+  DailyAction,
   TransferHistory,
   CounterSale,
   WithdrawalRequest,
@@ -57,5 +73,7 @@ module.exports = {
   GameRoomUser,
   GameResult,
   IdShop,
+  Tearms,
+  AgentRequest,
   ChatMessage
 };

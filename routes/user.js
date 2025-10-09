@@ -1,5 +1,4 @@
 const express = require('express');
-const Referrals = require('../models/referrals');
 const bcrypt = require("bcrypt");
 const saltRounds = 10;
 const router = express.Router();
@@ -8,18 +7,11 @@ const dotenv = require('dotenv');
 dotenv.config();
 const multer = require("multer");
 const upload = multer();
-const { User, UserDevice, IdShop } = require('../models');
-const Tearms = require("../models/TermsAndConditions");
-const Settings = require('../models/settings');
-const UserCounter = require("../models/usercounters");
-const Counter = require("../models/counter");
+const { User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, CounterSale, UserCounter, Counter, AgentRequest} = require('../models');
 const { Op } = require("sequelize");
-const CounterSale = require("../models/counterSale");
-const OtpCode = require("../models/OtpCode");
 const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
-const AgentRequest = require('../models/AgentRequest');
 
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {

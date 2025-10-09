@@ -1,7 +1,5 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/user");
-const Room = require("../models/room");
-const Message = require("../models/message");
+const { User, Message, Room} = require('../models');
 
 const roomUsers = new Map();
 

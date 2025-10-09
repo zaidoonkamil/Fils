@@ -2,7 +2,6 @@ require("./models/agent");
 const Room = require("./models/room");
 const Message = require("./models/message");
 const User = require("./models/user");
-require("./models/associations");
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
