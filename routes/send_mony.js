@@ -1,10 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const multer = require("multer");
-const { User, DailyAction, UserCounter, Counter } = require("../models");
+const { User, DailyAction, UserCounter, Counter, Settings, TransferHistory, WithdrawalRequest} = require("../models");
 const { Op } = require("sequelize");
-const TransferHistory = require("../models/transferHistory");
-const WithdrawalRequest = require("../models/withdrawalRequest");
 const { sendNotificationToRole } = require("../services/notifications");
 const { sendNotificationToUser } = require("../services/notifications");
 const upload = require("../middlewares/uploads");
