@@ -486,8 +486,9 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
     const commissionSetting = await Settings.findOne({ where: { key: "withdrawal_commission" } });
     const minAmountSetting = await Settings.findOne({ where: { key: "withdrawal_min_amount" } });
 
-    const commissionRate = commissionSetting ? parseFloat(commissionSetting.value) : 0;
-    const minAmount = minAmountSetting ? parseFloat(minAmountSetting.value) : 6400;
+    // تحويل القيم لفلوت مع تنظيف الفراغات
+    const commissionRate = commissionSetting ? parseFloat(commissionSetting.value.trim()) : 0;
+    const minAmount = minAmountSetting ? parseFloat(minAmountSetting.value.trim()) : 6400;
 
     const user = await User.findOne({ where: { id: userId } });
     if (!user) return res.status(404).json({ message: "المستخدم غير موجود" });
