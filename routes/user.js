@@ -17,26 +17,26 @@ const { seq } = require("../models");
 
 router.post("/fix-fk-cascade", async (req, res) => {
   try {
-    const dbName = seq.config.database;
+    const dbName = sequelize.config.database; // اسم قاعدة البيانات
 
     // جلب كل الـ FK المرتبطة بـ Users
-    const fks = await seq.query(
+    const fks = await sequelize.query(
       `SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME
        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
        WHERE TABLE_SCHEMA = :db AND REFERENCED_TABLE_NAME = 'Users'`,
-      { replacements: { db: dbName }, type: Op.SELECT }
+      { replacements: { db: dbName }, type: require("sequelize").QueryTypes.SELECT }
     );
 
     for (const fk of fks) {
       const { TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME } = fk;
 
-      // نحذف FK القديم
-      await seq.query(
+      // حذف FK القديم
+      await sequelize.query(
         `ALTER TABLE \`${TABLE_NAME}\` DROP FOREIGN KEY \`${CONSTRAINT_NAME}\``
       );
 
-      // نعيد إنشاء FK مع ON DELETE CASCADE
-      await seq.query(
+      // إعادة إنشاء FK مع ON DELETE CASCADE
+      await sequelize.query(
         `ALTER TABLE \`${TABLE_NAME}\`
          ADD CONSTRAINT \`${CONSTRAINT_NAME}\`
          FOREIGN KEY (\`${COLUMN_NAME}\`) REFERENCES Users(id)
