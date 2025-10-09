@@ -470,49 +470,58 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
   try {
     const { userId, amount, method, accountNumber } = req.body;
 
+    // التحقق من الحقول والملفات
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "جميع الحقول مطلوبة" });
     }
-
     if (!userId || !amount || !method || !accountNumber) {
       return res.status(400).json({ message: "يرجى إدخال جميع الحقول" });
     }
 
+    // تحويل المبلغ إلى فلوت
     const withdrawalAmount = parseFloat(amount);
     if (isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
       return res.status(400).json({ message: "المبلغ غير صالح" });
     }
 
+    // جلب إعدادات العمولة والحد الأدنى
     const commissionSetting = await Settings.findOne({ where: { key: "withdrawal_commission" } });
     const minAmountSetting = await Settings.findOne({ where: { key: "withdrawal_min_amount" } });
-console.log("commissionSetting:", commissionSetting, "minAmount:", minAmountSetting, "minAmountSetting:");
 
-    // تحويل القيم لفلوت مع تنظيف الفراغات
-    const commissionRate = commissionSetting ? parseFloat(commissionSetting.value.trim()) : 0;
+    // تحويل القيم لفلوت وتنظيف الفراغات
+    const commissionRate = commissionSetting ? parseFloat(commissionSetting.value.trim()) / 100 : 0;
     const minAmount = minAmountSetting ? parseFloat(minAmountSetting.value.trim()) : 6400;
 
+    console.log("commissionRate:", commissionRate, "minAmount:", minAmount, "withdrawalAmount:", withdrawalAmount);
+
+    // التحقق من المستخدم ورصيده
     const user = await User.findOne({ where: { id: userId } });
     if (!user) return res.status(404).json({ message: "المستخدم غير موجود" });
-
     if (user.sawa < withdrawalAmount) {
       return res.status(400).json({ message: "رصيدك غير كافٍ" });
     }
 
+    // حساب العمولة والمبلغ الصافي
     const commission = withdrawalAmount * commissionRate;
     const netAmount = withdrawalAmount - commission;
-console.log("commissionRate:", commissionRate, "minAmount:", minAmount, "withdrawalAmount:", withdrawalAmount, "netAmount:", netAmount);
 
+    console.log("commission:", commission, "netAmount:", netAmount);
+
+    // التحقق من الحد الأدنى بعد خصم العمولة
     if (netAmount < minAmount) {
       return res.status(400).json({
         message: `الحد الأدنى للسحب هو ${minAmount} بعد خصم العمولة`,
       });
     }
 
+    // خصم الرصيد من المستخدم
     user.sawa -= withdrawalAmount;
     await user.save();
 
+    // حفظ أسماء الصور
     const images = req.files.map(file => file.filename);
 
+    // إنشاء طلب السحب
     const newRequest = await WithdrawalRequest.create({
       userId,
       amount: netAmount,
@@ -522,6 +531,7 @@ console.log("commissionRate:", commissionRate, "minAmount:", minAmount, "withdra
       status: "قيد الانتظار",
     });
 
+    // إرسال إشعار للأدمن
     await sendNotificationToRole(
       "admin",
       `يوجد طلب سحب جديد بمبلغ ${netAmount} عبر ${method}`,
@@ -533,11 +543,13 @@ console.log("commissionRate:", commissionRate, "minAmount:", minAmount, "withdra
       newBalance: user.sawa,
       request: newRequest,
     });
+
   } catch (error) {
     console.error("❌ خطأ أثناء إنشاء طلب السحب:", error);
     res.status(500).json({ message: "حدث خطأ أثناء الطلب", error: error.message });
   }
 });
+
 
 router.get("/withdrawalRequest/pending", async (req, res) => {
   try {
