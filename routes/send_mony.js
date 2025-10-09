@@ -485,6 +485,7 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
 
     const commissionSetting = await Settings.findOne({ where: { key: "withdrawal_commission" } });
     const minAmountSetting = await Settings.findOne({ where: { key: "withdrawal_min_amount" } });
+console.log("commissionSetting:", commissionSetting, "minAmount:", minAmountSetting, "minAmountSetting:");
 
     // تحويل القيم لفلوت مع تنظيف الفراغات
     const commissionRate = commissionSetting ? parseFloat(commissionSetting.value.trim()) : 0;
@@ -499,6 +500,7 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
 
     const commission = withdrawalAmount * commissionRate;
     const netAmount = withdrawalAmount - commission;
+console.log("commissionRate:", commissionRate, "minAmount:", minAmount, "withdrawalAmount:", withdrawalAmount, "netAmount:", netAmount);
 
     if (netAmount < minAmount) {
       return res.status(400).json({
