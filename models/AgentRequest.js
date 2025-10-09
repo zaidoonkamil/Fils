@@ -1,6 +1,5 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
-const { User } = require('../models');
 
 const AgentRequest = sequelize.define('AgentRequest', {
   id: {
@@ -11,10 +10,6 @@ const AgentRequest = sequelize.define('AgentRequest', {
   userId: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    references: {
-      model: User,
-      key: 'id',
-    },
   },
   status: {
     type: DataTypes.ENUM('قيد الانتظار', 'مكتمل', 'مرفوض'),
@@ -25,8 +20,5 @@ const AgentRequest = sequelize.define('AgentRequest', {
     allowNull: false,
   },
 });
-
-User.hasOne(AgentRequest, { foreignKey: 'userId', onDelete: 'CASCADE' });
-AgentRequest.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = AgentRequest;

@@ -55,6 +55,9 @@ ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId" , onDelet
 User.hasMany(ChatMessage, { as: "sentMessages", foreignKey: "senderId" , onDelete: 'CASCADE'});
 User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId" , onDelete: 'CASCADE'});
 
+User.hasOne(AgentRequest, { foreignKey: 'userId', onDelete: 'CASCADE' });
+AgentRequest.belongsTo(User, { foreignKey: 'userId', onDelete: 'CASCADE' });
+
 module.exports = {
   User,
   Referrals,
