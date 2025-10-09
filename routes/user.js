@@ -13,51 +13,45 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 
-router.post("/fix-user-fk-cascade", async (req, res) => {
+const { seq } = require("../models");
+
+router.post("/fix-fk-cascade", async (req, res) => {
   try {
-    const queries = [
-      // Messages
-      `ALTER TABLE ChatMessages DROP FOREIGN KEY IF EXISTS ChatMessages_ibfk_1`,
-      `ALTER TABLE ChatMessages ADD CONSTRAINT ChatMessages_ibfk_1 FOREIGN KEY (senderId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
-      `ALTER TABLE ChatMessages DROP FOREIGN KEY IF EXISTS ChatMessages_ibfk_2`,
-      `ALTER TABLE ChatMessages ADD CONSTRAINT ChatMessages_ibfk_2 FOREIGN KEY (receiverId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
+    const dbName = seq.config.database;
 
-      // WithdrawalRequest
-      `ALTER TABLE WithdrawalRequests DROP FOREIGN KEY IF EXISTS WithdrawalRequests_ibfk_1`,
-      `ALTER TABLE WithdrawalRequests ADD CONSTRAINT WithdrawalRequests_ibfk_1 FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
+    // جلب كل الـ FK المرتبطة بـ Users
+    const fks = await seq.query(
+      `SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME
+       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+       WHERE TABLE_SCHEMA = :db AND REFERENCED_TABLE_NAME = 'Users'`,
+      { replacements: { db: dbName }, type: Op.SELECT }
+    );
 
-      // UserDevice
-      `ALTER TABLE UserDevices DROP FOREIGN KEY IF EXISTS UserDevices_ibfk_1`,
-      `ALTER TABLE UserDevices ADD CONSTRAINT UserDevices_ibfk_1 FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
+    for (const fk of fks) {
+      const { TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME } = fk;
 
-      // AgentRequest
-      `ALTER TABLE AgentRequests DROP FOREIGN KEY IF EXISTS AgentRequests_ibfk_1`,
-      `ALTER TABLE AgentRequests ADD CONSTRAINT AgentRequests_ibfk_1 FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
+      // نحذف FK القديم
+      await seq.query(
+        `ALTER TABLE \`${TABLE_NAME}\` DROP FOREIGN KEY \`${CONSTRAINT_NAME}\``
+      );
 
-      // TransferHistory Sender
-      `ALTER TABLE TransferHistories DROP FOREIGN KEY IF EXISTS TransferHistories_ibfk_1`,
-      `ALTER TABLE TransferHistories ADD CONSTRAINT TransferHistories_ibfk_1 FOREIGN KEY (senderId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
+      // نعيد إنشاء FK مع ON DELETE CASCADE
+      await seq.query(
+        `ALTER TABLE \`${TABLE_NAME}\`
+         ADD CONSTRAINT \`${CONSTRAINT_NAME}\`
+         FOREIGN KEY (\`${COLUMN_NAME}\`) REFERENCES Users(id)
+         ON DELETE CASCADE ON UPDATE CASCADE`
+      );
 
-      // TransferHistory Receiver
-      `ALTER TABLE TransferHistories DROP FOREIGN KEY IF EXISTS TransferHistories_ibfk_2`,
-      `ALTER TABLE TransferHistories ADD CONSTRAINT TransferHistories_ibfk_2 FOREIGN KEY (receiverId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`,
-
-      // CounterSale
-      `ALTER TABLE CounterSales DROP FOREIGN KEY IF EXISTS CounterSales_ibfk_2`,
-      `ALTER TABLE CounterSales ADD CONSTRAINT CounterSales_ibfk_2 FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE ON UPDATE CASCADE`
-    ];
-
-    for (const query of queries) {
-      await sequelize.query(query);
+      console.log(`✅ FK ${CONSTRAINT_NAME} في جدول ${TABLE_NAME} تم تعديله`);
     }
 
-    res.json({ success: true, message: "تم تعديل جميع FK للمستخدم لتصبح CASCADE" });
+    res.json({ success: true, message: "تم تعديل جميع FK المرتبطة بـ Users إلى CASCADE" });
   } catch (err) {
     console.error("❌ خطأ أثناء تعديل FK:", err);
-    res.status(500).json({ error: "حدث خطأ أثناء تعديل FK" });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
-
 
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {
