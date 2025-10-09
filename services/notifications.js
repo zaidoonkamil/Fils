@@ -76,22 +76,35 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
       'Authorization': `Basic ${process.env.ONESIGNAL_API_KEY}`,
       'Content-Type': 'application/json',
     };
-    const data = {
-      app_id: process.env.ONESIGNAL_APP_ID,
-      include_player_ids: playerIds,
-      contents: { en: message },
-      headings: { en: title },
-    };
 
-    await axios.post(url, data, { headers });
+    for (const device of devices) {
+      const data = {
+        app_id: process.env.ONESIGNAL_APP_ID,
+        include_player_ids: [device.player_id],
+        contents: { en: message },
+        headings: { en: title },
+      };
 
-    await NotificationLog.create({
-      title,
-      message,
-      target_type: "role",
-      target_value: role,
-      status: "sent"
-    });
+      try {
+        await axios.post(url, data, { headers });
+        await NotificationLog.create({
+          title,
+          message,
+          target_type: "user",
+          target_value: device.user_id.toString(),
+          status: "sent"
+        });
+      } catch (error) {
+        console.error(`❌ Failed to send to user ${device.user_id}:`, error.response?.data || error.message);
+        await NotificationLog.create({
+          title,
+          message,
+          target_type: "user",
+          target_value: device.user_id.toString(),
+          status: "failed"
+        });
+      }
+    }
 
     return { success: true };
 
@@ -113,13 +126,23 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
   if (!userId) throw new Error("userId مطلوب");
 
   try {
-    const devices = await UserDevice.findAll({
-      where: { user_id: userId }
-    });
+    const devices = await UserDevice.findAll({ where: { user_id: userId } });
+
 
     const playerIds = devices.map(device => device.player_id);
 
     if (playerIds.length === 0) {
+      return { success: false, message: `لا توجد أجهزة للمستخدم ${userId}` };
+    }
+
+    if (devices.length === 0) {
+      await NotificationLog.create({
+        title,
+        message,
+        target_type: "user",
+        target_value: userId.toString(),
+        status: "failed"
+      });
       return { success: false, message: `لا توجد أجهزة للمستخدم ${userId}` };
     }
 
@@ -128,14 +151,35 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
       'Authorization': `Basic ${process.env.ONESIGNAL_API_KEY}`,
       'Content-Type': 'application/json',
     };
-    const data = {
-      app_id: process.env.ONESIGNAL_APP_ID,
-      include_player_ids: playerIds,
-      contents: { en: message },
-      headings: { en: title },
-    };
 
-    await axios.post(url, data, { headers });
+    for (const device of devices) {
+      const data = {
+        app_id: process.env.ONESIGNAL_APP_ID,
+        include_player_ids: [device.player_id],
+        contents: { en: message },
+        headings: { en: title },
+      };
+
+      try {
+        await axios.post(url, data, { headers });
+        await NotificationLog.create({
+          title,
+          message,
+          target_type: "user",
+          target_value: userId.toString(),
+          status: "sent"
+        });
+      } catch (error) {
+        console.error(`❌ Failed to send to device ${device.id} of user ${userId}:`, error.response?.data || error.message);
+        await NotificationLog.create({
+          title,
+          message,
+          target_type: "user",
+          target_value: userId.toString(),
+          status: "failed"
+        });
+      }
+    }
 
     return { success: true };
 
