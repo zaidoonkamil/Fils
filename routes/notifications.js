@@ -4,9 +4,8 @@ const router = express.Router();
 const { sendNotification } = require('../services/notifications');
 const multer = require("multer");
 const upload = multer();
-const { User, UserDevice} = require('../models'); 
+const { User, UserDevice, NotificationLog} = require('../models'); 
 const axios = require('axios');
-const NotificationLog = require("../models/notification_log");
 const { Op } = require("sequelize");
 
 
@@ -119,18 +118,19 @@ router.post('/send-notification-to-role', upload.none(), async (req, res) => {
 });
 
 router.get("/notifications-log", async (req, res) => {
-  const { role, page = 1, limit = 10 } = req.query;
+  const { userId, page = 1, limit = 20 } = req.query;
 
   try {
+    if (!userId) {
+      return res.status(400).json({ error: "userId مطلوب" });
+    }
+
     const whereCondition = {
       [Op.or]: [
         { target_type: 'all' },
+        { target_type: 'user', target_value: userId.toString() }
       ]
     };
-
-    if (role) {
-      whereCondition[Op.or].push({ target_type: 'role', target_value: role });
-    }
 
     const offset = (page - 1) * limit;
 

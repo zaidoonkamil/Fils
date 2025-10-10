@@ -18,6 +18,7 @@ const Referrals = require('./referrals');
 const Tearms = require("./TermsAndConditions");
 const AgentRequest = require('./AgentRequest');
 const OtpCode = require("./OtpCode");
+const NotificationLog = require("./notification_log");
 
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
@@ -72,6 +73,7 @@ module.exports = {
   CounterSale,
   WithdrawalRequest,
   UserDevice,
+  NotificationLog,
   GameRoom,
   GameRoomUser,
   GameResult,
