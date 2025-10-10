@@ -644,7 +644,7 @@ router.post("/withdrawalRequest/:id/status", async (req, res) => {
       if (status === "مكتمل") {
         await sendNotificationToUser(
           user.id,
-          `تمت معالجة طلب السحب الخاص بك بمبلغ ${request.amount} عبر ${request.method}.`,
+          `تمت معالجة طلب السحب الخاص بك بمبلغ ${request.amount} عبر ${request.method}`,
           "إشعار طلب سحب"
         );
       } else {
@@ -653,7 +653,7 @@ router.post("/withdrawalRequest/:id/status", async (req, res) => {
 
         await sendNotificationToUser(
           user.id,
-          `تم رفض طلب السحب الخاص بك بمبلغ ${request.amount} وتمت إعادة المبلغ إلى رصيدك.`,
+          `تم رفض طلب السحب الخاص بك بمبلغ ${request.amount} وتمت إعادة المبلغ إلى رصيدك`,
           "إشعار طلب سحب"
         );
       }
