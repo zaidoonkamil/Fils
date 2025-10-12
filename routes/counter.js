@@ -2,10 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require("multer");
 const upload = multer();
-const Counter = require('../models/counter');
-const User = require("../models/user");
-const UserCounter = require("../models/usercounters");
-const CounterSale = require("../models/counterSale");
+const { User, UserCounter, Counter, Settings} = require("../models");
 const { Op } = require("sequelize");
 
 router.post("/counters", upload.none(), async (req, res) => {
