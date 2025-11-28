@@ -37,14 +37,6 @@ router.get("/store/categories", async (req, res) => {
   try {
     const categories = await StoreCategory.findAll({
       where: { isActive: true },
-      include: [
-        {
-          model: DigitalProduct,
-          as: "products",
-          where: { isActive: true },
-          required: false,
-        },
-      ],
       order: [["createdAt", "DESC"]],
     });
 
