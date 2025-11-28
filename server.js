@@ -15,6 +15,7 @@ const agentsRouter = require("./routes/agents.js");
 const gameRouter = require("./routes/game.js");
 const roomsRouter = require("./routes/rooms.js");
 const adsRouter = require("./routes/ads");
+const store = require("./routes/store");
 const chat = require("./routes/chatRoutes");
 const initializeSocketIO = require("./socket/socketHandler.js");
 const cors = require("cors");
@@ -68,6 +69,7 @@ app.use("/", agentsRouter);
 app.use("/", gameRouter);
 app.use("/", roomsRouter);
 app.use("/", adsRouter);
+app.use("/", store);
 app.use("/", chat.router);
 
 const chatNamespace = io.of("/chat");

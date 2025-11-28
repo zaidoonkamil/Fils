@@ -19,6 +19,10 @@ const Tearms = require("./TermsAndConditions");
 const AgentRequest = require('./AgentRequest');
 const OtpCode = require("./OtpCode");
 const NotificationLog = require("./notification_log");
+const StoreCategory = require("./StoreCategory");
+const DigitalProduct = require("./DigitalProduct");
+const DigitalProductCode = require("./DigitalProductCode");
+const ProductPurchase = require("./ProductPurchase");
 
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
@@ -59,6 +63,20 @@ User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId" , o
 User.hasOne(AgentRequest, { foreignKey: 'userId', onDelete: 'CASCADE' });
 AgentRequest.belongsTo(User, { foreignKey: 'userId', onDelete: 'CASCADE' });
 
+// علاقات المتجر الرقمي
+StoreCategory.hasMany(DigitalProduct, { foreignKey: 'categoryId', as: 'products', onDelete: 'CASCADE' });
+DigitalProduct.belongsTo(StoreCategory, { foreignKey: 'categoryId', as: 'category', onDelete: 'CASCADE' });
+
+User.hasMany(ProductPurchase, { foreignKey: 'userId', as: 'purchases', onDelete: 'CASCADE' });
+ProductPurchase.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
+
+DigitalProduct.hasMany(ProductPurchase, { foreignKey: 'productId', as: 'purchaseHistory', onDelete: 'CASCADE' });
+ProductPurchase.belongsTo(DigitalProduct, { foreignKey: 'productId', as: 'product', onDelete: 'CASCADE' });
+
+// أكواد المنتجات (كودات متعددة لكل منتج)
+DigitalProduct.hasMany(DigitalProductCode, { foreignKey: 'productId', as: 'codes', onDelete: 'CASCADE' });
+DigitalProductCode.belongsTo(DigitalProduct, { foreignKey: 'productId', as: 'product', onDelete: 'CASCADE' });
+
 module.exports = {
   User,
   Referrals,
@@ -80,5 +98,9 @@ module.exports = {
   IdShop,
   Tearms,
   AgentRequest,
-  ChatMessage
+  ChatMessage,
+  StoreCategory,
+  DigitalProduct,
+  DigitalProductCode,
+  ProductPurchase
 };
