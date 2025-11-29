@@ -116,17 +116,6 @@ router.post("/store/products", upload.array("images", 5), async (req, res) => {
       return res.status(404).json({ error: "الفئة غير موجودة" });
     }
 
-    const images = req.files ? req.files.map(file => file.filename) : [];
-
-    const product = await DigitalProduct.create({
-      categoryId,
-      title,
-      description,
-      price: parseFloat(price),
-      images,
-      stock: 0,
-    });
-
     let codesArr = [];
 
     if (codes) {
@@ -161,10 +150,21 @@ router.post("/store/products", upload.array("images", 5), async (req, res) => {
       }
     }
 
+    const images = req.files ? req.files.map(file => file.filename) : [];
+
+    const product = await DigitalProduct.create({
+      categoryId,
+      title,
+      description,
+      price: parseFloat(price),
+      images,
+      stock: 0,
+    });
+
     if (codesArr.length > 0) {
       const entries = codesArr.map(code => ({
         productId: product.id,
-        code
+        code,
       }));
 
       await DigitalProductCode.bulkCreate(entries);
@@ -192,6 +192,7 @@ router.post("/store/products", upload.array("images", 5), async (req, res) => {
     res.status(500).json({ error: "حدث خطأ في السيرفر" });
   }
 });
+
 
 router.post("/store/products/:id/add-codes", upload.none(), async (req, res) => {
   try {
