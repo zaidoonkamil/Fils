@@ -79,7 +79,6 @@ router.put("/store/categories/:id", upload.single("image"), async (req, res) => 
 });
 
 // حذف قسم (Admin فقط)
-
 router.delete("/store/categories/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -280,7 +279,7 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
       return res.status(404).json({ error: "الفئة غير موجودة" });
     }
 
-    const products = await DigitalProduct.findAll({
+    let products = await DigitalProduct.findAll({
       where: {
         categoryId,
         isActive: true,
@@ -296,18 +295,23 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
       order: [["createdAt", "DESC"]],
     });
 
-    const productsWithStock = await Promise.all(products.map(async (product) => {
+    const filteredProducts = [];
+
+    for (const product of products) {
       const unusedCodesCount = await require("../models").DigitalProductCode.count({
         where: { productId: product.id, used: false }
       });
-      product.stock = unusedCodesCount;
-      return product;
-    }));
+
+      if (unusedCodesCount > 0) {
+        product.stock = unusedCodesCount;
+        filteredProducts.push(product);
+      }
+    }
 
     res.status(200).json({
       success: true,
       categoryName: category.name,
-      products: productsWithStock,
+      products: filteredProducts,
     });
 
   } catch (error) {
@@ -427,7 +431,6 @@ router.post("/store/buy-product", upload.none(), async (req, res) => {
 // جلب أبرز المنتجات بشكل عشوائي (حد أقصى 20 منتج)
 router.get("/store/featured-products", async (req, res) => {
   try {
-    // جلب 20 منتج مفعّل بطريقة عشوائية
     const products = await DigitalProduct.findAll({
       where: { isActive: true },
       include: [
@@ -438,27 +441,30 @@ router.get("/store/featured-products", async (req, res) => {
         }
       ],
       order: sequelize.literal("RAND()"),
-      limit: 20,
+      limit: 40,
     });
 
-    // حساب المخزون لكل منتج
-    const enhancedProducts = await Promise.all(
-      products.map(async (product) => {
-        const unusedCodes = await DigitalProductCode.count({
-          where: { productId: product.id, used: false }
-        });
+    const filtered = [];
 
-        return {
+    for (const product of products) {
+      const unusedCodes = await DigitalProductCode.count({
+        where: { productId: product.id, used: false }
+      });
+
+      if (unusedCodes > 0) {
+        filtered.push({
           ...product.toJSON(),
           stock: unusedCodes,
-        };
-      })
-    );
+        });
+      }
+
+      if (filtered.length === 20) break;
+    }
 
     res.status(200).json({
       success: true,
       message: "أبرز منتجات عشوائية",
-      featuredProducts: enhancedProducts,
+      featuredProducts: filtered,
     });
 
   } catch (error) {
