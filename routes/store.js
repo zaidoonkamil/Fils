@@ -334,6 +334,86 @@ router.delete("/store/products/:id", async (req, res) => {
   }
 });
 
+router.get("/dev/full-store-fix", async (req, res) => {
+  try {
+    const db = require("../config/db");
+    const { DigitalProduct, DigitalProductCode } = require("../models");
+
+    // ===============================
+    // 1) إصلاح جدول الأكواد — إضافة الحقول الناقصة
+    // ===============================
+    const [columns] = await db.query("SHOW COLUMNS FROM digital_product_codes");
+    const columnNames = columns.map(col => col.Field);
+
+    let alterQueries = [];
+
+    if (!columnNames.includes("usedBy")) {
+      alterQueries.push("ALTER TABLE digital_product_codes ADD COLUMN usedBy INT NULL;");
+    }
+
+    if (!columnNames.includes("usedAt")) {
+      alterQueries.push("ALTER TABLE digital_product_codes ADD COLUMN usedAt DATETIME NULL;");
+    }
+
+    for (const q of alterQueries) {
+      await db.query(q);
+    }
+
+    // ===============================
+    // 2) حذف الأكواد التالفة (التي لا تحتوي productId)
+    // ===============================
+    await db.query("DELETE FROM digital_product_codes WHERE productId IS NULL");
+
+    // ===============================
+    // 3) إصلاح المخزون لكل المنتجات
+    // ===============================
+    const products = await DigitalProduct.findAll();
+
+    for (const product of products) {
+      const unused = await DigitalProductCode.count({
+        where: { productId: product.id, used: false }
+      });
+
+      await product.update({ stock: unused });
+    }
+
+    // ===============================
+    // 4) فحص العلاقات (Association)
+    // ===============================
+
+    if (
+      !DigitalProduct.associations.codes ||
+      DigitalProduct.associations.codes.as !== "codes"
+    ) {
+      return res.json({
+        success: false,
+        error: "⚠️ تحذير: علاقة DigitalProduct -> DigitalProductCode غير صحيحة"
+      });
+    }
+
+    // ===============================
+    // 5) النتيجة النهائية
+    // ===============================
+    res.json({
+      success: true,
+      message: "✔️ تم إصلاح المتجر الرقمي بالكامل",
+      fixes: {
+        addedColumns: alterQueries,
+        stockFixedForProducts: products.length,
+        invalidCodesRemoved: "تم حذف الأكواد بدون productId",
+        associations: "علاقات المنتجات والأكواد تعمل بشكل صحيح"
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ FULL FIX ERROR:", err);
+    res.status(500).json({
+      error: "حدث خطأ أثناء تنفيذ الإصلاح الكامل",
+      details: err.message
+    });
+  }
+});
+
 
 // ==================== عملية الشراء ====================
 
