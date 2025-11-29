@@ -504,6 +504,69 @@ router.post("/store/buy-product", upload.none(), async (req, res) => {
   }
 });
 
+// الحصول على أبرز منتج من كل قسم (الأكثر مبيعاً)
+router.get("/store/featured-products", async (req, res) => {
+  try {
+    const categories = await StoreCategory.findAll({
+      where: { isActive: true },
+      order: [["createdAt", "DESC"]],
+    });
+
+    const featuredProducts = [];
+
+    for (const category of categories) {
+      // البحث عن أكثر منتج مبيعاً في الفئة
+      const topProduct = await ProductPurchase.findOne({
+        attributes: [
+          "productId",
+          [sequelize.fn("COUNT", sequelize.col("productId")), "salesCount"]
+        ],
+        include: [
+          {
+            model: DigitalProduct,
+            as: "product",
+            attributes: ["id", "title", "price", "images", "cardCode", "categoryId"],
+            where: { categoryId: category.id, isActive: true },
+            required: true,
+          }
+        ],
+        group: ["productId"],
+        order: [[sequelize.literal("salesCount"), "DESC"]],
+        subQuery: false,
+        raw: false,
+      });
+
+      if (topProduct) {
+        // احسب المخزون المتبقي للمنتج الأفضل
+        const unusedCodes = await DigitalProductCode.count({
+          where: { productId: topProduct.product.id, used: false }
+        });
+
+        featuredProducts.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          categoryImage: category.image,
+          product: {
+            ...topProduct.product.toJSON(),
+            stock: unusedCodes,
+            salesCount: topProduct.dataValues.salesCount,
+          },
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "أبرز منتجات من كل قسم",
+      featuredProducts,
+    });
+
+  } catch (error) {
+    console.error("❌ خطأ في جلب أبرز المنتجات:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
 // جلب احصائيات المتجر (Admin فقط)
 router.get("/store/statistics", async (req, res) => {
   try {
