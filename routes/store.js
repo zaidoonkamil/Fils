@@ -525,7 +525,7 @@ router.get("/store/featured-products", async (req, res) => {
           {
             model: DigitalProduct,
             as: "product",
-            attributes: ["id", "title", "price", "images", "cardCode", "categoryId"],
+            attributes: ["id", "title", "price", "images", "categoryId"],
             where: { categoryId: category.id, isActive: true },
             required: true,
           }
@@ -537,7 +537,7 @@ router.get("/store/featured-products", async (req, res) => {
       });
 
       if (topProduct) {
-        // احسب المخزون المتبقي للمنتج الأفضل
+        // احسب المخزون المتبقي
         const unusedCodes = await DigitalProductCode.count({
           where: { productId: topProduct.product.id, used: false }
         });
@@ -566,6 +566,7 @@ router.get("/store/featured-products", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
+
 
 // جلب احصائيات المتجر (Admin فقط)
 router.get("/store/statistics", async (req, res) => {
