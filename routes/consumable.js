@@ -248,10 +248,14 @@ router.delete("/consumable-store/products/:id", async (req, res) => {
 // شراء منتج استهلاكي
 router.post("/consumable-store/buy-product", upload.none(), async (req, res) => {
   try {
-    const { userId, productId, quantity } = req.body;
+    const { userId, productId, quantity, phone, location } = req.body;
 
     if (!userId || !productId || !quantity) {
       return res.status(400).json({ error: "userId, productId, quantity مطلوبة" });
+    }
+
+    if (!phone || !location) {
+      return res.status(400).json({ error: "phone و location مطلوبة" });
     }
 
     const user = await User.findByPk(userId);
@@ -276,29 +280,27 @@ router.post("/consumable-store/buy-product", upload.none(), async (req, res) => 
       const totalPrice = prod.price * qty;
       if (user.sawa < totalPrice) throw new Error("رصيد المستخدم غير كافي");
 
-      // خصم الرصيد
       user.sawa -= totalPrice;
       await user.save({ transaction: t });
 
-      // تقليل المخزون
       prod.stock -= qty;
       await prod.save({ transaction: t });
 
-      // تسجيل عملية الشراء
       const purchase = await ConsumablePurchase.create({
         userId,
         productId,
         quantity: qty,
         totalPrice,
+        phone: String(phone).trim(),
+        location: String(location).trim(),
       }, { transaction: t });
 
       return { purchase, prod };
     });
 
-    // إرسال إشعار للمستخدم
     await sendNotificationToUser(
       userId,
-      `تم شراء ${quantity} من "${result.prod.name}" بنجاح. الإجمالي: ${result.purchase.totalPrice} sawa`,
+      `تم شراء ${quantity} من "${result.prod.name}" بنجاح. الإجمالي: ${result.purchase.totalPrice} sawa\nالموقع: ${location}\nالهاتف: ${phone}`,
       "شراء منتج استهلاكي"
     );
 
@@ -311,6 +313,8 @@ router.post("/consumable-store/buy-product", upload.none(), async (req, res) => 
         quantity: qty,
         unitPrice: result.prod.price,
         totalPrice: result.purchase.totalPrice,
+        phone: phone,
+        location: location,
         purchasedAt: result.purchase.createdAt,
       },
       userBalance: user.sawa,

@@ -30,6 +30,16 @@ const ConsumablePurchase = sequelize.define(
       allowNull: false,
       comment: "السعر الإجمالي",
     },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: "رقم هاتف المستخدم",
+    },
+    location: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "موقع التسليم",
+    },
   },
   {
     tableName: "consumable_purchases",
