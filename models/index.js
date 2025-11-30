@@ -23,6 +23,9 @@ const StoreCategory = require("./StoreCategory");
 const DigitalProduct = require("./DigitalProduct");
 const DigitalProductCode = require("./DigitalProductCode");
 const ProductPurchase = require("./ProductPurchase");
+const ConsumableCategory = require("./ConsumableCategory");
+const ConsumableProduct = require("./ConsumableProduct");
+const ConsumablePurchase = require("./ConsumablePurchase");
 
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
@@ -77,6 +80,16 @@ ProductPurchase.belongsTo(DigitalProduct, { foreignKey: 'productId', as: 'produc
 DigitalProduct.hasMany(DigitalProductCode, { foreignKey: 'productId', as: 'codes', onDelete: 'CASCADE' });
 DigitalProductCode.belongsTo(DigitalProduct, { foreignKey: 'productId', as: 'product', onDelete: 'CASCADE' });
 
+// علاقات متجر المنتجات الاستهلاكية
+ConsumableCategory.hasMany(ConsumableProduct, { foreignKey: 'categoryId', as: 'products', onDelete: 'CASCADE' });
+ConsumableProduct.belongsTo(ConsumableCategory, { foreignKey: 'categoryId', as: 'category', onDelete: 'CASCADE' });
+
+User.hasMany(ConsumablePurchase, { foreignKey: 'userId', as: 'consumablePurchases', onDelete: 'CASCADE' });
+ConsumablePurchase.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
+
+ConsumableProduct.hasMany(ConsumablePurchase, { foreignKey: 'productId', as: 'purchaseHistory', onDelete: 'CASCADE' });
+ConsumablePurchase.belongsTo(ConsumableProduct, { foreignKey: 'productId', as: 'product', onDelete: 'CASCADE' });
+
 module.exports = {
   User,
   Referrals,
@@ -102,5 +115,8 @@ module.exports = {
   StoreCategory,
   DigitalProduct,
   DigitalProductCode,
-  ProductPurchase
+  ProductPurchase,
+  ConsumableCategory,
+  ConsumableProduct,
+  ConsumablePurchase
 };
