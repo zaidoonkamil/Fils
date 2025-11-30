@@ -458,13 +458,13 @@ router.get("/consumable-store/statistics", async (req, res) => {
   }
 });
 
-// أبرز منتجات المتجر الاستهلاكي (الأكثر مبيعاً من كل قسم)
+// أبرز منتجات المتجر الاستهلاكي 
 router.get("/consumable-store/featured-products", async (req, res) => {
   try {
     const products = await ConsumableProduct.findAll({
       where: {
         isActive: true,
-        stock: { [sequelize.Op.gt]: 0 } 
+        stock: { [Op.gt]: 0 } 
       },
       include: [
         {
