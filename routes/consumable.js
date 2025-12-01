@@ -345,7 +345,7 @@ router.get("/consumable-store/my-purchases/:userId", async (req, res) => {
         {
           model: ConsumableProduct,
           as: "product",
-          attributes: ["id", "name", "price"],
+          attributes: ["id", "name", "price", "images"],
         },
       ],
       order: [["createdAt", "DESC"]],
@@ -493,43 +493,5 @@ router.get("/consumable-store/featured-products", async (req, res) => {
   }
 });
 
-// تحديث قاعدة البيانات - إضافة الحقول الجديدة
-router.get("/consumable-store/migrate", async (req, res) => {
-  try {
-    const db = require("../config/db");
-
-    // فحص وإضافة حقول جديدة لـ consumable_purchases إذا لم تكن موجودة
-    const [columns] = await db.query("SHOW COLUMNS FROM consumable_purchases");
-    const columnNames = columns.map(col => col.Field);
-
-    let migrateQueries = [];
-
-    if (!columnNames.includes("phone")) {
-      migrateQueries.push("ALTER TABLE consumable_purchases ADD COLUMN phone VARCHAR(255) NULL;");
-    }
-
-    if (!columnNames.includes("location")) {
-      migrateQueries.push("ALTER TABLE consumable_purchases ADD COLUMN location TEXT NULL;");
-    }
-
-    // تنفيذ جميع الاستعلامات
-    for (const query of migrateQueries) {
-      await db.query(query);
-    }
-
-    res.json({
-      success: true,
-      message: "✔️ تم تحديث قاعدة البيانات بنجاح",
-      migrations: migrateQueries,
-    });
-
-  } catch (err) {
-    console.error("❌ Migration Error:", err);
-    res.status(500).json({
-      error: "حدث خطأ أثناء تحديث قاعدة البيانات",
-      details: err.message
-    });
-  }
-});
 
 module.exports = router;
