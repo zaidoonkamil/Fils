@@ -225,7 +225,7 @@ router.put("/consumable-store/products/:id", upload.array("images", 5), async (r
 });
 
 // تحديث المخزون منتج (Admin فقط)
-router.put("/consumable-store/products/:id/stock", async (req, res) => {
+router.put("/consumable-store/products/:id/stock", upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
     const { stock } = req.body;
