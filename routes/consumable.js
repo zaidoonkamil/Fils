@@ -224,6 +224,31 @@ router.put("/consumable-store/products/:id", upload.array("images", 5), async (r
   }
 });
 
+// تحديث المخزون منتج (Admin فقط)
+router.put("/consumable-store/products/:id/stock", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { stock } = req.body;
+    if (stock === undefined) {
+        return res.status(400).json({ error: "حقل stock مطلوب" });
+    }
+
+    const product = await ConsumableProduct.findByPk(id);
+    if (!product) {
+        return res.status(404).json({ error: "المنتج غير موجود" });
+    }
+    product.stock = parseInt(stock);
+    await product.save();
+    res.status(200).json({
+        message: "تم تحديث المخزون بنجاح",
+        product,
+    });
+  } catch (error) {
+    console.error("❌ خطأ في تحديث المخزون:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
 // حذف منتج (Admin فقط)
 router.delete("/consumable-store/products/:id", async (req, res) => {
   try {
