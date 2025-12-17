@@ -395,6 +395,39 @@ router.get("/consumable-store/my-purchases/:userId", async (req, res) => {
   }
 });
 
+// جلب كل الطلبات (Admin) - مرتبة من الأحدث للأقدم مع pagination
+router.get("/consumable-store/orders", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 30;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await ConsumablePurchase.findAndCountAll({
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+      include: [
+        { model: ConsumableProduct, as: "product", attributes: ["id", "name", "price"] },
+        { model: User, as: "user", attributes: ["id", "name", "phone", "location"] },
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      orders: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit) || 0,
+      },
+    });
+  } catch (error) {
+    console.error("❌ خطأ في جلب الطلبات:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
 // جلب احصائيات متجر المنتجات الاستهلاكية (Admin فقط)
 router.get("/consumable-store/statistics", async (req, res) => {
   try {
