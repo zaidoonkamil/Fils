@@ -407,7 +407,7 @@ router.get("/consumable-store/orders", async (req, res) => {
       limit,
       offset,
       include: [
-        { model: ConsumableProduct, as: "product", attributes: ["id", "name", "price"] },
+        { model: ConsumableProduct, as: "product", attributes: ["id", "name", "price", "images"] },
         { model: User, as: "user", attributes: ["id", "name", "phone", "location"] },
       ],
     });
