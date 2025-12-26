@@ -494,7 +494,9 @@ router.put("/consumable-store/orders/:orderId/status", upload.none(), async (req
 // جلب الطلبات حسب الحالة مع إحصائيات (Admin فقط)
 router.get("/consumable-store/orders/status-summary", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 10;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 30, 30);
+    const offset = (page - 1) * limit;
     const statusParam = req.query.status;
     const validStatuses = ["pending", "in_delivery", "completed", "cancelled"];
 
@@ -520,7 +522,7 @@ router.get("/consumable-store/orders/status-summary", async (req, res) => {
         revenue: counts && counts[0] ? parseFloat(counts[0].totalRevenue) || 0 : 0,
       };
 
-      const orders = await ConsumablePurchase.findAll({
+      const { count, rows: orders } = await ConsumablePurchase.findAndCountAll({
         where: { status: statusParam },
         attributes: ["id", "userId", "productId", "quantity", "totalPrice", "phone", "location", "status", "createdAt", "updatedAt"],
         include: [
@@ -529,12 +531,19 @@ router.get("/consumable-store/orders/status-summary", async (req, res) => {
         ],
         order: [["createdAt", "DESC"]],
         limit,
+        offset,
       });
 
       return res.status(200).json({
         success: true,
         summary: summarySingle,
         orders: { [statusParam]: orders },
+        pagination: {
+          total: count,
+          page,
+          limit,
+          totalPages: Math.ceil(count / limit) || 0,
+        },
       });
     }
 
@@ -565,7 +574,7 @@ router.get("/consumable-store/orders/status-summary", async (req, res) => {
     const statuses = validStatuses;
     const ordersByStatus = {};
     for (const s of statuses) {
-      const orders = await ConsumablePurchase.findAll({
+      const { count, rows: orders } = await ConsumablePurchase.findAndCountAll({
         where: { status: s },
         attributes: ["id", "userId", "productId", "quantity", "totalPrice", "phone", "location", "status", "createdAt", "updatedAt"],
         include: [
@@ -574,9 +583,18 @@ router.get("/consumable-store/orders/status-summary", async (req, res) => {
         ],
         order: [["createdAt", "DESC"]],
         limit,
+        offset,
       });
 
-      ordersByStatus[s] = orders;
+      ordersByStatus[s] = {
+        orders,
+        pagination: {
+          total: count,
+          page,
+          limit,
+          totalPages: Math.ceil(count / limit) || 0,
+        },
+      };
     }
 
     res.status(200).json({
