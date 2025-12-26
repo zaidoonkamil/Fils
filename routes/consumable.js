@@ -738,39 +738,4 @@ router.get("/consumable-store/featured-products", async (req, res) => {
   }
 });
 
-router.post("/consumable-store/fix-status-column", async (req, res) => {
-  try {
-    // نفحص إذا العمود موجود
-    const [columns] = await sequelize.query(`
-      SHOW COLUMNS FROM consumable_purchases LIKE 'status';
-    `);
-
-    if (columns.length > 0) {
-      return res.status(200).json({
-        success: true,
-        message: "العمود status موجود مسبقًا، لا يوجد شيء لإصلاحه",
-      });
-    }
-
-    // إضافة العمود إذا غير موجود
-    await sequelize.query(`
-      ALTER TABLE consumable_purchases
-      ADD COLUMN status ENUM('pending','in_delivery','completed','cancelled')
-      NOT NULL DEFAULT 'pending';
-    `);
-
-    return res.status(200).json({
-      success: true,
-      message: "✅ تم إضافة عمود status بنجاح إلى جدول consumable_purchases",
-    });
-
-  } catch (error) {
-    console.error("❌ خطأ في إصلاح العمود status:", error);
-    res.status(500).json({
-      error: "فشل إصلاح عمود status",
-      details: error.message,
-    });
-  }
-});
-
 module.exports = router;
