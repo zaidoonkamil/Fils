@@ -537,7 +537,7 @@ router.get("/consumable-store/orders/status-summary", async (req, res) => {
       return res.status(200).json({
         success: true,
         summary: summarySingle,
-        orders: { [statusParam]: orders },
+        orders,
         pagination: {
           total: count,
           page,
