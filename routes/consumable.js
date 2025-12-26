@@ -441,31 +441,76 @@ router.get("/consumable-store/orders", async (req, res) => {
 
 // تحديث حالة الطلب (Admin فقط)
 router.put("/consumable-store/orders/:orderId/status", upload.none(), async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { orderId } = req.params;
     const { status } = req.body;
 
     const validStatuses = ["pending", "in_delivery", "completed", "cancelled"];
     if (!status || !validStatuses.includes(status)) {
-      return res.status(400).json({ 
-        error: "الحالة غير صحيحة. الحالات المتاحة: pending, in_delivery, completed, cancelled" 
+      await t.rollback();
+      return res.status(400).json({
+        error: "الحالة غير صحيحة. الحالات المتاحة: pending, in_delivery, completed, cancelled",
       });
     }
 
-    const purchase = await ConsumablePurchase.findByPk(orderId);
+    const purchase = await ConsumablePurchase.findByPk(orderId, { transaction: t });
     if (!purchase) {
+      await t.rollback();
       return res.status(404).json({ error: "الطلب غير موجود" });
     }
 
     const oldStatus = purchase.status;
+
+    if (oldStatus === status) {
+      await t.rollback();
+      return res.status(200).json({
+        success: true,
+        message: "نفس الحالة الحالية، لا يوجد تحديث",
+        order: {
+          id: purchase.id,
+          oldStatus,
+          newStatus: purchase.status,
+          updatedAt: purchase.updatedAt,
+        },
+      });
+    }
+
+    let refundDone = false;
+    let stockRestored = false;
+
+    if (status === "cancelled" && oldStatus !== "cancelled") {
+      const user = await User.findByPk(purchase.userId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!user) {
+        await t.rollback();
+        return res.status(404).json({ error: "المستخدم غير موجود" });
+      }
+
+      const product = await ConsumableProduct.findByPk(purchase.productId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!product) {
+        await t.rollback();
+        return res.status(404).json({ error: "المنتج غير موجود" });
+      }
+
+      user.sawa = (Number(user.sawa) || 0) + (Number(purchase.totalPrice) || 0);
+      await user.save({ transaction: t });
+      refundDone = true;
+
+      product.stock = (Number(product.stock) || 0) + (Number(purchase.quantity) || 0);
+      await product.save({ transaction: t });
+      stockRestored = true;
+    }
+
     purchase.status = status;
-    await purchase.save();
+    await purchase.save({ transaction: t });
+
+    await t.commit();
 
     const statusMessages = {
       pending: "جاري معالجة طلبك",
       in_delivery: "طلبك في الطريق للتوصيل",
       completed: "تم تسليم طلبك بنجاح",
-      cancelled: "تم إلغاء طلبك"
+      cancelled: "تم إلغاء طلبك",
     };
 
     await sendNotificationToUser(
@@ -474,20 +519,27 @@ router.put("/consumable-store/orders/:orderId/status", upload.none(), async (req
       "تحديث حالة الطلب"
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "تم تحديث حالة الطلب بنجاح",
+      message:
+        status === "cancelled"
+          ? "تم إلغاء الطلب وإرجاع المبلغ والمخزون"
+          : "تم تحديث حالة الطلب بنجاح",
       order: {
         id: purchase.id,
         oldStatus,
         newStatus: purchase.status,
         updatedAt: purchase.updatedAt,
       },
+      effects: {
+        refundDone,
+        stockRestored,
+      },
     });
-
   } catch (error) {
+    try { await t.rollback(); } catch (_) {}
     console.error("❌ خطأ في تحديث حالة الطلب:", error);
-    res.status(500).json({ error: "حدث خطأ في الخادم" });
+    return res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
 
