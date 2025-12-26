@@ -358,14 +358,20 @@ router.get("/consumable-store/my-purchases/:userId", async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
+    const status = req.query.status; // optional filter
 
     const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
+    const whereClause = { userId };
+    if (status) {
+      whereClause.status = status;
+    }
+
     const { count, rows: purchases } = await ConsumablePurchase.findAndCountAll({
-      where: { userId },
+      where: whereClause,
       include: [
         {
           model: ConsumableProduct,
@@ -401,8 +407,13 @@ router.get("/consumable-store/orders", async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 30;
     const offset = (page - 1) * limit;
+    const status = req.query.status; // optional filter
+
+    const whereClause = status ? { status } : {};
 
     const { count, rows } = await ConsumablePurchase.findAndCountAll({
+      where: whereClause,
+      attributes: ["id", "userId", "productId", "quantity", "totalPrice", "phone", "location", "status", "createdAt", "updatedAt"],
       order: [["createdAt", "DESC"]],
       limit,
       offset,
@@ -424,6 +435,158 @@ router.get("/consumable-store/orders", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ خطأ في جلب الطلبات:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
+// تحديث حالة الطلب (Admin فقط)
+router.put("/consumable-store/orders/:orderId/status", upload.none(), async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ["pending", "in_delivery", "completed", "cancelled"];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        error: "الحالة غير صحيحة. الحالات المتاحة: pending, in_delivery, completed, cancelled" 
+      });
+    }
+
+    const purchase = await ConsumablePurchase.findByPk(orderId);
+    if (!purchase) {
+      return res.status(404).json({ error: "الطلب غير موجود" });
+    }
+
+    const oldStatus = purchase.status;
+    purchase.status = status;
+    await purchase.save();
+
+    const statusMessages = {
+      pending: "جاري معالجة طلبك",
+      in_delivery: "طلبك في الطريق للتوصيل",
+      completed: "تم تسليم طلبك بنجاح",
+      cancelled: "تم إلغاء طلبك"
+    };
+
+    await sendNotificationToUser(
+      purchase.userId,
+      `تحديث حالة الطلب #${orderId}: ${statusMessages[status]}`,
+      "تحديث حالة الطلب"
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "تم تحديث حالة الطلب بنجاح",
+      order: {
+        id: purchase.id,
+        oldStatus,
+        newStatus: purchase.status,
+        updatedAt: purchase.updatedAt,
+      },
+    });
+
+  } catch (error) {
+    console.error("❌ خطأ في تحديث حالة الطلب:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
+// جلب الطلبات حسب الحالة مع إحصائيات (Admin فقط)
+router.get("/consumable-store/orders/status-summary", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const statusParam = req.query.status;
+    const validStatuses = ["pending", "in_delivery", "completed", "cancelled"];
+
+    if (statusParam) {
+      if (!validStatuses.includes(statusParam)) {
+        return res.status(400).json({ error: "الحالة غير صحيحة. المتاحة: pending, in_delivery, completed, cancelled" });
+      }
+
+      const counts = await ConsumablePurchase.findAll({
+        where: { status: statusParam },
+        attributes: [
+          "status",
+          [sequelize.fn("COUNT", sequelize.col("id")), "count"],
+          [sequelize.fn("SUM", sequelize.col("totalPrice")), "totalRevenue"],
+        ],
+        group: ["status"],
+        raw: true,
+      });
+
+      const summarySingle = {};
+      summarySingle[statusParam] = {
+        count: counts && counts[0] ? parseInt(counts[0].count) || 0 : 0,
+        revenue: counts && counts[0] ? parseFloat(counts[0].totalRevenue) || 0 : 0,
+      };
+
+      const orders = await ConsumablePurchase.findAll({
+        where: { status: statusParam },
+        attributes: ["id", "userId", "productId", "quantity", "totalPrice", "phone", "location", "status", "createdAt", "updatedAt"],
+        include: [
+          { model: ConsumableProduct, as: "product", attributes: ["id", "name", "price", "images"] },
+          { model: User, as: "user", attributes: ["id", "name", "phone", "location"] },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit,
+      });
+
+      return res.status(200).json({
+        success: true,
+        summary: summarySingle,
+        orders: { [statusParam]: orders },
+      });
+    }
+
+    const statusCounts = await ConsumablePurchase.findAll({
+      attributes: [
+        "status",
+        [sequelize.fn("COUNT", sequelize.col("id")), "count"],
+        [sequelize.fn("SUM", sequelize.col("totalPrice")), "totalRevenue"],
+      ],
+      group: ["status"],
+      raw: true,
+    });
+
+    const summary = {
+      pending: { count: 0, revenue: 0 },
+      in_delivery: { count: 0, revenue: 0 },
+      completed: { count: 0, revenue: 0 },
+      cancelled: { count: 0, revenue: 0 },
+    };
+
+    statusCounts.forEach(item => {
+      summary[item.status] = {
+        count: parseInt(item.count) || 0,
+        revenue: parseFloat(item.totalRevenue) || 0,
+      };
+    });
+
+    const statuses = validStatuses;
+    const ordersByStatus = {};
+    for (const s of statuses) {
+      const orders = await ConsumablePurchase.findAll({
+        where: { status: s },
+        attributes: ["id", "userId", "productId", "quantity", "totalPrice", "phone", "location", "status", "createdAt", "updatedAt"],
+        include: [
+          { model: ConsumableProduct, as: "product", attributes: ["id", "name", "price", "images"] },
+          { model: User, as: "user", attributes: ["id", "name", "phone", "location"] },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit,
+      });
+
+      ordersByStatus[s] = orders;
+    }
+
+    res.status(200).json({
+      success: true,
+      summary,
+      orders: ordersByStatus,
+    });
+
+  } catch (error) {
+    console.error("❌ خطأ في جلب ملخص الحالات:", error);
     res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
@@ -466,6 +629,23 @@ router.get("/consumable-store/statistics", async (req, res) => {
       where: { createdAt: { [Op.gte]: startOfMonth } }
     });
 
+    // إحصائيات حسب الحالة
+    const completedPurchases = await ConsumablePurchase.count({
+      where: { status: "completed" }
+    });
+
+    const pendingPurchases = await ConsumablePurchase.count({
+      where: { status: "pending" }
+    });
+
+    const inDeliveryPurchases = await ConsumablePurchase.count({
+      where: { status: "in_delivery" }
+    });
+
+    const cancelledPurchases = await ConsumablePurchase.count({
+      where: { status: "cancelled" }
+    });
+
     const topProduct = await ConsumablePurchase.findOne({
       attributes: [
         "productId",
@@ -503,6 +683,13 @@ router.get("/consumable-store/statistics", async (req, res) => {
         salesStats: {
           todayPurchases,
           monthPurchases
+        },
+
+        orderStatusStats: {
+          completed: completedPurchases,
+          pending: pendingPurchases,
+          in_delivery: inDeliveryPurchases,
+          cancelled: cancelledPurchases,
         },
 
         topProduct: topProduct ? {

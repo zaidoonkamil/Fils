@@ -40,6 +40,11 @@ const ConsumablePurchase = sequelize.define(
       allowNull: true,
       comment: "موقع التسليم",
     },
+    status: {
+      type: DataTypes.ENUM("pending", "in_delivery", "completed", "cancelled"),
+      allowNull: false,
+      defaultValue: "pending",
+    },
   },
   {
     tableName: "consumable_purchases",
