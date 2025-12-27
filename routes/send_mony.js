@@ -470,7 +470,7 @@ router.post("/deposit-sawa", upload.none(), async (req, res) => {
 
 router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) => {
   try {
-    const { userId, amount, method, accountNumber } = req.body;
+    const { userId, amount, method, accountNumber, cardOfName} = req.body;
 
     /*
     if (!req.files || req.files.length === 0) {
@@ -478,7 +478,7 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
     }
     */
 
-    if (!userId || !amount || !method || !accountNumber) {
+    if (!userId || !amount || !method || !accountNumber || !cardOfName) {
       return res.status(400).json({ message: "يرجى إدخال جميع الحقول" });
     }
 
@@ -511,7 +511,6 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
 
     console.log("commission:", commission, "netAmount:", netAmount);
 
-    // التحقق من الحد الأدنى بعد خصم العمولة
     if (netAmount < minAmount) {
       return res.status(400).json({
         message: `الحد الأدنى للسحب هو ${minAmount} بعد خصم العمولة`,
@@ -534,6 +533,7 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
       userId,
       amount: netAmount,
       method,
+      cardOfName,
       accountNumber,
       images,
       status: "قيد الانتظار",
@@ -563,7 +563,7 @@ router.get("/withdrawalRequest/pending", async (req, res) => {
     const requests = await WithdrawalRequest.findAll({
       where: { status: "قيد الانتظار" },
       order: [["createdAt", "DESC"]],
-      attributes: ["id", "amount", "method", "accountNumber", "status", "images", "createdAt"],
+      attributes: ["id", "amount", "method", "accountNumber", "status", "cardOfName","images", "createdAt"],
       include: [
         {
           model: User,
@@ -599,7 +599,7 @@ router.get("/withdrawalRequest/processed", async (req, res) => {
       order: [["createdAt", "DESC"]],
       limit,
       offset,
-      attributes: ["id", "amount", "method", "accountNumber", "status", "images", "createdAt"],
+      attributes: ["id", "amount", "method", "accountNumber", "cardOfName", "status", "images", "createdAt"],
       include: [
         {
           model: User,

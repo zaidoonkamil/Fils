@@ -15,6 +15,10 @@ const WithdrawalRequest = sequelize.define("WithdrawalRequest", {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
+  cardOfName: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+  },
   amount: {
     type: DataTypes.DOUBLE,
     allowNull: false,
