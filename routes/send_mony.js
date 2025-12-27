@@ -472,10 +472,12 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
   try {
     const { userId, amount, method, accountNumber } = req.body;
 
-    // التحقق من الحقول والملفات
+    /*
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "جميع الحقول مطلوبة" });
     }
+    */
+
     if (!userId || !amount || !method || !accountNumber) {
       return res.status(400).json({ message: "يرجى إدخال جميع الحقول" });
     }
@@ -516,14 +518,18 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
       });
     }
 
-    // خصم الرصيد من المستخدم
     user.sawa -= withdrawalAmount;
     await user.save();
 
-    // حفظ أسماء الصور
-    const images = req.files.map(file => file.filename);
+    let images = [];
 
-    // إنشاء طلب السحب
+    if (req.files && req.files.length > 0) {
+      images = req.files.map(file => file.filename);
+    } else {
+      images = ["default-withdrawal.png"];
+    }
+
+
     const newRequest = await WithdrawalRequest.create({
       userId,
       amount: netAmount,
@@ -533,7 +539,6 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
       status: "قيد الانتظار",
     });
 
-    // إرسال إشعار للأدمن
     await sendNotificationToRole(
       "admin",
       `يوجد طلب سحب جديد بمبلغ ${netAmount} عبر ${method}`,
