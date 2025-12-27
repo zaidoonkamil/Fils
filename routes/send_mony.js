@@ -557,7 +557,7 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
   }
 });
 
-router.post("/admin/db-fix/withdrawal-cardofname", authenticateToken, async (req, res) => {
+router.post("/admin/db-fix/withdrawal-cardofname", async (req, res) => {
   try {
     // اسم الجدول الحقيقي في MySQL (حسب اللّوغ عندك: WithdrawalRequests)
     const tableName = "WithdrawalRequests";
