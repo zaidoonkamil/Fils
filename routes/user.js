@@ -407,7 +407,7 @@ router.post("/login", upload.none(), async (req, res) => {
     }
 
     if (user.isVerified) {
-      user.isLoggedIn = true;
+      user.isLoggedIn = false;
       await user.save();
     }
 
