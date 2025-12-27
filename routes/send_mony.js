@@ -557,43 +557,6 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
   }
 });
 
-router.post("/admin/db-fix/withdrawal-cardofname", async (req, res) => {
-  try {
-    // اسم الجدول الحقيقي في MySQL (حسب اللّوغ عندك: WithdrawalRequests)
-    const tableName = "WithdrawalRequests";
-    const columnName = "cardOfName";
-
-    // 1) فحص إذا العمود موجود
-    const [cols] = await sequelize.query(
-      `SHOW COLUMNS FROM \`${tableName}\` LIKE :col`,
-      { replacements: { col: columnName } }
-    );
-
-    if (cols && cols.length > 0) {
-      return res.json({ message: "✅ العمود موجود مسبقًا", column: cols[0] });
-    }
-
-    // 2) إضافة العمود إذا مو موجود
-    await sequelize.query(
-      `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` VARCHAR(255) NULL AFTER \`userId\`;`
-    );
-
-    // 3) تأكيد
-    const [colsAfter] = await sequelize.query(
-      `SHOW COLUMNS FROM \`${tableName}\` LIKE :col`,
-      { replacements: { col: columnName } }
-    );
-
-    return res.json({
-      message: "✅ تم إضافة العمود cardOfName بنجاح",
-      column: colsAfter?.[0] || null,
-    });
-  } catch (error) {
-    console.error("❌ DB FIX error:", error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
 router.get("/withdrawalRequest/pending", async (req, res) => {
   try {
     const requests = await WithdrawalRequest.findAll({
