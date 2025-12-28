@@ -121,8 +121,6 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
       where: { id: userCounterId, userId },
       include: Counter
     });
-    console.log("UserCounter points:", userCounter.points);
-    console.log("Counter points:", userCounter.Counter?.points);
 
     if (!userCounter) return res.status(404).json({ error: "العداد غير موجود" });
 
@@ -130,8 +128,8 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "العداد معروض للبيع بالفعل" });
     }
 
-  if (userCounter.points < 10) {
-      return res.status(400).json({ error: "لا يمكن عرض العداد للبيع إذا كانت النقاط أقل من 10" });
+   if (userCounter.points < 10) {
+      return res.status(400).json({ error: "لا يمكن عرض العداد للبيع إذا كانت نقاط العداد أقل من 10" });
     }
     
     const originalPoints = userCounter.points; 
