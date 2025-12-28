@@ -200,6 +200,8 @@ router.get("/counters/for-sale", async (req, res) => {
 router.delete("/counters/sell/:saleId", upload.none(), async (req, res) => {
   const { saleId } = req.params;
   const { userId } = req.body;
+console.log("saleId:", saleId);
+console.log("userId:", userId);
 
   try {
     const sale = await CounterSale.findOne({
