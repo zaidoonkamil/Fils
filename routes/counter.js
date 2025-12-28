@@ -159,15 +159,27 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
 
 router.get("/counters/for-sale", async (req, res) => {
   try {
+
     const sales = await CounterSale.findAll({
-      where: { isSold: false },
+      where: {
+        isSold: false,
+      },
       include: [
-        { model: User, attributes: ['id', 'name'] },
-        { 
-          model: UserCounter, 
-          include: [Counter] 
-        }
-      ]
+        {
+          model: User,
+          required: true,
+        },
+        {
+          model: UserCounter,
+          required: true, 
+          include: [
+            {
+              model: Counter,
+              required: true,
+            },
+          ],
+        },
+      ],
     });
 
     // نحسب عدد الأيام المتبقية لكل عداد
@@ -200,8 +212,6 @@ router.get("/counters/for-sale", async (req, res) => {
 router.delete("/counters/sell/:saleId", upload.none(), async (req, res) => {
   const { saleId } = req.params;
   const { userId } = req.body;
-console.log("saleId:", saleId);
-console.log("userId:", userId);
 
   try {
     const sale = await CounterSale.findOne({
