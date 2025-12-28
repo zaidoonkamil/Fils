@@ -121,6 +121,8 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
       where: { id: userCounterId, userId },
       include: Counter
     });
+    console.log("UserCounter points:", userCounter.points);
+    console.log("Counter points:", userCounter.Counter?.points);
 
     if (!userCounter) return res.status(404).json({ error: "العداد غير موجود" });
 
