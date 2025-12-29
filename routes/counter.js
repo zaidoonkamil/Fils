@@ -215,8 +215,11 @@ router.delete("/counters/sell/:saleId", upload.none(), async (req, res) => {
 
   try {
     const sale = await CounterSale.findOne({
-      where: { id: saleId, userId },
-      include: [{ model: UserCounter }],
+      where: { id: saleId },
+      include: [{
+        model: UserCounter,
+        where: { userId } 
+      }],
     });
 
     if (!sale) {
