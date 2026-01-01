@@ -250,6 +250,30 @@ router.post('/admin/reset-password', upload.none(), async (req, res) => {
   }
 });
 
+router.post('/reset-password', upload.none(), async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور الجديدة' });
+    }
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: 'المستخدم غير موجود' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+    user.password = hashedPassword;
+    await user.save();
+
+    return res.json({ message: 'تم تحديث كلمة المرور بنجاح ✅' });
+  } catch (error) {
+    console.error('خطأ:', error);
+    return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
+  }
+});
+
 router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
 
@@ -508,6 +532,34 @@ router.get("/allusers", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching users:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/admins", async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    const parsedPage = parseInt(page) > 0 ? parseInt(page) : 1;
+    const parsedLimit = parseInt(limit) > 0 ? parseInt(limit) : 10;
+    const offset = (parsedPage - 1) * parsedLimit;
+
+    const { count, rows: admins } = await User.findAndCountAll({
+      where: { role: "admin" },
+      limit: parsedLimit,
+      offset,
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"]
+    });
+
+    res.status(200).json({
+      totalAdmins: count,
+      totalPages: Math.ceil(count / parsedLimit),
+      currentPage: parsedPage,
+      admins,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching admins:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
