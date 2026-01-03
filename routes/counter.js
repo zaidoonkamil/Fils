@@ -26,18 +26,30 @@ router.post("/counters", upload.none(), async (req, res) => {
 });
 
 router.get("/counters", async (req, res) => {
-    try {
-        const counters = await Counter.findAll({
-            where: {
-                isActive: true
-            }
-        });
-        res.status(200).json(counters);
-    } catch (err) {
-        console.error("❌ Error fetching counters:", err);
-        res.status(500).json({ error: "Internal Server Error" });
-    }
+  try {
+    const counters = await Counter.findAll({
+      where: { isActive: true },
+      order: [["id", "ASC"]],
+    });
+
+    const durationSetting = await Settings.findOne({
+      where: { key: "counter_duration_days", isActive: true },
+    });
+
+    const durationDays = durationSetting ? parseInt(durationSetting.value, 10) : 365;
+
+    const result = counters.map((c) => ({
+      ...c.toJSON(),
+      durationDays, 
+    }));
+
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("❌ Error fetching counters:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
+
 
 router.post("/assign-counter", upload.none(), async (req, res) => {
   const { userId, counterId } = req.body;
