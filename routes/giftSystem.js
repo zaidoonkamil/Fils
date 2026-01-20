@@ -187,7 +187,7 @@ router.get("/my-gifts/:userId", async (req, res) => {
 });
 
 // تحويل هدية يملكها المستخدم إلى نقاط
-router.post("/convert-gift/:userGiftId", async (req, res) => {
+router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
     try {
         const { userGiftId } = req.params;
         const { userId } = req.body; // للتأكد من المالك
