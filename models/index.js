@@ -26,6 +26,8 @@ const ProductPurchase = require("./ProductPurchase");
 const ConsumableCategory = require("./ConsumableCategory");
 const ConsumableProduct = require("./ConsumableProduct");
 const ConsumablePurchase = require("./ConsumablePurchase");
+const GiftItem = require("./GiftItem");
+const UserGift = require("./UserGift");
 
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
@@ -58,10 +60,10 @@ User.hasMany(WithdrawalRequest, { foreignKey: 'userId', as: 'withdrawalRequests'
 User.hasMany(UserDevice, { foreignKey: 'user_id', as: 'devices', onDelete: 'CASCADE' });
 UserDevice.belongsTo(User, { foreignKey: 'user_id', as: 'user', onDelete: 'CASCADE' });
 
-ChatMessage.belongsTo(User, { as: "sender", foreignKey: "senderId" , onDelete: 'CASCADE'});
-ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId" , onDelete: 'CASCADE'});
-User.hasMany(ChatMessage, { as: "sentMessages", foreignKey: "senderId" , onDelete: 'CASCADE'});
-User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId" , onDelete: 'CASCADE'});
+ChatMessage.belongsTo(User, { as: "sender", foreignKey: "senderId", onDelete: 'CASCADE' });
+ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId", onDelete: 'CASCADE' });
+User.hasMany(ChatMessage, { as: "sentMessages", foreignKey: "senderId", onDelete: 'CASCADE' });
+User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId", onDelete: 'CASCADE' });
 
 User.hasOne(AgentRequest, { foreignKey: 'userId', onDelete: 'CASCADE' });
 AgentRequest.belongsTo(User, { foreignKey: 'userId', onDelete: 'CASCADE' });
@@ -89,6 +91,18 @@ ConsumablePurchase.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete:
 
 ConsumableProduct.hasMany(ConsumablePurchase, { foreignKey: 'productId', as: 'purchaseHistory', onDelete: 'CASCADE' });
 ConsumablePurchase.belongsTo(ConsumableProduct, { foreignKey: 'productId', as: 'product', onDelete: 'CASCADE' });
+
+// علاقات نظام الهدايا المتقدم
+// 1. GiftItem Relationships
+GiftItem.hasMany(UserGift, { foreignKey: 'giftItemId', as: 'instances', onDelete: 'CASCADE' });
+UserGift.belongsTo(GiftItem, { foreignKey: 'giftItemId', as: 'item', onDelete: 'CASCADE' });
+
+// 2. User Relationships
+User.hasMany(UserGift, { foreignKey: 'userId', as: 'myGifts', onDelete: 'CASCADE' }); // Gifts owned by user
+UserGift.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' }); // Owner
+
+User.hasMany(UserGift, { foreignKey: 'senderId', as: 'sentGifts', onDelete: 'CASCADE' }); // Gifts sent by user (historical)
+UserGift.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'CASCADE' }); // Sender (optional)
 
 module.exports = {
   User,
@@ -118,5 +132,7 @@ module.exports = {
   ProductPurchase,
   ConsumableCategory,
   ConsumableProduct,
-  ConsumablePurchase
+  ConsumablePurchase,
+  GiftItem,
+  UserGift
 };

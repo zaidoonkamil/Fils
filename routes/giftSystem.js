@@ -1,0 +1,232 @@
+const express = require("express");
+const router = express.Router();
+const { User, GiftItem, UserGift } = require("../models");
+const upload = require("../middlewares/uploads");
+const { Op } = require("sequelize");
+
+// --- Catalog Management (GiftItem) ---
+
+// إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
+router.post("/gift-items", upload.single("image"), async (req, res) => {
+    try {
+        const { name, points } = req.body;
+        let image = req.file ? req.file.path : null;
+
+        if (!name || !points || !image) {
+            return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، والصورة" });
+        }
+
+        const newItem = await GiftItem.create({
+            name,
+            points,
+            image
+        });
+
+        res.json({ message: "تمت إضافة الهدية للمتجر", item: newItem });
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء إضافة الهدية:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء إضافة الهدية" });
+    }
+});
+
+// عرض جميع الهدايا المتاحة في المتجر (اختياري: يمكن تصفية المتاح فقط للمستخدمين)
+router.get("/gift-items", async (req, res) => {
+    try {
+        const { includeUnavailable } = req.query; // للسماح للأدمن برؤية الكل
+
+        const whereClause = {};
+        if (includeUnavailable !== "true") {
+            whereClause.isAvailable = true;
+        }
+
+        const items = await GiftItem.findAll({ where: whereClause });
+        res.json(items);
+    } catch (error) {
+        console.error("❌ خطأ أثناء جلب الهدايا:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
+    }
+});
+
+// تعديل حالة الهدية (إيقاف/تفعيل) - بدلاً من التعليق
+router.patch("/gift-items/:id/toggle", async (req, res) => {
+    try {
+        const giftItemId = req.params.id;
+        const item = await GiftItem.findByPk(giftItemId);
+
+        if (!item) {
+            return res.status(404).json({ error: "الهدية غير موجودة" });
+        }
+
+        // عكس الحالة الحالية
+        item.isAvailable = !item.isAvailable;
+        await item.save();
+
+        res.json({
+            message: item.isAvailable ? "تم تفعيل الهدية" : "تم إيقاف عرض الهدية",
+            item
+        });
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء تعديل حالة الهدية:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء التعديل" });
+    }
+});
+
+
+
+// --- Transactions & UserGifts ---
+
+// شراء هدية (تضاف لمخزون المستخدم)
+router.post("/buy-gift/:giftItemId", async (req, res) => {
+    try {
+        const { userId } = req.body;
+        const { giftItemId } = req.params;
+
+        const user = await User.findByPk(userId);
+        const item = await GiftItem.findByPk(giftItemId);
+
+        if (!user || !item) {
+            return res.status(404).json({ error: "المستخدم أو الهدية غير موجودة" });
+        }
+
+        if (user.Jewel < item.points) {
+            return res.status(400).json({ error: "رصيد النقاط غير كافي" });
+        }
+
+        if (!item.isAvailable) {
+            return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
+        }
+
+        // خصم النقاط
+        user.Jewel -= item.points;
+        await user.save();
+
+        // إنشاء الهدية في مخزون المستخدم
+        const userGift = await UserGift.create({
+            userId,
+            giftItemId,
+            status: "active"
+            // senderId is null (bought by self)
+        });
+
+        res.json({ message: "تم شراء الهدية بنجاح", userGift, newBalance: user.Jewel });
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء شراء الهدية:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء شراء الهدية" });
+    }
+});
+
+// منح هدية لشخص آخر (تحويل ملكية)
+// يمكن للمستخدم إما شراء هدية وإرسالها مباشرة (في خطوة واحدة - تحتاج تعديل)
+// أو إرسال هدية يمتلكها بالفعل. بناءً على الطلب، سأفترض "إرسال هدية يمتلكها" أو "شراء وإرسال".
+// سأوفر راوت "شراء وإرسال" لأنه الأكثر شيوعاً كـ "Send Gift". 
+// إذا كان يريد إرسال هدية من مخزونه، يمكننا إضافة راوت آخر.
+// هنا سأنفذ: شراء وإرسال (Send Gift) كما هو متعارف عليه.
+router.post("/send-gift", async (req, res) => {
+    try {
+        const { senderId, receiverId, giftItemId } = req.body;
+
+        const sender = await User.findByPk(senderId);
+        const receiver = await User.findByPk(receiverId);
+        const item = await GiftItem.findByPk(giftItemId);
+
+        if (!sender || !receiver || !item) {
+            return res.status(404).json({ error: "بيانات غير صحيحة" });
+        }
+
+        if (sender.Jewel < item.points) {
+            return res.status(400).json({ error: "رصيد النقاط غير كافي" });
+        }
+
+        if (!item.isAvailable) {
+            return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
+        }
+
+        // الخصم من المرسل
+        sender.Jewel -= item.points;
+        await sender.save();
+
+        // إنشاء الهدية للمستلم
+        const userGift = await UserGift.create({
+            userId: receiverId, // المالك الجديد هو المستلم
+            senderId,           // المرسل
+            giftItemId,
+            status: "active"
+        });
+
+        res.json({ message: "تم إرسال الهدية بنجاح", userGift });
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء إرسال الهدية:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية" });
+    }
+});
+
+
+// عرض الهدايا التي يملكها المستخدم
+router.get("/my-gifts/:userId", async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const gifts = await UserGift.findAll({
+            where: { userId, status: "active" },
+            include: [
+                { model: GiftItem, as: "item" },
+                { model: User, as: "sender", attributes: ["id", "name"] } // لمعرفة من أرسلها
+            ],
+            order: [["createdAt", "DESC"]]
+        });
+
+        res.json(gifts);
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء جلب الهدايا:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
+    }
+});
+
+// تحويل هدية يملكها المستخدم إلى نقاط
+router.post("/convert-gift/:userGiftId", async (req, res) => {
+    try {
+        const { userGiftId } = req.params;
+        const { userId } = req.body; // للتأكد من المالك
+
+        const userGift = await UserGift.findOne({
+            where: { id: userGiftId },
+            include: { model: GiftItem, as: "item" }
+        });
+
+        if (!userGift) {
+            return res.status(404).json({ error: "الهدية غير موجودة" });
+        }
+
+        if (userGift.userId != userId) {
+            return res.status(403).json({ error: "لا تملك هذه الهدية" });
+        }
+
+        if (userGift.status !== "active") {
+            return res.status(400).json({ error: "الهدية مستخدمة بالفعل" });
+        }
+
+        const pointsToAdd = userGift.item.points;
+
+        // إضافة النقاط للمالك
+        const user = await User.findByPk(userId);
+        user.Jewel += pointsToAdd;
+        await user.save();
+
+        // تحديث الحالة
+        userGift.status = "converted";
+        await userGift.save();
+
+        res.json({ message: "تم تحويل الهدية لنقاط", addedPoints: pointsToAdd, newBalance: user.Jewel });
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء تحويل الهدية:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء تحويل الهدية" });
+    }
+});
+
+module.exports = router;

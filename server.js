@@ -17,6 +17,7 @@ const roomsRouter = require("./routes/rooms.js");
 const adsRouter = require("./routes/ads");
 const store = require("./routes/store");
 const consumable = require("./routes/consumable");
+const giftSystemRouter = require("./routes/giftSystem");
 const chat = require("./routes/chatRoutes");
 const initializeSocketIO = require("./socket/socketHandler.js");
 const cors = require("cors");
@@ -38,10 +39,10 @@ app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); 
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"); 
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization"); 
-  next();
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    next();
 });
 
 app.use("/uploads", express.static("./" + "uploads"));
@@ -49,11 +50,12 @@ app.use(express.static("public"));
 
 
 sequelize.sync({
-     force: false,
-    logging: console.log })
+    force: false,
+    logging: console.log
+})
     .then(() => {
-    console.log("✅ Database & User table synced!");
- }).catch(err => console.error("❌ Error syncing database:", err));
+        console.log("✅ Database & User table synced!");
+    }).catch(err => console.error("❌ Error syncing database:", err));
 
 app.get("/", (req, res) => {
     res.sendFile(__dirname + "/public/index.html");
@@ -72,6 +74,7 @@ app.use("/", roomsRouter);
 app.use("/", adsRouter);
 app.use("/", store);
 app.use("/", consumable);
+app.use("/", giftSystemRouter);
 app.use("/", chat.router);
 
 const chatNamespace = io.of("/chat");
@@ -81,6 +84,6 @@ const roomNamespace = io.of("/rooms");
 initializeSocketIO(roomNamespace);
 
 
-server.listen(1300, '0.0.0.0', () => { 
+server.listen(1300, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://0.0.0.0:1300`);
 });
