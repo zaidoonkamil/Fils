@@ -75,43 +75,43 @@ router.patch("/gift-items/:id/toggle", async (req, res) => {
 
 // شراء هدية (تضاف لمخزون المستخدم)
 router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
-    try {
-        const { userId } = req.body;
-        const { giftItemId } = req.params;
+  try {
+    const { userId } = req.body;
+    const { giftItemId } = req.params;
 
-        const user = await User.findByPk(userId);
-        const item = await GiftItem.findByPk(giftItemId);
+    const user = await User.findByPk(userId);
+    const item = await GiftItem.findByPk(giftItemId);
 
-        if (!user || !item) {
-            return res.status(404).json({ error: "المستخدم أو الهدية غير موجودة" });
-        }
-
-        if (user.Jewel < item.points) {
-            return res.status(400).json({ error: "رصيد النقاط غير كافي" });
-        }
-
-        if (!item.isAvailable) {
-            return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
-        }
-
-        // خصم النقاط
-        user.Jewel -= item.points;
-        await user.save();
-
-        // إنشاء الهدية في مخزون المستخدم
-        const userGift = await UserGift.create({
-            userId,
-            giftItemId,
-            status: "active"
-            // senderId is null (bought by self)
-        });
-
-        res.json({ message: "تم شراء الهدية بنجاح", userGift, newBalance: user.Jewel });
-
-    } catch (error) {
-        console.error("❌ خطأ أثناء شراء الهدية:", error);
-        res.status(500).json({ error: "حدث خطأ أثناء شراء الهدية" });
+    if (!user || !item) {
+      return res.status(404).json({ error: "المستخدم أو الهدية غير موجودة" });
     }
+
+    if (user.sawa < item.points) {
+      return res.status(400).json({ error: "رصيد النقاط غير كافي" });
+    }
+
+    if (!item.isAvailable) {
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
+    }
+
+    user.sawa -= item.points;
+    await user.save();
+
+    const userGift = await UserGift.create({
+      userId,
+      giftItemId,
+      status: "active",
+    });
+
+    res.json({
+      message: "تم شراء الهدية بنجاح",
+      userGift,
+      newBalance: user.sawa,
+    });
+  } catch (error) {
+    console.error("❌ خطأ أثناء شراء الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء شراء الهدية" });
+  }
 });
 
 router.post("/send-gift", async (req, res) => {
