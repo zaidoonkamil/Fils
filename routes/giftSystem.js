@@ -4,7 +4,6 @@ const { User, GiftItem, UserGift } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op } = require("sequelize");
 
-// --- Catalog Management (GiftItem) ---
 
 // إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
 router.post("/gift-items", upload.single("image"), async (req, res) => {
@@ -74,9 +73,6 @@ router.patch("/gift-items/:id/toggle", async (req, res) => {
 });
 
 
-
-// --- Transactions & UserGifts ---
-
 // شراء هدية (تضاف لمخزون المستخدم)
 router.post("/buy-gift/:giftItemId", async (req, res) => {
     try {
@@ -118,12 +114,6 @@ router.post("/buy-gift/:giftItemId", async (req, res) => {
     }
 });
 
-// منح هدية لشخص آخر (تحويل ملكية)
-// يمكن للمستخدم إما شراء هدية وإرسالها مباشرة (في خطوة واحدة - تحتاج تعديل)
-// أو إرسال هدية يمتلكها بالفعل. بناءً على الطلب، سأفترض "إرسال هدية يمتلكها" أو "شراء وإرسال".
-// سأوفر راوت "شراء وإرسال" لأنه الأكثر شيوعاً كـ "Send Gift". 
-// إذا كان يريد إرسال هدية من مخزونه، يمكننا إضافة راوت آخر.
-// هنا سأنفذ: شراء وإرسال (Send Gift) كما هو متعارف عليه.
 router.post("/send-gift", async (req, res) => {
     try {
         const { senderId, receiverId, giftItemId } = req.body;
@@ -164,27 +154,36 @@ router.post("/send-gift", async (req, res) => {
     }
 });
 
-
 // عرض الهدايا التي يملكها المستخدم
 router.get("/my-gifts/:userId", async (req, res) => {
-    try {
-        const { userId } = req.params;
+  try {
+    const { userId } = req.params;
+    const { type } = req.query;
 
-        const gifts = await UserGift.findAll({
-            where: { userId, status: "active" },
-            include: [
-                { model: GiftItem, as: "item" },
-                { model: User, as: "sender", attributes: ["id", "name"] } // لمعرفة من أرسلها
-            ],
-            order: [["createdAt", "DESC"]]
-        });
+    const where = { userId, status: "active" };
 
-        res.json(gifts);
-
-    } catch (error) {
-        console.error("❌ خطأ أثناء جلب الهدايا:", error);
-        res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
+    if (type === "purchased") {
+      where.senderId = { [Op.is]: null };
+    } else if (type === "received") {
+      where.senderId = { [Op.not]: null };
     }
+
+    const include = [{ model: GiftItem, as: "item" }];
+    if (type === "received") {
+      include.push({ model: User, as: "sender", attributes: ["id", "name"] });
+    }
+
+    const gifts = await UserGift.findAll({
+      where,
+      include,
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.json(gifts);
+  } catch (error) {
+    console.error("❌ خطأ أثناء جلب الهدايا:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
+  }
 });
 
 // تحويل هدية يملكها المستخدم إلى نقاط
