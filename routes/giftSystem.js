@@ -74,7 +74,7 @@ router.patch("/gift-items/:id/toggle", async (req, res) => {
 
 
 // شراء هدية (تضاف لمخزون المستخدم)
-router.post("/buy-gift/:giftItemId", async (req, res) => {
+router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
     try {
         const { userId } = req.body;
         const { giftItemId } = req.params;
