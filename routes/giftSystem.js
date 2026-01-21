@@ -115,43 +115,69 @@ router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
 });
 
 router.post("/send-gift", upload.none(), async (req, res) => {
-    try {
-        const { senderId, receiverId, giftItemId } = req.body;
+  const t = await User.sequelize.transaction();
+  try {
+    const { senderId, receiverId, giftItemId } = req.body;
 
-        const sender = await User.findByPk(senderId);
-        const receiver = await User.findByPk(receiverId);
-        const item = await GiftItem.findByPk(giftItemId);
-
-        if (!sender || !receiver || !item) {
-            return res.status(404).json({ error: "بيانات غير صحيحة" });
-        }
-
-        if (sender.sawa < item.points) {
-            return res.status(400).json({ error: "رصيد النقاط غير كافي" });
-        }
-
-        if (!item.isAvailable) {
-            return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
-        }
-
-        // الخصم من المرسل
-        sender.sawa -= item.points;
-        await sender.save();
-
-        // إنشاء الهدية للمستلم
-        const userGift = await UserGift.create({
-            userId: receiverId,
-            senderId,         
-            giftItemId,
-            status: "active"
-        });
-
-        res.json({ message: "تم إرسال الهدية بنجاح", userGift });
-
-    } catch (error) {
-        console.error("❌ خطأ أثناء إرسال الهدية:", error);
-        res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية" });
+    if (!senderId || !receiverId || !giftItemId) {
+      await t.rollback();
+      return res.status(400).json({ error: "senderId, receiverId, giftItemId مطلوبة" });
     }
+
+    if (String(senderId) === String(receiverId)) {
+      await t.rollback();
+      return res.status(400).json({ error: "لا يمكن إرسال هدية لنفسك" });
+    }
+
+    const receiver = await User.findByPk(receiverId, { transaction: t });
+    if (!receiver) {
+      await t.rollback();
+      return res.status(404).json({ error: "المستلم غير موجود" });
+    }
+
+    const item = await GiftItem.findByPk(giftItemId, { transaction: t });
+    if (!item) {
+      await t.rollback();
+      return res.status(404).json({ error: "الهدية غير موجودة" });
+    }
+
+    if (!item.isAvailable) {
+      await t.rollback();
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
+    }
+
+    const userGift = await UserGift.findOne({
+      where: {
+        userId: senderId,
+        giftItemId,
+        status: "active",
+        senderId: { [Op.is]: null },
+      },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!userGift) {
+      await t.rollback();
+      return res.status(400).json({ error: "لا تملك هذه الهدية في مخزونك" });
+    }
+
+    userGift.userId = receiverId;
+    userGift.senderId = senderId; 
+    await userGift.save({ transaction: t });
+
+    await t.commit();
+
+    return res.json({
+      message: "تم إرسال الهدية بنجاح",
+      userGift,
+    });
+
+  } catch (error) {
+    console.error("❌ خطأ أثناء إرسال الهدية:", error);
+    await t.rollback();
+    res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية" });
+  }
 });
 
 // عرض الهدايا التي يملكها المستخدم
