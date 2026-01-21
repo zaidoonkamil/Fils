@@ -114,7 +114,7 @@ router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
   }
 });
 
-router.post("/send-gift", async (req, res) => {
+router.post("/send-gift", upload.none(), async (req, res) => {
     try {
         const { senderId, receiverId, giftItemId } = req.body;
 
@@ -126,7 +126,7 @@ router.post("/send-gift", async (req, res) => {
             return res.status(404).json({ error: "بيانات غير صحيحة" });
         }
 
-        if (sender.Jewel < item.points) {
+        if (sender.sawa < item.points) {
             return res.status(400).json({ error: "رصيد النقاط غير كافي" });
         }
 
@@ -135,13 +135,13 @@ router.post("/send-gift", async (req, res) => {
         }
 
         // الخصم من المرسل
-        sender.Jewel -= item.points;
+        sender.sawa -= item.points;
         await sender.save();
 
         // إنشاء الهدية للمستلم
         const userGift = await UserGift.create({
-            userId: receiverId, // المالك الجديد هو المستلم
-            senderId,           // المرسل
+            userId: receiverId,
+            senderId,         
             giftItemId,
             status: "active"
         });
