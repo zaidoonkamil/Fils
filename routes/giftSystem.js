@@ -3,7 +3,7 @@ const router = express.Router();
 const { User, GiftItem, UserGift } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op } = require("sequelize");
-
+const { connectedUsers } = require("../socket/socketHandler");
 
 // إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
 router.post("/gift-items", upload.single("image"), async (req, res) => {
@@ -114,14 +114,18 @@ router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
   }
 });
 
+
 router.post("/send-gift", upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
+
   try {
     const { senderId, receiverId, giftItemId } = req.body;
 
     if (!senderId || !receiverId || !giftItemId) {
       await t.rollback();
-      return res.status(400).json({ error: "senderId, receiverId, giftItemId مطلوبة" });
+      return res
+        .status(400)
+        .json({ error: "senderId, receiverId, giftItemId مطلوبة" });
     }
 
     if (String(senderId) === String(receiverId)) {
@@ -129,7 +133,19 @@ router.post("/send-gift", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "لا يمكن إرسال هدية لنفسك" });
     }
 
-    const receiver = await User.findByPk(receiverId, { transaction: t });
+    const sender = await User.findByPk(senderId, {
+      transaction: t,
+      attributes: ["id", "name"],
+    });
+    if (!sender) {
+      await t.rollback();
+      return res.status(404).json({ error: "المرسل غير موجود" });
+    }
+
+    const receiver = await User.findByPk(receiverId, {
+      transaction: t,
+      attributes: ["id", "name"],
+    });
     if (!receiver) {
       await t.rollback();
       return res.status(404).json({ error: "المستلم غير موجود" });
@@ -163,16 +179,50 @@ router.post("/send-gift", upload.none(), async (req, res) => {
     }
 
     userGift.userId = receiverId;
-    userGift.senderId = senderId; 
+    userGift.senderId = senderId;
     await userGift.save({ transaction: t });
 
     await t.commit();
 
+    const payload = {
+      message: "وصلتك هدية جديدة 🎁",
+      userGift: {
+        id: userGift.id,
+        status: userGift.status,
+        createdAt: userGift.createdAt,
+        sender: {
+          id: sender.id,
+          name: sender.name,
+        },
+        item: {
+          id: item.id,
+          name: item.name,
+          points: item.points,
+          image: item.image,
+        },
+      },
+    };
+
+    const roomsIO = req.app.get("roomsIO");
+    const receiverSocketId = connectedUsers.get(String(receiverId));
+
+    if (roomsIO && receiverSocketId) {
+      roomsIO.to(receiverSocketId).emit("gift-received", payload);
+    }
+
+    const senderSocketId = connectedUsers.get(String(senderId));
+    if (roomsIO && senderSocketId) {
+      roomsIO.to(senderSocketId).emit("gift-sent", {
+        message: "تم إرسال الهدية بنجاح ✅",
+        receiver: { id: receiver.id, name: receiver.name },
+        item: payload.userGift.item,
+      });
+    }
+
     return res.json({
       message: "تم إرسال الهدية بنجاح",
-      userGift,
+      ...payload,
     });
-
   } catch (error) {
     console.error("❌ خطأ أثناء إرسال الهدية:", error);
     await t.rollback();

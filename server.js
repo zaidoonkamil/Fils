@@ -19,7 +19,7 @@ const store = require("./routes/store");
 const consumable = require("./routes/consumable");
 const giftSystemRouter = require("./routes/giftSystem");
 const chat = require("./routes/chatRoutes");
-const initializeSocketIO = require("./socket/socketHandler.js");
+const { initializeSocketIO } = require("./socket/socketHandler.js");
 const cors = require("cors");
 require("./cron");
 
@@ -82,6 +82,7 @@ chat.initChatSocket(chatNamespace);
 
 const roomNamespace = io.of("/rooms");
 initializeSocketIO(roomNamespace);
+app.set("roomsIO", roomNamespace);
 
 
 server.listen(1300, '0.0.0.0', () => {
