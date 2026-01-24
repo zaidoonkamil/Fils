@@ -57,7 +57,7 @@ function initializeSocketIO(io) {
 
             socket.emit("kicked-block", {
               roomId,
-              message: `أنت مطرود من هذه الغرفة. باقي ${secondsLeft} ثانية`,
+              message: `انت مطرود من هذه الغرفة`,
               secondsLeft,
               expireAt,
             });
