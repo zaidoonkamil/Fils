@@ -6,6 +6,7 @@ const roomUsers = new Map();
 
 // userId -> socketId
 const connectedUsers = new Map();
+const kickedUsers = new Map();
 
 function initializeSocketIO(io) {
   io.use(async (socket, next) => {
@@ -45,6 +46,26 @@ function initializeSocketIO(io) {
         if (!room || !room.isActive) {
           socket.emit("error", { message: "الغرفة غير موجودة أو غير نشطة" });
           return;
+        }
+
+        const kickedMap = kickedUsers.get(roomId);
+        if (kickedMap && kickedMap.has(String(socket.userId))) {
+          const expireAt = kickedMap.get(String(socket.userId));
+
+          if (Date.now() < expireAt) {
+            const secondsLeft = Math.ceil((expireAt - Date.now()) / 1000);
+
+            socket.emit("kicked-block", {
+              roomId,
+              message: `أنت مطرود من هذه الغرفة. باقي ${secondsLeft} ثانية`,
+              secondsLeft,
+              expireAt,
+            });
+            return; 
+          } else {
+            kickedMap.delete(String(socket.userId));
+            if (kickedMap.size === 0) kickedUsers.delete(roomId);
+          }
         }
 
         socket.join(`room-${roomId}`);
@@ -167,46 +188,122 @@ function initializeSocketIO(io) {
       });
     });
 
-    socket.on("disconnect", async () => {
-      console.log(`User ${socket.userName} disconnected`);
-
-      // ✅ remove from online map
-      connectedUsers.delete(String(socket.userId));
-
-      // remove from rooms
-      for (const [roomId, usersSet] of roomUsers.entries()) {
-        let removed = false;
-
-        for (const u of usersSet) {
-          if (u.socketId === socket.id) {
-            usersSet.delete(u);
-            removed = true;
-            break;
-          }
+    socket.on("kick-user", async ({ roomId, userId }) => {
+      try {
+        const room = await Room.findByPk(roomId);
+        if (!room || !room.isActive) {
+          socket.emit("error", { message: "الغرفة غير موجودة" });
+          return;
         }
 
-        if (removed) {
-          const room = await Room.findByPk(roomId);
-          if (room) await room.update({ currentUsers: usersSet.size });
+        if (String(userId) === String(socket.userId)) {
+          socket.emit("error", { message: "ما تگدر تطرد نفسك" });
+          return;
+        }
 
-          socket.to(`room-${roomId}`).emit("user-left", {
-            userId: socket.userId,
-            userName: socket.userName,
-            message: `${socket.userName} غادر الغرفة`,
+        const me = await User.findByPk(socket.userId, { attributes: ["id", "role"] });
+        const isAdmin = me?.role === "admin";
+        const isCreator = String(room.creatorId) === String(socket.userId);
+
+        if (!isAdmin && !isCreator) {
+          socket.emit("error", { message: "غير مصرح" });
+          return;
+        }
+
+        const DURATION_SECONDS = 6 * 60 * 60; // 21600
+        const expireAt = Date.now() + DURATION_SECONDS * 1000;
+
+        // ✅ خزّن الحظر
+        if (!kickedUsers.has(roomId)) kickedUsers.set(roomId, new Map());
+        kickedUsers.get(roomId).set(String(userId), expireAt);
+
+        const usersSet = roomUsers.get(roomId);
+        let target = null;
+        if (usersSet) {
+          target = [...usersSet].find((u) => String(u.id) === String(userId));
+          if (target) usersSet.delete(target);
+        }
+
+        const targetSocketId = target?.socketId || connectedUsers.get(String(userId));
+        const targetSocket = targetSocketId
+          ? io.sockets.sockets.get(targetSocketId)
+          : null;
+
+        if (targetSocket) {
+          targetSocket.leave(`room-${roomId}`);
+          targetSocket.emit("kicked", {
+            roomId,
+            message: "تم طردك من الغرفة لمدة 6 ساعات",
+            expireAt,
           });
+        }
 
+        if (usersSet) {
+          await room.update({ currentUsers: usersSet.size });
+        }
+
+        socket.to(`room-${roomId}`).emit("user-left", {
+          userId: String(userId),
+          message: "تم طرد المستخدم من الغرفة",
+        });
+
+        if (usersSet) {
           const currentUsers = Array.from(usersSet).map((u) => ({
             id: u.id,
             name: u.name,
           }));
           io.to(`room-${roomId}`).emit("room-users", currentUsers);
-        }
 
-        if (usersSet.size === 0) roomUsers.delete(roomId);
+          if (usersSet.size === 0) roomUsers.delete(roomId);
+        }
+      } catch (e) {
+        console.error("kick-user error:", e);
+        socket.emit("error", { message: "خطأ بالطرد" });
       }
     });
-  });
-}
+
+
+
+        socket.on("disconnect", async () => {
+          console.log(`User ${socket.userName} disconnected`);
+
+          // ✅ remove from online map
+          connectedUsers.delete(String(socket.userId));
+
+          // remove from rooms
+          for (const [roomId, usersSet] of roomUsers.entries()) {
+            let removed = false;
+
+            for (const u of usersSet) {
+              if (u.socketId === socket.id) {
+                usersSet.delete(u);
+                removed = true;
+                break;
+              }
+            }
+
+            if (removed) {
+              const room = await Room.findByPk(roomId);
+              if (room) await room.update({ currentUsers: usersSet.size });
+
+              socket.to(`room-${roomId}`).emit("user-left", {
+                userId: socket.userId,
+                userName: socket.userName,
+                message: `${socket.userName} غادر الغرفة`,
+              });
+
+              const currentUsers = Array.from(usersSet).map((u) => ({
+                id: u.id,
+                name: u.name,
+              }));
+              io.to(`room-${roomId}`).emit("room-users", currentUsers);
+            }
+
+            if (usersSet.size === 0) roomUsers.delete(roomId);
+          }
+        });
+      });
+    }
 
 module.exports = {
   initializeSocketIO,
