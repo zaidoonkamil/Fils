@@ -281,10 +281,6 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
             return res.status(403).json({ error: "لا تملك هذه الهدية" });
         }
 
-        if (userGift.status !== "active") {
-            return res.status(400).json({ error: "الهدية مستخدمة بالفعل" });
-        }
-
         const pointsToAdd = userGift.item.points;
 
         // إضافة النقاط للمالك
