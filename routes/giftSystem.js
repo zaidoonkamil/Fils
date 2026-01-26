@@ -264,40 +264,40 @@ router.get("/my-gifts/:userId", async (req, res) => {
 
 // تحويل هدية يملكها المستخدم إلى نقاط
 router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
-    try {
-        const { userGiftId } = req.params;
-        const { userId } = req.body; // للتأكد من المالك
+  try {
+    const { userGiftId } = req.params;
+    const { userId } = req.body;
 
-        const userGift = await UserGift.findOne({
-            where: { id: userGiftId },
-            include: { model: GiftItem, as: "item" }
-        });
+    const userGift = await UserGift.findOne({
+      where: { id: userGiftId },
+      include: { model: GiftItem, as: "item" },
+    });
 
-        if (!userGift) {
-            return res.status(404).json({ error: "الهدية غير موجودة" });
-        }
-
-        if (userGift.userId != userId) {
-            return res.status(403).json({ error: "لا تملك هذه الهدية" });
-        }
-
-        const pointsToAdd = userGift.item.points;
-
-        // إضافة النقاط للمالك
-        const user = await User.findByPk(userId);
-        user.Jewel += pointsToAdd;
-        await user.save();
-
-        // تحديث الحالة
-        userGift.status = "converted";
-        await userGift.save();
-
-        res.json({ message: "تم تحويل الهدية لنقاط", addedPoints: pointsToAdd, newBalance: user.Jewel });
-
-    } catch (error) {
-        console.error("❌ خطأ أثناء تحويل الهدية:", error);
-        res.status(500).json({ error: "حدث خطأ أثناء تحويل الهدية" });
+    if (!userGift) {
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
+
+    if (String(userGift.userId) !== String(userId)) {
+      return res.status(403).json({ error: "لا تملك هذه الهدية" });
+    }
+
+    const pointsToAdd = userGift.item.points;
+
+    const user = await User.findByPk(userId);
+    user.Jewel += pointsToAdd;
+    await user.save();
+
+    await userGift.destroy();
+
+    res.json({
+      message: "تم تحويل الهدية إلى نقاط وحذفها من مخزونك ✅",
+      addedPoints: pointsToAdd,
+      newBalance: user.Jewel,
+    });
+  } catch (error) {
+    console.error("❌ خطأ أثناء تحويل الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء تحويل الهدية" });
+  }
 });
 
 module.exports = router;
