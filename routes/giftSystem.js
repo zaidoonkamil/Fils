@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { User, GiftItem, UserGift } = require("../models");
+const { User, GiftItem, UserGift, Settings } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
