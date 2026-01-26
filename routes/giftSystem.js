@@ -75,40 +75,61 @@ router.patch("/gift-items/:id/toggle", async (req, res) => {
 
 // شراء هدية (تضاف لمخزون المستخدم)
 router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
+  const t = await User.sequelize.transaction();
   try {
     const { userId } = req.body;
     const { giftItemId } = req.params;
 
-    const user = await User.findByPk(userId);
-    const item = await GiftItem.findByPk(giftItemId);
+    const user = await User.findByPk(userId, { transaction: t, lock: t.LOCK.UPDATE });
+    const item = await GiftItem.findByPk(giftItemId, { transaction: t });
 
     if (!user || !item) {
+      await t.rollback();
       return res.status(404).json({ error: "المستخدم أو الهدية غير موجودة" });
     }
 
-    if (user.sawa < item.points) {
-      return res.status(400).json({ error: "رصيد النقاط غير كافي" });
-    }
-
     if (!item.isAvailable) {
+      await t.rollback();
       return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
     }
 
-    user.sawa -= item.points;
-    await user.save();
-
-    const userGift = await UserGift.create({
-      userId,
-      giftItemId,
-      status: "active",
+    const commissionSetting = await Settings.findOne({
+      where: { key: "gift_buy_commission", isActive: true },
+      transaction: t,
     });
 
-    res.json({
+    const commissionRate = Number(commissionSetting?.value ?? 0); 
+    const price = Number(item.points ?? 0);
+
+    const commission = Math.ceil(price * commissionRate);
+    const totalCost = price + commission;
+
+    if (Number(user.sawa ?? 0) < totalCost) {
+      await t.rollback();
+      return res.status(400).json({ error: "رصيد النقاط غير كافي (يشمل عمولة الشراء)" });
+    }
+
+    user.sawa = Number(user.sawa ?? 0) - totalCost;
+    await user.save({ transaction: t });
+
+    const userGift = await UserGift.create(
+      { userId, giftItemId, status: "active" },
+      { transaction: t }
+    );
+
+    await t.commit();
+
+    return res.json({
       message: "تم شراء الهدية بنجاح",
       userGift,
+      price,
+      commissionRate,
+      commission,
+      totalCost,
       newBalance: user.sawa,
     });
   } catch (error) {
+    await t.rollback();
     console.error("❌ خطأ أثناء شراء الهدية:", error);
     res.status(500).json({ error: "حدث خطأ أثناء شراء الهدية" });
   }

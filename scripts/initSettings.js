@@ -93,6 +93,23 @@ async function initializeSettings() {
     } else {
       console.log('ℹ️ room_max_users setting already exists');
     }
+
+    const giftBuyCommissionSetting = await Settings.findOne({
+      where: { key: 'gift_buy_commission' },
+    });
+
+    if (!giftBuyCommissionSetting) {
+      await Settings.create({
+        key: 'gift_buy_commission',
+        value: '0',
+        description: 'نسبة العمولة عند شراء هدية (مثلاً 0.05 = 5%)',
+        isActive: true,
+      });
+      console.log('✅ Default gift_buy_commission setting created successfully');
+    } else {
+      console.log('ℹ️ gift_buy_commission setting already exists');
+    }
+
   } catch (error) {
     console.error('❌ Error initializing settings:', error);
   }
