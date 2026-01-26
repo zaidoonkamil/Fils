@@ -264,6 +264,7 @@ router.get("/my-gifts/:userId", async (req, res) => {
 
 // تحويل هدية يملكها المستخدم إلى نقاط
 router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
+  const t = await User.sequelize.transaction();
   try {
     const { userGiftId } = req.params;
     const { userId } = req.body;
@@ -271,30 +272,40 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
     const userGift = await UserGift.findOne({
       where: { id: userGiftId },
       include: { model: GiftItem, as: "item" },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
     });
 
     if (!userGift) {
+      await t.rollback();
       return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
     if (String(userGift.userId) !== String(userId)) {
+      await t.rollback();
       return res.status(403).json({ error: "لا تملك هذه الهدية" });
     }
 
-    const pointsToAdd = userGift.item.points;
+    const pointsToAdd = Number(userGift.item?.points ?? 0);
+    if (!pointsToAdd) {
+      await t.rollback();
+      return res.status(400).json({ error: "نقاط الهدية غير صالحة" });
+    }
+
+    await User.increment({ sawa: pointsToAdd }, { where: { id: userId }, transaction: t });
+
+    await userGift.destroy({ transaction: t, force: true });
+
+    await t.commit();
 
     const user = await User.findByPk(userId);
-    user.Jewel += pointsToAdd;
-    await user.save();
-
-    await userGift.destroy();
-
-    res.json({
-      message: "تم تحويل الهدية إلى نقاط وحذفها من مخزونك ✅",
+    return res.json({
+      message: "تم تحويل الهدية إلى نقاط وحذفها ✅",
       addedPoints: pointsToAdd,
-      newBalance: user.Jewel,
+      newBalance: user.sawa,
     });
   } catch (error) {
+    await t.rollback();
     console.error("❌ خطأ أثناء تحويل الهدية:", error);
     res.status(500).json({ error: "حدث خطأ أثناء تحويل الهدية" });
   }
