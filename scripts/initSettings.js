@@ -110,6 +110,38 @@ async function initializeSettings() {
       console.log('ℹ️ gift_buy_commission setting already exists');
     }
 
+    const dominoEntryFeeSetting = await Settings.findOne({
+      where: { key: 'domino_entry_fee' },
+    });
+
+    if (!dominoEntryFeeSetting) {
+      await Settings.create({
+        key: 'domino_entry_fee',
+        value: '0',
+        description: 'رسم دخول لعبة الدومينو (قيمة ثابتة)',
+        isActive: true,
+      });
+      console.log('✅ Default domino_entry_fee setting created successfully');
+    } else {
+      console.log('ℹ️ domino_entry_fee setting already exists');
+    }
+
+    const dominoWinFeeSetting = await Settings.findOne({
+      where: { key: 'domino_win_fee' },
+    });
+
+    if (!dominoWinFeeSetting) {
+      await Settings.create({
+        key: 'domino_win_fee',
+        value: '0',
+        description: 'رسوم الفوز بلعبة الدومينو (مثلاً 0.05 = 5% من الجائزة)',
+        isActive: true,
+      });
+      console.log('✅ Default domino_win_fee setting created successfully');
+    } else {
+      console.log('ℹ️ domino_win_fee setting already exists');
+    }
+
   } catch (error) {
     console.error('❌ Error initializing settings:', error);
   }
