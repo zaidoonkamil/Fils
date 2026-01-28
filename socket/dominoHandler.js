@@ -2,6 +2,47 @@ const matchmaking = require('../services/dominoMatchmaking');
 const dominoService = require('../services/dominoService');
 const dominoForfeit = require('../services/dominoForfeit');
 
+const { Op } = require('sequelize');
+const { DominoQueue, DominoMatch } = require('../models');
+const dominoService = require('../services/dominoService');
+
+
+
+socket.on('domino:resume', async (_, cb) => {
+  try {
+    console.log('[DOMINO] resume from user:', userId);
+
+    // searching؟
+    const q = await DominoQueue.findOne({ where: { userId } });
+    if (q && q.status === 'searching') {
+      return cb?.({ ok: true, mode: 'searching' });
+    }
+
+    // playing match؟
+    const match = await DominoMatch.findOne({
+      where: {
+        status: 'playing',
+        [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    if (match) {
+      const state = dominoService.getState(match.id);
+      return cb?.({
+        ok: true,
+        mode: 'matched',
+        matchId: match.id,
+        state: state ? dominoService.publicState(state, userId) : null,
+      });
+    }
+
+    return cb?.({ ok: true, mode: 'idle' });
+  } catch (e) {
+    console.log('[DOMINO] resume error:', e);
+    return cb?.({ ok: false, error: e.message });
+  }
+});
 
 function initDominoSocket(dominoNamespace) {
   dominoNamespace.on("connection", (socket) => {
