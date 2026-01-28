@@ -27,6 +27,8 @@ const ConsumableCategory = require("./ConsumableCategory");
 const ConsumableProduct = require("./ConsumableProduct");
 const ConsumablePurchase = require("./ConsumablePurchase");
 const GiftItem = require("./GiftItem");
+const DominoMatch = require("./DominoMatch");
+const DominoQueue = require("./DominoQueue");
 const UserGift = require("./UserGift");
 
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
@@ -134,5 +136,7 @@ module.exports = {
   ConsumableProduct,
   ConsumablePurchase,
   GiftItem,
+  DominoMatch,
+  DominoQueue,
   UserGift
 };

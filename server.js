@@ -21,6 +21,7 @@ const stateCounterRouter = require("./routes/StateCounter");
 const giftSystemRouter = require("./routes/giftSystem");
 const chat = require("./routes/chatRoutes");
 const { initializeSocketIO } = require("./socket/socketHandler.js");
+const { initDominoSocket } = require("./socket/dominoHandler");
 const cors = require("cors");
 require("./cron");
 
@@ -81,6 +82,9 @@ app.use("/", chat.router);
 
 const chatNamespace = io.of("/chat");
 chat.initChatSocket(chatNamespace);
+
+const dominoNamespace = io.of("/domino");
+initDominoSocket(dominoNamespace);
 
 const roomNamespace = io.of("/rooms");
 initializeSocketIO(roomNamespace);
