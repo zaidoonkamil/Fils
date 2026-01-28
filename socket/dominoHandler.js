@@ -38,6 +38,7 @@ function registerDominoHandlers(io, socket) {
   socket.on('domino:cancel_search', async (_, cb) => {
     try {
       const res = await matchmaking.cancelSearch(userId);
+    io.to(`user:${userId}`).emit('domino:cancel_search_result', { ok: true, ...res });
       cb?.({ ok: true, ...res });
     } catch (e) {
       cb?.({ ok: false, error: e.message });
