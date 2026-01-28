@@ -45,6 +45,43 @@ function registerDominoHandlers(io, socket) {
     }
   });
 
+  socket.on('domino:resume', async (_, cb) => {
+    try {
+      // 1) إذا هو searching بالـ queue
+      const q = await DominoQueue.findOne({ where: { userId } });
+
+      if (q && q.status === 'searching') {
+        return cb?.({ ok: true, mode: 'searching' });
+      }
+
+      // 2) إذا عنده مباراة playing (حسب DB)
+      const match = await DominoMatch.findOne({
+        where: {
+          status: 'playing',
+          [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+        },
+        order: [['createdAt', 'DESC']],
+      });
+
+      if (match) {
+        // تأكد عندك state بالذاكرة، إذا مو موجود رجّعه من DB أو سو fallback
+        const state = dominoService.getState(match.id);
+
+        return cb?.({
+          ok: true,
+          mode: 'matched',
+          matchId: match.id,
+          state: state ? dominoService.publicState(state, userId) : null,
+        });
+      }
+
+      // 3) لا يبحث ولا داخل لعبة
+      return cb?.({ ok: true, mode: 'idle' });
+    } catch (e) {
+      cb?.({ ok: false, error: e.message });
+    }
+  });
+
   socket.on('domino:join_match', async ({ matchId }, cb) => {
     socket.join(`match:${matchId}`);
     socket.data.dominoMatches.add(String(matchId));
