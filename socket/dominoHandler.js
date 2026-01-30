@@ -66,7 +66,14 @@ function registerDominoHandlers(io, socket) {
       });
 
       if (match) {
-        const state = dominoService.getState(match.id);
+        const state = dominoService.getState(matchId);
+        if (!state) {
+          await DominoMatch.update(
+            { status: 'finished', winnerId: null },
+            { where: { id: matchId } }
+          );
+          return cb?.({ ok: false, reason: 'state_missing_server_restart' });
+        }
         return cb?.({
           ok: true,
           mode: 'matched',
