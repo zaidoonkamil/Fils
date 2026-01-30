@@ -1,8 +1,18 @@
+const { DominoMatch } = require('../models');
+
+
 const TURN_SECONDS = 7;
 
 // In-memory state (لاحقًا تقدر تنقله Redis)
 const matches = new Map();
 const timers = new Map();
+
+async function persistFinish(matchId, winnerId) {
+  await DominoMatch.update(
+    { status: 'finished', winnerId },
+    { where: { id: matchId } }
+  );
+}
 
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -256,7 +266,7 @@ function startTurnTimer(io, matchId) {
     if (!state || state.status !== 'playing') return;
 
     if (Date.now() >= state.turn.expiresAt) {
-      autoMove(io, matchId);
+      void autoMove(io, matchId);
     }
   }, 250);
 
@@ -280,21 +290,20 @@ function broadcastState(io, state, reason, extra = {}) {
   });
 }
 
-function autoMove(io, matchId) {
+async function autoMove(io, matchId) {
   const state = getState(matchId);
   if (!state || state.status !== 'playing') return;
 
   const userId = state.turnUserId;
-
-  // 1) حاول يلعب أول حركة ممكنة (left ثم right)
   const hand = state.hands[userId] || [];
+
   for (const tile of hand) {
     if (canPlayOnLeft(state, tile)) {
-      const res = applyMove(state, userId, { type: 'play', tile, side: state.board.chain.length === 0 ? 'left' : 'left' });
+      const res = applyMove(state, userId, { type: 'play', tile, side: 'left' });
       if (res.ok) {
-        // check win
         if (state.hands[userId].length === 0) {
           finishMatch(state, userId);
+          await persistFinish(matchId, userId);
           broadcastState(io, state, 'timeout_auto_play_win', { winnerId: userId });
           clearTurnTimer(matchId);
           return;
@@ -304,11 +313,13 @@ function autoMove(io, matchId) {
         return;
       }
     }
+
     if (canPlayOnRight(state, tile)) {
-      const res = applyMove(state, userId, { type: 'play', tile, side: state.board.chain.length === 0 ? 'right' : 'right' });
+      const res = applyMove(state, userId, { type: 'play', tile, side: 'right' });
       if (res.ok) {
         if (state.hands[userId].length === 0) {
           finishMatch(state, userId);
+          await persistFinish(matchId, userId);
           broadcastState(io, state, 'timeout_auto_play_win', { winnerId: userId });
           clearTurnTimer(matchId);
           return;
@@ -320,21 +331,19 @@ function autoMove(io, matchId) {
     }
   }
 
-  // 2) إذا ما عنده لعب: اسحب إذا الباقي موجود
   if (state.boneyard.length > 0) {
     applyMove(state, userId, { type: 'draw' });
-    // بعد السحب، نخلي الدور ينتقل (حتى ما نطوّل)
     nextTurn(state);
     broadcastState(io, state, 'timeout_auto_draw');
     return;
   }
 
-  // 3) إذا ماكو بقايا: pass
   nextTurn(state);
   broadcastState(io, state, 'timeout_auto_pass');
 }
 
-function onPlayerMove(io, matchId, userId, move) {
+
+async function onPlayerMove(io, matchId, userId, move) {
   const state = getState(matchId);
   const valid = isValidMove(state, userId, move);
   if (!valid.ok) return valid;
@@ -342,9 +351,10 @@ function onPlayerMove(io, matchId, userId, move) {
   const applied = applyMove(state, userId, move);
   if (!applied.ok) return applied;
 
-  // win check
   if (state.hands[userId].length === 0) {
     finishMatch(state, userId);
+    await persistFinish(matchId, userId);
+
     broadcastState(io, state, 'player_win', { winnerId: userId });
     clearTurnTimer(matchId);
     return { ok: true, finished: true, winnerId: userId };
@@ -352,21 +362,21 @@ function onPlayerMove(io, matchId, userId, move) {
 
   nextTurn(state);
   broadcastState(io, state, 'player_move', { lastAction: applied });
-
   return { ok: true };
 }
 
-function finishByForfeit(io, matchId, winnerId, loserId) {
+
+async function finishByForfeit(io, matchId, winnerId, loserId) {
   const state = getState(matchId);
   if (!state || state.status !== 'playing') return;
 
   state.status = 'finished';
   state.winnerId = winnerId;
 
-  // وقف تايمر الدور
   clearTurnTimer(matchId);
 
-  // بث للجميع
+  await persistFinish(matchId, winnerId);
+
   io.to(`match:${matchId}`).emit('domino:match_finished', {
     matchId,
     winnerId,

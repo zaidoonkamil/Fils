@@ -96,8 +96,8 @@ function registerDominoHandlers(io, socket) {
     cb?.({ ok: true, state: dominoService.publicState(state, userId) });
   });
 
-  socket.on('domino:move', ({ matchId, move }, cb) => {
-    const res = dominoService.onPlayerMove(io, matchId, userId, move);
+  socket.on('domino:move', async ({ matchId, move }, cb) => {
+    const res = await dominoService.onPlayerMove(io, matchId, userId, move);
     cb?.(res);
   });
 
