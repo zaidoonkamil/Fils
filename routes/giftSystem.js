@@ -144,7 +144,7 @@ router.post("/send-gift", upload.none(), async (req, res) => {
 
     if (!roomId) {
       await t.rollback();
-      return res.status(400).json({ error: "roomId مطلوب لإرسال الهدية داخل غرفة" });
+      return res.status(400).json({ error: "مطلوب لإرسال الهدية داخل غرفة" });
     }
 
     if (!senderId || !receiverId || !giftItemId) {
@@ -310,6 +310,11 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
     const { userGiftId } = req.params;
     const { userId } = req.body;
 
+    if (!userId) {
+      await t.rollback();
+      return res.status(400).json({ error: "userId مطلوب" });
+    }
+
     const userGift = await UserGift.findOne({
       where: { id: userGiftId },
       include: { model: GiftItem, as: "item" },
@@ -327,76 +332,74 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
       return res.status(403).json({ error: "لا تملك هذه الهدية" });
     }
 
-    const pointsToAdd = Number(userGift.item?.points ?? 0);
-    if (!pointsToAdd) {
+    const points = Number(userGift.item?.points ?? 0);
+    if (!points || points <= 0) {
       await t.rollback();
       return res.status(400).json({ error: "نقاط الهدية غير صالحة" });
+    }
+
+    const receiver = await User.findByPk(userId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!receiver) {
+      await t.rollback();
+      return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
     const isReceivedGift = userGift.senderId != null;
 
     let ownerCutRate = 0;
     let ownerShare = 0;
-    let receiverShare = pointsToAdd;
+    let receiverShare = points;
 
-    if (isReceivedGift && userGift.roomOwnerId) {
-      const cutSetting = await Settings.findOne({
-        where: { key: "room_gift_owner_cut", isActive: true },
+    if (isReceivedGift && userGift.roomId && userGift.roomOwnerId) {
+      const room = await Room.findByPk(userGift.roomId, {
         transaction: t,
       });
 
-      ownerCutRate = Number(cutSetting?.value ?? 0);
-      if (ownerCutRate < 0) ownerCutRate = 0;
-      if (ownerCutRate > 1) ownerCutRate = 1;
+      if (room) {
+        const cutSetting = await Settings.findOne({
+          where: { key: "room_gift_owner_cut", isActive: true },
+          transaction: t,
+        });
 
-      if (isReceivedGift && userGift.roomOwnerId && userGift.roomId) {
+        ownerCutRate = Number(cutSetting?.value ?? 0);
+        if (ownerCutRate < 0) ownerCutRate = 0;
+        if (ownerCutRate > 1) ownerCutRate = 1;
 
-        const room = await Room.findByPk(userGift.roomId, { transaction: t });
+        const roomOwner = await User.findByPk(userGift.roomOwnerId, {
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        });
 
-        if (room) {
+        if (roomOwner && ownerCutRate > 0 && String(roomOwner.id) !== String(receiver.id)) {
+          ownerShare = Math.floor(points * ownerCutRate);
+          receiverShare = points - ownerShare;
 
-          const roomOwner = await User.findByPk(userGift.roomOwnerId, {
-            transaction: t,
-          });
-
-          if (roomOwner && ownerCutRate > 0) {
-
-            ownerShare = Math.floor(pointsToAdd * ownerCutRate);
-            receiverShare = pointsToAdd - ownerShare;
-
-            await roomOwner.increment(
-              { sawa: ownerShare },
-              { transaction: t }
-            );
-
-          } else {
-            console.log("⚠️ صاحب الغرفة غير موجود أو النسبة صفر");
+          if (ownerShare > 0) {
+            await roomOwner.increment({ sawa: ownerShare }, { transaction: t });
           }
-
-        } else {
-          console.log("⚠️ الغرفة محذوفة، لن يتم تطبيق الخصم");
         }
       }
     }
 
-    await User.increment(
-      { sawa: receiverShare },
-      { where: { id: userId }, transaction: t }
-    );
-
+    await receiver.increment({ sawa: receiverShare }, { transaction: t });
     await userGift.destroy({ transaction: t, force: true });
 
     await t.commit();
+    const updatedReceiver = await User.findByPk(userId);
+    const updatedOwner = userGift.roomOwnerId ? await User.findByPk(userGift.roomOwnerId) : null;
 
-    const user = await User.findByPk(userId);
     return res.json({
       message: "تم تحويل الهدية إلى نقاط وحذفها ✅",
-      originalPoints: pointsToAdd,
+      originalPoints: points,
       isReceivedGift,
       ownerCutRate,
       ownerShare,
       receiverShare,
-      newBalance: user.sawa,
+      receiverNewBalance: updatedReceiver?.sawa,
+      roomOwnerNewBalance: updatedOwner?.sawa,
     });
   } catch (error) {
     await t.rollback();
