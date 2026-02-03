@@ -353,10 +353,8 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
     let ownerShare = 0;
     let receiverShare = points;
 
-    if (isReceivedGift && userGift.roomId && userGift.roomOwnerId) {
-      const room = await Room.findByPk(userGift.roomId, {
-        transaction: t,
-      });
+    if (isReceivedGift && userGift.roomId) {
+      const room = await Room.findByPk(userGift.roomId, { transaction: t });
 
       if (room) {
         const cutSetting = await Settings.findOne({
@@ -368,7 +366,9 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
         if (ownerCutRate < 0) ownerCutRate = 0;
         if (ownerCutRate > 1) ownerCutRate = 1;
 
-        const roomOwner = await User.findByPk(userGift.roomOwnerId, {
+        const actualRoomOwnerId = room.creatorId; // ✅ هذا المهم
+
+        const roomOwner = await User.findByPk(actualRoomOwnerId, {
           transaction: t,
           lock: t.LOCK.UPDATE,
         });
