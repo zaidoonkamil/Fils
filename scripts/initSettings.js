@@ -142,6 +142,22 @@ async function initializeSettings() {
       console.log('ℹ️ domino_win_fee setting already exists');
     }
 
+    const roomGiftOwnerCutSetting = await Settings.findOne({
+      where: { key: 'room_gift_owner_cut' },
+    });
+
+    if (!roomGiftOwnerCutSetting) {
+      await Settings.create({
+        key: 'room_gift_owner_cut',
+        value: '0.1',
+        description: 'نسبة من قيمة الهدية تُخصم لصالح صاحب الغرفة (مثلاً 0.1 = 10%)',
+        isActive: true,
+      });
+      console.log('✅ Default room_gift_owner_cut setting created successfully');
+    } else {
+      console.log('ℹ️ room_gift_owner_cut setting already exists');
+    }
+
   } catch (error) {
     console.error('❌ Error initializing settings:', error);
   }

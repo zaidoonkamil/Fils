@@ -31,6 +31,13 @@ const DominoMatch = require("./DominoMatch");
 const DominoQueue = require("./DominoQueue");
 const UserGift = require("./UserGift");
 
+
+Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
+UserGift.belongsTo(Room, { foreignKey: "roomId", as: "room", onDelete: "SET NULL" });
+
+User.hasMany(UserGift, { foreignKey: "roomOwnerId", as: "roomOwnerGifts", onDelete: "SET NULL" });
+UserGift.belongsTo(User, { foreignKey: "roomOwnerId", as: "roomOwner", onDelete: "SET NULL" });
+
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
 Message.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });

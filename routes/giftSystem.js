@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { User, GiftItem, UserGift, Settings } = require("../models");
+const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
@@ -140,7 +140,7 @@ router.post("/send-gift", upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
 
   try {
-    const { senderId, receiverId, giftItemId } = req.body;
+    const { senderId, receiverId, giftItemId, roomId } = req.body;
 
     if (!senderId || !receiverId || !giftItemId) {
       await t.rollback();
@@ -183,6 +183,17 @@ router.post("/send-gift", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
     }
 
+    let roomOwnerId = null;
+
+    if (roomId) {
+      const room = await Room.findByPk(roomId, { transaction: t });
+      if (!room) {
+        await t.rollback();
+        return res.status(404).json({ error: "الغرفة غير موجودة" });
+      }
+      roomOwnerId = room.creatorId;
+    }
+
     const userGift = await UserGift.findOne({
       where: {
         userId: senderId,
@@ -201,6 +212,10 @@ router.post("/send-gift", upload.none(), async (req, res) => {
 
     userGift.userId = receiverId;
     userGift.senderId = senderId;
+
+    userGift.roomId = roomId || null;
+    userGift.roomOwnerId = roomOwnerId;
+
     await userGift.save({ transaction: t });
 
     await t.commit();
@@ -313,7 +328,56 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "نقاط الهدية غير صالحة" });
     }
 
-    await User.increment({ sawa: pointsToAdd }, { where: { id: userId }, transaction: t });
+    const isReceivedGift = userGift.senderId != null;
+
+    let ownerCutRate = 0;
+    let ownerShare = 0;
+    let receiverShare = pointsToAdd;
+
+    if (isReceivedGift && userGift.roomOwnerId) {
+      const cutSetting = await Settings.findOne({
+        where: { key: "room_gift_owner_cut", isActive: true },
+        transaction: t,
+      });
+
+      ownerCutRate = Number(cutSetting?.value ?? 0);
+      if (ownerCutRate < 0) ownerCutRate = 0;
+      if (ownerCutRate > 1) ownerCutRate = 1;
+
+      if (isReceivedGift && userGift.roomOwnerId && userGift.roomId) {
+
+        const room = await Room.findByPk(userGift.roomId, { transaction: t });
+
+        if (room) {
+
+          const roomOwner = await User.findByPk(userGift.roomOwnerId, {
+            transaction: t,
+          });
+
+          if (roomOwner && ownerCutRate > 0) {
+
+            ownerShare = Math.floor(pointsToAdd * ownerCutRate);
+            receiverShare = pointsToAdd - ownerShare;
+
+            await roomOwner.increment(
+              { sawa: ownerShare },
+              { transaction: t }
+            );
+
+          } else {
+            console.log("⚠️ صاحب الغرفة غير موجود أو النسبة صفر");
+          }
+
+        } else {
+          console.log("⚠️ الغرفة محذوفة، لن يتم تطبيق الخصم");
+        }
+      }
+    }
+
+    await User.increment(
+      { sawa: receiverShare },
+      { where: { id: userId }, transaction: t }
+    );
 
     await userGift.destroy({ transaction: t, force: true });
 
@@ -322,7 +386,11 @@ router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
     const user = await User.findByPk(userId);
     return res.json({
       message: "تم تحويل الهدية إلى نقاط وحذفها ✅",
-      addedPoints: pointsToAdd,
+      originalPoints: pointsToAdd,
+      isReceivedGift,
+      ownerCutRate,
+      ownerShare,
+      receiverShare,
       newBalance: user.sawa,
     });
   } catch (error) {
