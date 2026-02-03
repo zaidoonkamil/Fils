@@ -4,68 +4,6 @@ const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
-const sequelize = require("../config/db");
-
-
-router.post("/db/add-usergifts-room-columns", async (req, res) => {
-  try {
-    // 1) نتحقق الأعمدة الموجودة حالياً
-    const [columns] = await sequelize.query(`
-      SHOW COLUMNS FROM UserGifts;
-    `);
-
-    const colNames = new Set(columns.map((c) => c.Field));
-
-    const queries = [];
-
-    // 2) إضافة roomId إذا مو موجود
-    if (!colNames.has("roomId")) {
-      queries.push(`
-        ALTER TABLE UserGifts
-        ADD COLUMN roomId INT NOT NULL DEFAULT 100;
-      `);
-    }
-
-    // 3) إضافة roomOwnerId إذا مو موجود
-    if (!colNames.has("roomOwnerId")) {
-      queries.push(`
-        ALTER TABLE UserGifts
-        ADD COLUMN roomOwnerId INT NOT NULL DEFAULT 100;
-      `);
-    }
-
-    // نفذ إضافات الأعمدة
-    for (const q of queries) {
-      await sequelize.query(q);
-    }
-
-    // 4) حتى لو الأعمدة موجودة سابقاً، نضمن أي NULL يصير 100 (لو كان عندك بيانات قديمة)
-    // (بهالحالة إذا العمود NOT NULL ما راح يكون NULL أصلاً، بس نخليها للحماية)
-    await sequelize.query(`
-      UPDATE UserGifts
-      SET roomId = 100
-      WHERE roomId IS NULL;
-    `);
-
-    await sequelize.query(`
-      UPDATE UserGifts
-      SET roomOwnerId = 100
-      WHERE roomOwnerId IS NULL;
-    `);
-
-    return res.json({
-      message: "✅ تم إضافة الأعمدة (roomId, roomOwnerId) وتعيين الافتراضي 100 بنجاح",
-      added: queries.length,
-    });
-  } catch (error) {
-    console.error("❌ Error adding columns:", error);
-    return res.status(500).json({
-      error: "فشل إضافة الأعمدة",
-      details: error.message,
-    });
-  }
-});
-
 
 // إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
 router.post("/gift-items", upload.single("image"), async (req, res) => {
@@ -203,6 +141,11 @@ router.post("/send-gift", upload.none(), async (req, res) => {
 
   try {
     const { senderId, receiverId, giftItemId, roomId } = req.body;
+
+    if (!roomId) {
+      await t.rollback();
+      return res.status(400).json({ error: "roomId مطلوب لإرسال الهدية داخل غرفة" });
+    }
 
     if (!senderId || !receiverId || !giftItemId) {
       await t.rollback();
