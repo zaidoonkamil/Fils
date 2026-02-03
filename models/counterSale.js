@@ -7,6 +7,11 @@ const CounterSale = sequelize.define("CounterSale", {
     autoIncrement: true,
     primaryKey: true,
   },
+  isVisible: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
   userId: {    
     type: DataTypes.INTEGER,
     allowNull: false,

@@ -4,6 +4,44 @@ const multer = require("multer");
 const upload = multer();
 const { User, UserCounter, Counter, Settings, CounterSale} = require("../models");
 const { Op } = require("sequelize");
+const sequelize = require("../config/db");
+
+router.post("/db/add-countersale-visibility-column", async (req, res) => {
+  try {
+    // 1) جلب الأعمدة الحالية
+    const [columns] = await sequelize.query(`
+      SHOW COLUMNS FROM CounterSales;
+    `);
+
+    const colNames = new Set(columns.map((c) => c.Field));
+
+    // 2) إذا العمود مو موجود نضيفه
+    if (!colNames.has("isVisible")) {
+      await sequelize.query(`
+        ALTER TABLE CounterSales
+        ADD COLUMN isVisible TINYINT(1) NOT NULL DEFAULT 1;
+      `);
+    }
+
+    // 3) ضمان أي NULL يصير 1 (احتياط)
+    await sequelize.query(`
+      UPDATE CounterSales
+      SET isVisible = 1
+      WHERE isVisible IS NULL;
+    `);
+
+    return res.json({
+      message: "✅ تم إضافة العمود isVisible بنجاح (الافتراضي ظاهر للجميع)",
+      alreadyExisted: colNames.has("isVisible"),
+    });
+  } catch (error) {
+    console.error("❌ Error adding isVisible column:", error);
+    return res.status(500).json({
+      error: "فشل إضافة العمود isVisible",
+      details: error.message,
+    });
+  }
+});
 
 router.post("/counters", upload.none(), async (req, res) => {
     const { type, points, price } = req.body;
@@ -169,12 +207,35 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
   }
 });
 
+router.patch("/counters/sell/:saleId/visibility/toggle", upload.none(), async (req, res) => {
+  const { saleId } = req.params;
+  const { userId } = req.body;
+
+  try {
+    const sale = await CounterSale.findOne({ where: { id: saleId, userId } });
+    if (!sale) return res.status(404).json({ error: "العرض غير موجود أو ليس من حقك تعديله" });
+
+    sale.isVisible = !sale.isVisible;
+    await sale.save();
+
+    return res.json({
+      message: sale.isVisible ? "تم إظهار العرض" : "تم إخفاء العرض",
+      isVisible: sale.isVisible,
+      sale,
+    });
+  } catch (error) {
+    console.error("❌ Error toggling visibility:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء تعديل حالة العرض" });
+  }
+});
+
 router.get("/counters/for-sale", async (req, res) => {
   try {
 
     const sales = await CounterSale.findAll({
       where: {
         isSold: false,
+        isVisible: true, 
       },
       include: [
         {
