@@ -6,42 +6,6 @@ const { User, UserCounter, Counter, Settings, CounterSale} = require("../models"
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.post("/db/add-countersale-visibility-column", async (req, res) => {
-  try {
-    // 1) جلب الأعمدة الحالية
-    const [columns] = await sequelize.query(`
-      SHOW COLUMNS FROM CounterSales;
-    `);
-
-    const colNames = new Set(columns.map((c) => c.Field));
-
-    // 2) إذا العمود مو موجود نضيفه
-    if (!colNames.has("isVisible")) {
-      await sequelize.query(`
-        ALTER TABLE CounterSales
-        ADD COLUMN isVisible TINYINT(1) NOT NULL DEFAULT 1;
-      `);
-    }
-
-    // 3) ضمان أي NULL يصير 1 (احتياط)
-    await sequelize.query(`
-      UPDATE CounterSales
-      SET isVisible = 1
-      WHERE isVisible IS NULL;
-    `);
-
-    return res.json({
-      message: "✅ تم إضافة العمود isVisible بنجاح (الافتراضي ظاهر للجميع)",
-      alreadyExisted: colNames.has("isVisible"),
-    });
-  } catch (error) {
-    console.error("❌ Error adding isVisible column:", error);
-    return res.status(500).json({
-      error: "فشل إضافة العمود isVisible",
-      details: error.message,
-    });
-  }
-});
 
 router.post("/counters", upload.none(), async (req, res) => {
     const { type, points, price } = req.body;
@@ -268,6 +232,56 @@ router.get("/counters/for-sale", async (req, res) => {
       }
 
       // نرجع البيانات مع الأيام
+      return {
+        ...sale.toJSON(),
+        remainingDays
+      };
+    });
+
+    res.status(200).json(salesWithDays);
+
+  } catch (err) {
+    console.error("❌ Error fetching counters for sale:", err);
+    res.status(500).json({ error: "حدث خطأ أثناء جلب العروض" });
+  }
+});
+
+router.get("/counters/for-sale-admin", async (req, res) => {
+  try {
+
+    const sales = await CounterSale.findAll({
+      where: {
+        isSold: false,
+      },
+      include: [
+        {
+          model: User,
+          required: true,
+        },
+        {
+          model: UserCounter,
+          required: true, 
+          include: [
+            {
+              model: Counter,
+              required: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    const salesWithDays = sales.map(sale => {
+      const userCounter = sale.UserCounter;
+
+      let remainingDays = null;
+      if (userCounter && userCounter.endDate) {
+        const now = new Date();
+        const endDate = new Date(userCounter.endDate);
+        const diffInMs = endDate - now;
+        remainingDays = Math.max(0, Math.ceil(diffInMs / (1000 * 60 * 60 * 24)));
+      }
+
       return {
         ...sale.toJSON(),
         remainingDays
