@@ -172,26 +172,30 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
 });
 
 router.patch("/counters/sell/:saleId/visibility/toggle", upload.none(), async (req, res) => {
-  const { saleId } = req.params;
-  const { userId } = req.body;
+    const { saleId } = req.params;
 
-  try {
-    const sale = await CounterSale.findOne({ where: { id: saleId, userId } });
-    if (!sale) return res.status(404).json({ error: "العرض غير موجود أو ليس من حقك تعديله" });
+    try {
+      const sale = await CounterSale.findByPk(saleId);
 
-    sale.isVisible = !sale.isVisible;
-    await sale.save();
-
-    return res.json({
-      message: sale.isVisible ? "تم إظهار العرض" : "تم إخفاء العرض",
-      isVisible: sale.isVisible,
-      sale,
-    });
-  } catch (error) {
-    console.error("❌ Error toggling visibility:", error);
-    res.status(500).json({ error: "حدث خطأ أثناء تعديل حالة العرض" });
+      if (!sale) {
+        return res.status(404).json({ error: "العرض غير موجود" });
+      }
+      sale.isVisible = !sale.isVisible;
+      await sale.save();
+      return res.json({
+        message: sale.isVisible
+          ? "تم إظهار العرض ✅"
+          : "تم إخفاء العرض ✅",
+        isVisible: sale.isVisible,
+        sale,
+      });
+    } catch (error) {
+      console.error("❌ Error toggling visibility:", error);
+      res.status(500).json({ error: "حدث خطأ أثناء تعديل حالة العرض" });
+    }
   }
-});
+);
+
 
 router.get("/counters/for-sale", async (req, res) => {
   try {
