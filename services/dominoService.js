@@ -44,7 +44,13 @@ function createNewMatchState(matchId, p1, p2) {
     players: { p1, p2 },
     hands: { [p1]: hand1, [p2]: hand2 },
     boneyard,
-    board: { chain: [], left: null, right: null }, // left/right values (numbers)
+    board: {
+      center: null,
+      leftChain: [],
+      rightChain: [],
+      left: null,
+      right: null,
+    }, 
     turnUserId: starter,
     lastMoveAt: Date.now(),
     status: 'playing',
@@ -120,18 +126,17 @@ function removeTileFromHand(hand, tile) {
 }
 
 function normalizeTile(tile) {
-  // keep as [a,b]
   return [tile[0], tile[1]];
 }
 
 function canPlayOnLeft(state, tile) {
-  if (!state.board.left && state.board.chain.length === 0) return true; // first move
+  if (state.board.center == null) return true;
   const leftVal = state.board.left;
   return tile[0] === leftVal || tile[1] === leftVal;
 }
 
 function canPlayOnRight(state, tile) {
-  if (!state.board.right && state.board.chain.length === 0) return true; // first move
+  if (state.board.center == null) return true;
   const rightVal = state.board.right;
   return tile[0] === rightVal || tile[1] === rightVal;
 }
@@ -232,27 +237,34 @@ function applyMove(state, userId, move) {
     const removed = removeTileFromHand(hand, tile);
     if (!removed) return { ok: false, reason: 'tile_not_in_hand' };
 
-    // first move
-    if (state.board.chain.length === 0) {
-      state.board.chain.push(tile);
+    if (!state.board.center) {
+      state.board.center = tile;
       state.board.left = tile[0];
       state.board.right = tile[1];
+      state.board.leftChain = [];
+      state.board.rightChain = [];
       return { ok: true, action: 'play', placed: tile, side: 'first' };
     }
 
-    if (move.side === 'left') {
-      const oriented = rotateToMatchLeft(state, tile);
-      if (!oriented) return { ok: false, reason: 'cannot_play_left' };
-      state.board.chain.unshift(oriented);
-      state.board.left = oriented[0];
-      return { ok: true, action: 'play', placed: oriented, side: 'left' };
-    } else {
-      const oriented = rotateToMatchRight(state, tile);
-      if (!oriented) return { ok: false, reason: 'cannot_play_right' };
-      state.board.chain.push(oriented);
-      state.board.right = oriented[1];
-      return { ok: true, action: 'play', placed: oriented, side: 'right' };
-    }
+      if (move.side === 'left') {
+        const oriented = rotateToMatchLeft(state, tile);
+        if (!oriented) return { ok: false, reason: 'cannot_play_left' };
+
+        // ✅ نخزنها بطرف اليسار
+        state.board.leftChain.unshift(oriented); // الأقرب للسنتر يصير أول
+        state.board.left = oriented[0];
+
+        return { ok: true, action: 'play', placed: oriented, side: 'left' };
+      } else {
+        const oriented = rotateToMatchRight(state, tile);
+        if (!oriented) return { ok: false, reason: 'cannot_play_right' };
+
+        // ✅ نخزنها بطرف اليمين
+        state.board.rightChain.push(oriented);
+        state.board.right = oriented[1];
+
+        return { ok: true, action: 'play', placed: oriented, side: 'right' };
+      }
   }
 
   return { ok: false, reason: 'invalid_move' };
