@@ -1,12 +1,10 @@
-// services/dominoForfeit.js
 const dominoService = require('./dominoService');
 
-const forfeits = new Map(); // key: `${matchId}:${userId}` => timeoutId
+const forfeits = new Map();
 
 function scheduleForfeit(io, matchId, userId, seconds = 30) {
   const key = `${matchId}:${userId}`;
 
-  // لا تكرر تايمر
   if (forfeits.has(key)) return;
 
   const timeoutId = setTimeout(() => {
@@ -16,10 +14,8 @@ function scheduleForfeit(io, matchId, userId, seconds = 30) {
       return;
     }
 
-    // إذا اللاعب رجع قبل انتهاء الوقت، cancel راح يشيله
     const opponentId = state.players.p1 === userId ? state.players.p2 : state.players.p1;
 
-    // أعلن فوز الخصم بسبب الانقطاع
     dominoService.finishByForfeit(io, matchId, opponentId, userId);
 
     clearForfeit(matchId, userId);
@@ -27,7 +23,6 @@ function scheduleForfeit(io, matchId, userId, seconds = 30) {
 
   forfeits.set(key, timeoutId);
 
-  // إعلام الطرف الثاني أن خصمه فصل (اختياري)
   io.to(`match:${matchId}`).emit('domino:player_disconnected', {
     matchId,
     userId,
