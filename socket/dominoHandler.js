@@ -5,10 +5,8 @@ const dominoForfeit = require('../services/dominoForfeit');
 const { Op } = require('sequelize');
 const { DominoQueue, DominoMatch } = require('../models');
 
-
-
 function initDominoSocket(dominoNamespace) {
-  dominoNamespace.on("connection", (socket) => {
+  dominoNamespace.on('connection', (socket) => {
     const userId = Number(socket.handshake.query.userId);
 
     if (!userId) {
@@ -17,7 +15,6 @@ function initDominoSocket(dominoNamespace) {
     }
 
     socket.userId = userId;
-
     registerDominoHandlers(dominoNamespace, socket);
   });
 }
@@ -47,7 +44,6 @@ function registerDominoHandlers(io, socket) {
     }
   });
 
-  // ✅ resume هنا
   socket.on('domino:resume', async (_, cb) => {
     try {
       console.log('[DOMINO] resume from user:', userId);
@@ -65,24 +61,35 @@ function registerDominoHandlers(io, socket) {
         order: [['createdAt', 'DESC']],
       });
 
-      if (match) {
-        const state = dominoService.getState(matchId);
-        if (!state) {
-          await DominoMatch.update(
-            { status: 'finished', winnerId: null },
-            { where: { id: matchId } }
-          );
-          return cb?.({ ok: false, reason: 'state_missing_server_restart' });
-        }
-        return cb?.({
-          ok: true,
-          mode: 'matched',
-          matchId: match.id,
-          state: state ? dominoService.publicState(state, userId) : null,
-        });
+      if (!match) {
+        return cb?.({ ok: true, mode: 'idle' });
       }
 
-      return cb?.({ ok: true, mode: 'idle' });
+      const matchId = match.id;
+
+      const state = dominoService.getState(matchId);
+
+      if (!state) {
+        await DominoMatch.update(
+          { status: 'finished', winnerId: null },
+          { where: { id: matchId } }
+        );
+        return cb?.({ ok: false, reason: 'state_missing_server_restart' });
+      }
+
+      socket.join(`match:${matchId}`);
+      socket.data.dominoMatches.add(String(matchId));
+
+      dominoForfeit.clearForfeit(matchId, userId);
+
+      io.to(`match:${matchId}`).emit('domino:player_reconnected', { matchId, userId });
+
+      return cb?.({
+        ok: true,
+        mode: 'matched',
+        matchId,
+        state: dominoService.publicState(state, userId),
+      });
     } catch (e) {
       console.log('[DOMINO] resume error:', e);
       return cb?.({ ok: false, error: e.message });
@@ -108,9 +115,10 @@ function registerDominoHandlers(io, socket) {
     cb?.(res);
   });
 
-  socket.on('disconnect', () => {
-    const matches = socket.data.dominoMatches || new Set();
-    for (const matchId of matches) {
+  socket.on('disconnect', async () => {
+    const joinedMatches = socket.data.dominoMatches || new Set();
+
+    for (const matchId of joinedMatches) {
       const state = dominoService.getState(matchId);
       if (!state || state.status !== 'playing') continue;
 
@@ -118,8 +126,28 @@ function registerDominoHandlers(io, socket) {
         dominoForfeit.scheduleForfeit(io, matchId, userId, 30);
       }
     }
+
+
+    try {
+      const match = await DominoMatch.findOne({
+        where: {
+          status: 'playing',
+          [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+        },
+        order: [['createdAt', 'DESC']],
+      });
+
+      if (match) {
+        const matchId = String(match.id);
+        const state = dominoService.getState(matchId);
+        if (state && state.status === 'playing') {
+          dominoForfeit.scheduleForfeit(io, matchId, userId, 30);
+        }
+      }
+    } catch (e) {
+      console.log('[DOMINO] disconnect fallback error:', e?.message || e);
+    }
   });
 }
-
 
 module.exports = { initDominoSocket };
