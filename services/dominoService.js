@@ -224,16 +224,37 @@ function getState(matchId) {
   return matches.get(String(matchId));
 }
 
-function publicState(state, viewerId) {
-  const { hands, boneyard, ...rest } = state; 
-  const opponentId = state.players.p1 === viewerId ? state.players.p2 : state.players.p1;
+async function publicState(state, viewerId) {
+  const { hands, boneyard, ...rest } = state;
+
+  const opponentId =
+    state.players.p1 === viewerId
+      ? state.players.p2
+      : state.players.p1;
+
+  const players = await User.findAll({
+    where: {
+      id: [state.players.p1, state.players.p2],
+    },
+    attributes: ['id', 'name'],
+  });
+
+  const playersInfo = {};
+  for (const p of players) {
+    playersInfo[p.id] = {
+      name: p.name,
+    };
+  }
 
   return {
     ...rest,
+    playersInfo,
+
     hands: {
       [viewerId]: hands[viewerId],
       [opponentId]: { count: hands[opponentId].length },
     },
+
     boneyardCount: boneyard.length,
     scores: state.scores,
     round: state.round,
@@ -456,8 +477,8 @@ async function handleBlockedIfAny(io, matchId, state) {
       winnerId: blocked.winnerId,
       finalScores: state.scores,
       reason: 'reached_target_score',
-      statePublicP1: publicState(state, state.players.p1),
-      statePublicP2: publicState(state, state.players.p2),
+      statePublicP1: await  publicState(state, state.players.p1),
+      statePublicP2: await publicState(state, state.players.p2),
     });
     return true;
   }
@@ -467,21 +488,21 @@ async function handleBlockedIfAny(io, matchId, state) {
     matchId,
     roundNumber: state.round.number,
     scores: state.scores,
-    statePublicP1: publicState(state, state.players.p1),
-    statePublicP2: publicState(state, state.players.p2),
+    statePublicP1: await  publicState(state, state.players.p1),
+    statePublicP2: await  publicState(state, state.players.p2),
   });
 
   startTurnTimer(io, matchId);
   return true;
 }
 
-function broadcastState(io, state, reason, extra = {}) {
+async function broadcastState(io, state, reason, extra = {}) {
   const matchId = state.matchId;
   io.to(`match:${matchId}`).emit('domino:state', {
     matchId,
     reason,
-    statePublicP1: publicState(state, state.players.p1),
-    statePublicP2: publicState(state, state.players.p2),
+    statePublicP1: await publicState(state, state.players.p1),
+    statePublicP2: await publicState(state, state.players.p2),
     ...extra,
   });
 }
@@ -531,8 +552,8 @@ async function autoMove(io, matchId) {
               winnerId: userId,
               finalScores: state.scores,
               reason: 'reached_target_score',
-              statePublicP1: publicState(state, state.players.p1),
-              statePublicP2: publicState(state, state.players.p2),
+              statePublicP1: await publicState(state, state.players.p1),
+              statePublicP2: await publicState(state, state.players.p2),
             });
             return;
           }
@@ -542,8 +563,8 @@ async function autoMove(io, matchId) {
               matchId,
               roundNumber: state.round.number,
               scores: state.scores,
-              statePublicP1: publicState(state, state.players.p1),
-              statePublicP2: publicState(state, state.players.p2),
+              statePublicP1: await publicState(state, state.players.p1),
+              statePublicP2: await publicState(state, state.players.p2),
             });
             startTurnTimer(io, matchId);
             return;
@@ -591,7 +612,7 @@ async function autoMove(io, matchId) {
               winnerId: userId,
               finalScores: state.scores,
               reason: 'reached_target_score',
-              statePublicP1: publicState(state, state.players.p1),
+              statePublicP1: await publicState(state, state.players.p1),
               statePublicP2: publicState(state, state.players.p2),
             });
             return;
@@ -602,8 +623,8 @@ async function autoMove(io, matchId) {
             matchId,
             roundNumber: state.round.number,
             scores: state.scores,
-            statePublicP1: publicState(state, state.players.p1),
-            statePublicP2: publicState(state, state.players.p2),
+            statePublicP1: await publicState(state, state.players.p1),
+            statePublicP2: await publicState(state, state.players.p2),
           });
            startTurnTimer(io, matchId);
           return;
@@ -646,8 +667,8 @@ async function autoMove(io, matchId) {
               winnerId: blocked.winnerId,
               finalScores: state.scores,
               reason: 'reached_target_score',
-              statePublicP1: publicState(state, state.players.p1),
-              statePublicP2: publicState(state, state.players.p2),
+              statePublicP1: await publicState(state, state.players.p1),
+              statePublicP2: await publicState(state, state.players.p2),
             });
             return;
           }
@@ -657,8 +678,8 @@ async function autoMove(io, matchId) {
             matchId,
             roundNumber: state.round.number,
             scores: state.scores,
-            statePublicP1: publicState(state, state.players.p1),
-            statePublicP2: publicState(state, state.players.p2),
+            statePublicP1: await publicState(state, state.players.p1),
+            statePublicP2: await publicState(state, state.players.p2),
           });
           return;
         }
@@ -736,8 +757,8 @@ async function onPlayerMove(io, matchId, userId, move) {
         winnerId: userId,
         finalScores: state.scores,
         reason: 'reached_target_score',
-        statePublicP1: publicState(state, state.players.p1),
-        statePublicP2: publicState(state, state.players.p2),
+        statePublicP1: await publicState(state, state.players.p1),
+        statePublicP2: await publicState(state, state.players.p2),
       });
       return { ok: true, finished: true, winnerId: userId };
     }
@@ -749,8 +770,8 @@ async function onPlayerMove(io, matchId, userId, move) {
       matchId,
       roundNumber: state.round.number,
       scores: state.scores,
-      statePublicP1: publicState(state, state.players.p1),
-      statePublicP2: publicState(state, state.players.p2),
+      statePublicP1: await publicState(state, state.players.p1),
+      statePublicP2: await publicState(state, state.players.p2),
     });
     
     startTurnTimer(io, matchId);
@@ -799,8 +820,8 @@ async function onPlayerMove(io, matchId, userId, move) {
         winnerId: blocked.winnerId,
         finalScores: state.scores,
         reason: 'reached_target_score',
-        statePublicP1: publicState(state, state.players.p1),
-        statePublicP2: publicState(state, state.players.p2),
+        statePublicP1: await publicState(state, state.players.p1),
+        statePublicP2: await publicState(state, state.players.p2),
       });
       return { ok: true, finished: true, winnerId: blocked.winnerId };
     }
@@ -812,8 +833,8 @@ async function onPlayerMove(io, matchId, userId, move) {
       matchId,
       roundNumber: state.round.number,
       scores: state.scores,
-      statePublicP1: publicState(state, state.players.p1),
-      statePublicP2: publicState(state, state.players.p2),
+      statePublicP1: await publicState(state, state.players.p1),
+      statePublicP2: await publicState(state, state.players.p2),
     });
     
     startTurnTimer(io, matchId);
@@ -853,8 +874,8 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
     loserId,
     finalScores: state.scores,
     reason: 'forfeit_disconnect',
-    statePublicP1: publicState(state, state.players.p1),
-    statePublicP2: publicState(state, state.players.p2),
+    statePublicP1: await publicState(state, state.players.p1),
+    statePublicP2: await publicState(state, state.players.p2),
   });
 }
 
