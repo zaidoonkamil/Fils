@@ -2,7 +2,7 @@ const { DominoMatch, User } = require('../models');
 const sequelize = require("../config/db");
 
 
-const TURN_SECONDS = 7;
+const TURN_SECONDS = 12;
 
 const matches = new Map();
 const timers = new Map();
@@ -335,6 +335,12 @@ function isValidMove(state, userId, move) {
   if (state.turnUserId !== userId) return { ok: false, reason: 'not_your_turn' };
   if (!move || !move.type) return { ok: false, reason: 'invalid_move' };
 
+  if (move.type === 'draw_until_playable') {
+    if (state.boneyard.length === 0) return { ok: false, reason: 'boneyard_empty' };
+    if (hasAnyLegalPlay(state, userId)) return { ok: false, reason: 'you_have_a_play' };
+    return { ok: true };
+  }
+
   if (move.type === 'play') {
     if (!Array.isArray(move.tile) || move.tile.length !== 2) return { ok: false, reason: 'invalid_tile' };
     if (move.side !== 'left' && move.side !== 'right') return { ok: false, reason: 'invalid_side' };
@@ -365,6 +371,18 @@ function isValidMove(state, userId, move) {
 }
 
 function applyMove(state, userId, move) {
+  if (move.type === 'draw_until_playable') {
+    const drawnTiles = [];
+
+    while (state.boneyard.length > 0 && !hasAnyLegalPlay(state, userId)) {
+      const drawn = state.boneyard.shift();
+      state.hands[userId].push(drawn);
+      drawnTiles.push(drawn);
+    }
+
+    return { ok: true, action: 'draw_until_playable', drawnTiles };
+  }
+
   if (move.type === 'draw') {
     const drawn = state.boneyard.shift();
     state.hands[userId].push(drawn);
@@ -613,7 +631,7 @@ async function autoMove(io, matchId) {
               finalScores: state.scores,
               reason: 'reached_target_score',
               statePublicP1: await publicState(state, state.players.p1),
-              statePublicP2: publicState(state, state.players.p2),
+              statePublicP2: await publicState(state, state.players.p2),
             });
             return;
           }
@@ -690,23 +708,22 @@ async function autoMove(io, matchId) {
       }
     }
   }
+    if (state.boneyard.length > 0 && !hasAnyLegalPlay(state, userId)) {
+      const res = applyMove(state, userId, { type: 'draw_until_playable' });
 
-    if (state.boneyard.length > 0) {
-      applyMove(state, userId, { type: 'draw' });
+      if (hasAnyLegalPlay(state, userId)) {
+        state.lastMoveAt = Date.now();
+        state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+        await broadcastState(io, state, 'timeout_auto_draw_until_playable', { lastAction: res });
+        return;
+      }
 
       if (await handleBlockedIfAny(io, matchId, state)) return;
 
       nextTurn(state);
-      broadcastState(io, state, 'timeout_auto_draw');
+      await broadcastState(io, state, 'timeout_auto_draw_until_playable_no_play', { lastAction: res });
       return;
     }
-
-    nextTurn(state);
-
-    if (await handleBlockedIfAny(io, matchId, state)) return;
-
-    broadcastState(io, state, 'timeout_auto_pass');
-    return;
 
 }
 
@@ -719,13 +736,11 @@ async function onPlayerMove(io, matchId, userId, move) {
   const applied = applyMove(state, userId, move);
   if (!applied.ok) return applied;
 
-  // Check if this move empties the player's hand -> round ends
   if (state.hands[userId].length === 0) {
     const opponentId = otherPlayer(state, userId);
     const pointsAwarded = computeRoundPointsOnEmptyHand(userId, opponentId, state);
     state.scores[userId] += pointsAwarded;
     
-    // Mark round as ended and save result
     state.round.ended = true;
     state.lastRound = {
       winnerId: userId,
@@ -733,7 +748,6 @@ async function onPlayerMove(io, matchId, userId, move) {
       reason: 'hand_empty',
     };
     
-    // Broadcast round finished
     io.to(`match:${matchId}`).emit('domino:round_finished', {
       matchId,
       roundNumber: state.round.number,
@@ -743,7 +757,6 @@ async function onPlayerMove(io, matchId, userId, move) {
       reason: 'hand_empty',
     });
     
-    // Check if match is won (score >= 101)
     if (state.scores[userId] >= state.matchTargetScore) {
       state.status = 'finished';
       state.winnerId = userId;
@@ -763,7 +776,6 @@ async function onPlayerMove(io, matchId, userId, move) {
       return { ok: true, finished: true, winnerId: userId };
     }
     
-    // Start next round
     startNewRound(matchId, state);
     
     io.to(`match:${matchId}`).emit('domino:new_round_started', {
@@ -778,7 +790,6 @@ async function onPlayerMove(io, matchId, userId, move) {
     return { ok: true, roundEnded: true, newRound: true };
   }
 
-  // Check if round is blocked
   if (isRoundBlocked(state)) {
     const blocked = blockedWinnerAndPoints(state);
     
@@ -841,8 +852,15 @@ async function onPlayerMove(io, matchId, userId, move) {
     return { ok: true, roundEnded: true, newRound: true };
   }
 
-  // Normal turn progression
-  nextTurn(state);
+  const isTurnEndingMove = (move.type === 'play' || move.type === 'pass');
+
+  if (isTurnEndingMove) {
+    nextTurn(state);
+  } else {
+    state.lastMoveAt = Date.now();
+    state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+  }
+
   broadcastState(io, state, 'player_move', { lastAction: applied });
   return { ok: true };
 }
