@@ -724,22 +724,34 @@ async function autoMove(io, matchId) {
       }
     }
   }
-    if (state.boneyard.length > 0 && !hasAnyLegalPlay(state, userId)) {
-      const res = applyMove(state, userId, { type: 'draw_until_playable' });
 
-      if (hasAnyLegalPlay(state, userId)) {
-        state.lastMoveAt = Date.now();
-        state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
-        await broadcastState(io, state, 'timeout_auto_draw_until_playable', { lastAction: res });
-        return;
-      }
+  if (state.boneyard.length > 0 && !hasAnyLegalPlay(state, userId)) {
+    const res = applyMove(state, userId, { type: 'draw_until_playable' });
 
-      if (await handleBlockedIfAny(io, matchId, state)) return;
-
-      nextTurn(state);
-      await broadcastState(io, state, 'timeout_auto_draw_until_playable_no_play', { lastAction: res });
+    if (hasAnyLegalPlay(state, userId)) {
+      state.lastMoveAt = Date.now();
+      state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+      await broadcastState(io, state, 'timeout_auto_draw_until_playable', { lastAction: res });
       return;
     }
+
+
+    if (await handleBlockedIfAny(io, matchId, state)) return;
+
+    nextTurn(state);
+    await broadcastState(io, state, 'timeout_auto_draw_until_playable_no_play', { lastAction: res });
+    return;
+  }
+
+  if (await handleBlockedIfAny(io, matchId, state)) return;
+
+  if (state.boneyard.length === 0 && !hasAnyLegalPlay(state, userId)) {
+    nextTurn(state);
+    await broadcastState(io, state, 'timeout_auto_pass', {
+      lastAction: { ok: true, action: 'pass' },
+    });
+    return;
+  }
 
 }
 
