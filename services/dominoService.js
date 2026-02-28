@@ -121,17 +121,31 @@ function chooseStarter(p1, hand1, p2, hand2) {
 }
 
 function bestOpeningTile(hand) {
+  for (let d = 6; d >= 0; d--) {
+    if (hand.some(t => t[0] === d && t[1] === d)) {
+      return { tile: [d, d], isDouble: true, sum: d + d };
+    }
+  }
+
   let best = null;
   for (const t of hand) {
     const sum = t[0] + t[1];
-    const isDouble = t[0] === t[1];
-    if (!best) best = { tile: t, sum, isDouble };
-    else {
-      if (isDouble && !best.isDouble) best = { tile: t, sum, isDouble };
-      else if (isDouble === best.isDouble && sum > best.sum) best = { tile: t, sum, isDouble };
-    }
+    if (!best || sum > best.sum) best = { tile: t, sum, isDouble: false };
   }
   return best || { tile: null, sum: -1, isDouble: false };
+}
+
+function chooseStarter(p1, hand1, p2, hand2) {
+  const best1 = bestOpeningTile(hand1);
+  const best2 = bestOpeningTile(hand2);
+
+  if (best1.isDouble && !best2.isDouble) return p1;
+  if (!best1.isDouble && best2.isDouble) return p2;
+
+  if (best1.sum > best2.sum) return p1;
+  if (best2.sum > best1.sum) return p2;
+
+  return p1; // تعادل
 }
 
 function sumHandPips(hand) {
@@ -179,24 +193,20 @@ function blockedWinnerAndPoints(state) {
   }
 }
 
-/**
- * Initialize a new round with fresh tiles
- */
+
 function startNewRound(matchId, state) {
   const tiles = generateTiles();
   const hand1 = tiles.splice(0, 7);
   const hand2 = tiles.splice(0, 7);
   const boneyard = tiles;
-  
+
   const p1 = state.players.p1;
   const p2 = state.players.p2;
-  
-  // Update hands and boneyard
+
   state.hands[p1] = hand1;
   state.hands[p2] = hand2;
   state.boneyard = boneyard;
-  
-  // Reset board
+
   state.board = {
     center: null,
     leftChain: [],
@@ -204,13 +214,19 @@ function startNewRound(matchId, state) {
     left: null,
     right: null,
   };
-  
-  const starter = chooseStarter(p1, hand1, p2, hand2);
-  
+
+  let starter = null;
+
+  if (state.lastRound && state.lastRound.winnerId) {
+    starter = state.lastRound.winnerId;
+  } else {
+    starter = chooseStarter(p1, hand1, p2, hand2);
+  }
+
   state.round.number++;
   state.round.starterUserId = starter;
   state.round.ended = false;
-  
+
   state.turnUserId = starter;
   state.lastMoveAt = Date.now();
   state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
