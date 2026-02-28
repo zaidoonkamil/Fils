@@ -105,12 +105,12 @@ async function findOrCreateMatch(io, userId) {
 
   io.to(`user:${p1}`).emit('domino:match_found', {
     matchId: createdMatch.id,
-    state: dominoService.publicState(state, p1),
+    state: await dominoService.publicState(state, p1),
   });
 
   io.to(`user:${p2}`).emit('domino:match_found', {
     matchId: createdMatch.id,
-    state: dominoService.publicState(state, p2),
+    state: await dominoService.publicState(state, p2),
   });
 
   dominoService.startTurnTimer(io, createdMatch.id);
