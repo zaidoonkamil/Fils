@@ -88,7 +88,7 @@ function registerDominoHandlers(io, socket) {
         ok: true,
         mode: 'matched',
         matchId,
-        state: dominoService.publicState(state, userId),
+        state: await dominoService.publicState(state, userId),
       });
     } catch (e) {
       console.log('[DOMINO] resume error:', e);
@@ -107,7 +107,7 @@ function registerDominoHandlers(io, socket) {
 
     io.to(`match:${matchId}`).emit('domino:player_reconnected', { matchId, userId });
 
-    cb?.({ ok: true, state: dominoService.publicState(state, userId) });
+    cb?.({ ok: true, state: await dominoService.publicState(state, userId) });
   });
 
   socket.on('domino:move', async ({ matchId, move }, cb) => {

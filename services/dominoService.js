@@ -135,19 +135,6 @@ function bestOpeningTile(hand) {
   return best || { tile: null, sum: -1, isDouble: false };
 }
 
-function chooseStarter(p1, hand1, p2, hand2) {
-  const best1 = bestOpeningTile(hand1);
-  const best2 = bestOpeningTile(hand2);
-
-  if (best1.isDouble && !best2.isDouble) return p1;
-  if (!best1.isDouble && best2.isDouble) return p2;
-
-  if (best1.sum > best2.sum) return p1;
-  if (best2.sum > best1.sum) return p2;
-
-  return p1; // تعادل
-}
-
 function sumHandPips(hand) {
   return hand.reduce((sum, tile) => sum + tile[0] + tile[1], 0);
 }
