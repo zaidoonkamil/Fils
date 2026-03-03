@@ -24,6 +24,8 @@ const { initializeSocketIO } = require("./socket/socketHandler.js");
 const { initDominoSocket } = require("./socket/dominoHandler");
 const cors = require("cors");
 require("./cron");
+require("dotenv").config();
+
 
 const app = express();
 const server = http.createServer(app);
@@ -91,6 +93,9 @@ initializeSocketIO(roomNamespace);
 app.set("roomsIO", roomNamespace);
 
 
-server.listen(1300, '0.0.0.0', () => {
-    console.log(`🚀 Server running on http://0.0.0.0:1300`);
+const PORT = process.env.PORT || 1300;
+const HOST = process.env.HOST || "0.0.0.0";
+
+server.listen(PORT, HOST, () => {
+    console.log(`🚀 Server running on http://${HOST}:${PORT}`);
 });
