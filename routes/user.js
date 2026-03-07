@@ -373,6 +373,11 @@ router.post("/users", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
     }
 
+    if (!refId) {
+      await t.rollback();
+      return res.status(400).json({ error: "يجب إدخال رمز الإحالة" });
+    }
+    
     const existingPhone = await User.findOne({ where: { phone }, transaction: t });
     if (existingPhone) {
       await t.rollback();
