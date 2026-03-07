@@ -295,44 +295,144 @@ router.delete("/users/:id", async (req, res) => {
   }
 });
 
-router.post("/users", upload.none() ,async (req, res) => {
-    const { id, name, email, location ,password , note, url, role = 'user'} = req.body;
-    let phone = req.body.phone;
-    try {
-        const existingUser = await User.findOne({ where: { email } });
+router.get("/users/:id/referrals", async (req, res) => {
+  try {
+    const { id } = req.params;
 
-        if (existingUser) {
-            return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
+    const referrals = await Referrals.findAll({
+      where: { referrerId: id },
+      include: [
+        {
+          model: User,
+          as: "referredUser",
+          attributes: [
+            "id",
+            "name",
+            "email",
+            "phone",
+            "isVerified",
+            "location",
+            "sawa",
+            "createdAt"
+          ]
         }
+      ],
+      order: [["createdAt", "DESC"]]
+    });
 
-        const existingPhone = await User.findOne({ where: { phone } });
-        if (existingPhone) {
-          return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
-        }
+    const referralPercentageSetting = await Settings.findOne({
+      where: { key: "referral_reward_percentage", isActive: true }
+    });
 
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
-        const isVerified = role === "admin" || role === "agent";
+    const percentage = referralPercentageSetting
+      ? parseFloat(referralPercentageSetting.value)
+      : 0;
 
-        const user = await User.create({ id: id || undefined, name, email, isVerified, phone, location, password: hashedPassword, note: note || null , url: url || null , role });
+    let totalReferralEarnings = 0;
+    let totalUserEarnings = 0;
 
-        res.status(201).json({
-        id: id || undefined,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        location: user.location,
-        role: role,
-        note: user.note,
-        url: user.url,
-        isVerified: user.isVerified,
-        isLoggedIn: user.isLoggedIn, 
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-     });
-    } catch (err) {
-        console.error("❌ Error creating user:", err);
-        res.status(500).json({ error: "Internal Server Error" });
+    referrals.forEach(r => {
+      if (r.referredUser && typeof r.referredUser.sawa === "number") {
+
+        totalUserEarnings += r.referredUser.sawa;
+
+        const referralShare = (r.referredUser.sawa * percentage) / 100;
+        totalReferralEarnings += referralShare;
+      }
+    });
+
+    res.status(200).json({
+      referrerId: id,
+
+      stats: {
+        totalReferrals: referrals.length,
+        totalUsersEarnings: Math.floor(totalUserEarnings),
+        totalReferralEarnings: Math.floor(totalReferralEarnings),
+        referralPercentage: percentage
+      },
+
+      referrals
+    });
+
+  } catch (err) {
+    console.error("❌ Error fetching referrals:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/users", upload.none(), async (req, res) => {
+  const { id, name, email, location, password, note, url, refId, role = "user" } = req.body;
+  let phone = req.body.phone;
+
+  const t = await sequelize.transaction();
+
+  try {
+    const existingUser = await User.findOne({ where: { email }, transaction: t });
+    if (existingUser) {
+      await t.rollback();
+      return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
     }
+
+    const existingPhone = await User.findOne({ where: { phone }, transaction: t });
+    if (existingPhone) {
+      await t.rollback();
+      return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
+    }
+
+    let referrer = null;
+    if (refId) {
+      referrer = await User.findByPk(refId, { transaction: t });
+
+      if (!referrer) {
+        await t.rollback();
+        return res.status(400).json({ error: "كود الإحالة غير صحيح" });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    const isVerified = role === "admin" || role === "agent";
+
+    const user = await User.create({
+      id: id || undefined,
+      name,
+      email,
+      isVerified,
+      phone,
+      location,
+      password: hashedPassword,
+      note: note || null,
+      url: url || null,
+      role
+    }, { transaction: t });
+
+    if (referrer) {
+      await Referrals.create({
+        referrerId: referrer.id,
+        referredUserId: user.id
+      }, { transaction: t });
+    }
+
+    await t.commit();
+
+    res.status(201).json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      location: user.location,
+      role: user.role,
+      note: user.note,
+      url: user.url,
+      isVerified: user.isVerified,
+      isLoggedIn: user.isLoggedIn,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error creating user:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 router.post("/users/always-verified", upload.none(), async (req, res) => {
@@ -388,7 +488,7 @@ router.post("/users/always-verified", upload.none(), async (req, res) => {
 });
 
 router.post("/login", upload.none(), async (req, res) => {
-  const { email , password, refId } = req.body;
+  const { email , password } = req.body;
   try {
 
     if (!email) {
@@ -407,27 +507,6 @@ router.post("/login", upload.none(), async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
-    }
-
-    if (refId) {
-      const friend = await User.findOne({ where: { id: refId } });
-      if (!friend) {
-        return res.status(400).json({ error: "كود الإحالة غير صحيح" });
-      }
-
-      const alreadyReferred = await Referrals.findOne({
-        where: { referredUserId: user.id }
-      });
-
-      if (!alreadyReferred) {
-        friend.sawa += 5;
-        await friend.save();
-
-        await Referrals.create({
-          referrerId: friend.id,
-          referredUserId: user.id
-        });
-      }
     }
 
     if (user.isVerified) {

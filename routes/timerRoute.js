@@ -3,12 +3,10 @@ const express = require("express");
 function timerRoute(io) {
   const router = express.Router();
 
-  // راوت بدء العداد
   router.get("/start/:seconds", (req, res) => {
     const seconds = parseInt(req.params.seconds);
     let remainingTime = seconds;
 
-    // إرسال بدء العداد لكل المشتركين
     io.emit("startCountdown", remainingTime);
 
     const timer = setInterval(() => {

@@ -158,6 +158,22 @@ async function initializeSettings() {
       console.log('ℹ️ room_gift_owner_cut setting already exists');
     }
 
+    const referralRewardSetting = await Settings.findOne({
+      where: { key: 'referral_reward_percentage' },
+    });
+
+    if (!referralRewardSetting) {
+      await Settings.create({
+        key: 'referral_reward_percentage',
+        value: '0',
+        description: 'نسبة المبلغ الذي يحصل عليه صاحب رمز الإحالة عند تنفيذ المستخدم للإجراء اليومي',
+        isActive: true,
+      });
+      console.log('✅ Default referral_reward_percentage setting created successfully');
+    } else {
+      console.log('ℹ️ referral_reward_percentage setting already exists');
+    }
+
   } catch (error) {
     console.error('❌ Error initializing settings:', error);
   }

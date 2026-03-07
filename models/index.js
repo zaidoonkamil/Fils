@@ -102,16 +102,20 @@ ConsumableProduct.hasMany(ConsumablePurchase, { foreignKey: 'productId', as: 'pu
 ConsumablePurchase.belongsTo(ConsumableProduct, { foreignKey: 'productId', as: 'product', onDelete: 'CASCADE' });
 
 // علاقات نظام الهدايا المتقدم
-// 1. GiftItem Relationships
 GiftItem.hasMany(UserGift, { foreignKey: 'giftItemId', as: 'instances', onDelete: 'CASCADE' });
 UserGift.belongsTo(GiftItem, { foreignKey: 'giftItemId', as: 'item', onDelete: 'CASCADE' });
 
-// 2. User Relationships
-User.hasMany(UserGift, { foreignKey: 'userId', as: 'myGifts', onDelete: 'CASCADE' }); // Gifts owned by user
-UserGift.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' }); // Owner
+User.hasMany(UserGift, { foreignKey: 'userId', as: 'myGifts', onDelete: 'CASCADE' });
+UserGift.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
 
-User.hasMany(UserGift, { foreignKey: 'senderId', as: 'sentGifts', onDelete: 'CASCADE' }); // Gifts sent by user (historical)
-UserGift.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'CASCADE' }); // Sender (optional)
+User.hasMany(UserGift, { foreignKey: 'senderId', as: 'sentGifts', onDelete: 'CASCADE' });
+UserGift.belongsTo(User, { foreignKey: 'senderId', as: 'sender', onDelete: 'CASCADE' });
+
+User.hasMany(Referrals, { foreignKey: "referrerId", as: "myReferrals", onDelete: "CASCADE" });
+User.hasMany(Referrals, { foreignKey: "referredUserId", as: "usedReferral", onDelete: "CASCADE" });
+
+Referrals.belongsTo(User, { foreignKey: "referrerId", as: "referrer", onDelete: "CASCADE" });
+Referrals.belongsTo(User, { foreignKey: "referredUserId", as: "referredUser", onDelete: "CASCADE" });
 
 module.exports = {
   User,

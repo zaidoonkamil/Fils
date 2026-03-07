@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require("multer");
-const { User, DailyAction, UserCounter, Counter, Settings, TransferHistory, WithdrawalRequest} = require("../models");
+const { User, DailyAction, UserCounter, Counter, Settings, TransferHistory, WithdrawalRequest, Referrals } = require("../models");
 const { Op } = require("sequelize");
 const { sendNotificationToRole } = require("../services/notifications");
 const { sendNotificationToUser } = require("../services/notifications");
@@ -17,15 +17,21 @@ router.post("/daily-action", upload.none(), async (req, res) => {
     return res.status(400).json({ error: "user_id مطلوب" });
   }
 
+  const t = await sequelize.transaction();
+
   try {
-    const user = await User.findByPk(user_id);
+    const user = await User.findByPk(user_id, { transaction: t });
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
     const now = new Date();
 
-    let dailyAction = await DailyAction.findOne({ where: { user_id } });
+    let dailyAction = await DailyAction.findOne({
+      where: { user_id },
+      transaction: t
+    });
 
     if (dailyAction) {
       const lastTime = new Date(dailyAction.lastActionTime);
@@ -33,36 +39,42 @@ router.post("/daily-action", upload.none(), async (req, res) => {
       const diffInHours = diffInMs / (1000 * 60 * 60);
 
       if (diffInHours < 24) {
+        await t.rollback();
         return res.status(400).json({
-          error: `يمكنك المحاولة مجددًا بعد ${24 - diffInHours.toFixed(2)} ساعة`,
+          error: `يمكنك المحاولة مجددًا بعد ${(24 - diffInHours).toFixed(2)} ساعة`,
         });
       }
 
       dailyAction.lastActionTime = now;
-      await dailyAction.save();
+      await dailyAction.save({ transaction: t });
     } else {
-      await DailyAction.create({
-        user_id,
-        lastActionTime: now,
-      });
+      await DailyAction.create(
+        {
+          user_id,
+          lastActionTime: now,
+        },
+        { transaction: t }
+      );
     }
 
-    // جلب عدادات المستخدم الغير منتهية
     const activeUserCounters = await UserCounter.findAll({
       where: {
         userId: user_id,
         endDate: {
-          [require("sequelize").Op.gt]: now
+          [Op.gt]: now
         }
       },
-      include: [{ model: Counter }]
+      include: [{ model: Counter }],
+      transaction: t
     });
 
-    let totalJewels = 30; 
+    let totalJewels = 30;
     let totalSawa = 0;
 
-    activeUserCounters.forEach(userCounter => {
+    activeUserCounters.forEach((userCounter) => {
       const counter = userCounter.Counter;
+      if (!counter) return;
+
       if (counter.type === "gems") {
         totalJewels += counter.points;
       } else if (counter.type === "points") {
@@ -71,32 +83,82 @@ router.post("/daily-action", upload.none(), async (req, res) => {
     });
 
     if (typeof user.Jewel === "number" && !isNaN(user.Jewel)) {
-       user.Jewel += totalJewels;
+      user.Jewel += totalJewels;
     }
 
     if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
       user.sawa += totalSawa;
     }
-/*
-    if (typeof user.card === "number" && !isNaN(user.card)) {
-      user.card += 1;
+
+    let referralBonus = 0;
+    let referrerUser = null;
+
+    const referralRecord = await Referrals.findOne({
+      where: { referredUserId: user.id },
+      transaction: t
+    });
+
+    if (referralRecord && totalSawa > 0) {
+      const referralRewardSetting = await Settings.findOne({
+        where: { key: "referral_reward_percentage", isActive: true },
+        transaction: t
+      });
+
+      const referralPercentage = referralRewardSetting
+        ? parseFloat(referralRewardSetting.value)
+        : 0;
+
+      if (!isNaN(referralPercentage) && referralPercentage > 0) {
+        referralBonus = (totalSawa * referralPercentage) / 100;
+
+        referralBonus = Math.floor(referralBonus);
+
+        if (referralBonus > 0) {
+          referrerUser = await User.findByPk(referralRecord.referrerId, {
+            transaction: t
+          });
+
+          if (
+            referrerUser &&
+            typeof referrerUser.sawa === "number" &&
+            !isNaN(referrerUser.sawa)
+          ) {
+            referrerUser.sawa += referralBonus;
+            await referrerUser.save({ transaction: t });
+          }
+        }
+      }
     }
-*/
 
-    await user.save();
+    await user.save({ transaction: t });
+    await t.commit();
 
+    if (referrerUser && referralBonus > 0) {
+      try {
+        await sendNotificationToUser(
+          referrerUser.id,
+          `حصلت على ${referralBonus} سوا كنسبة إحالة من نشاط المستخدم ${user.name}`,
+          "مكافأة إحالة"
+        );
+      } catch (notifyErr) {
+        console.warn("⚠️ فشل إرسال إشعار الإحالة:", notifyErr);
+      }
+    }
 
     res.json({
       success: true,
       message: "تم تنفيذ العملية بنجاح",
       jewelsAdded: totalJewels,
       sawaAdded: totalSawa,
+      referralBonus,
+      referrerId: referrerUser ? referrerUser.id : null,
       newJewelBalance: user.Jewel,
       newCardBalance: user.card,
       newSawaBalance: user.sawa
     });
 
   } catch (error) {
+    await t.rollback();
     console.error(error);
     res.status(500).json({ error: "حدث خطأ أثناء تنفيذ العملية" });
   }
