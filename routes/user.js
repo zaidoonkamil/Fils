@@ -299,7 +299,11 @@ router.get("/users/:id/referrals", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const referrals = await Referrals.findAll({
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows: referrals } = await Referrals.findAndCountAll({
       where: { referrerId: id },
       include: [
         {
@@ -317,7 +321,9 @@ router.get("/users/:id/referrals", async (req, res) => {
           ]
         }
       ],
-      order: [["createdAt", "DESC"]]
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset
     });
 
     const referralPercentageSetting = await Settings.findOne({
@@ -328,12 +334,22 @@ router.get("/users/:id/referrals", async (req, res) => {
       ? parseFloat(referralPercentageSetting.value)
       : 0;
 
+    const allReferrals = await Referrals.findAll({
+      where: { referrerId: id },
+      include: [
+        {
+          model: User,
+          as: "referredUser",
+          attributes: ["sawa"]
+        }
+      ]
+    });
+
     let totalReferralEarnings = 0;
     let totalUserEarnings = 0;
 
-    referrals.forEach(r => {
+    allReferrals.forEach((r) => {
       if (r.referredUser && typeof r.referredUser.sawa === "number") {
-
         totalUserEarnings += r.referredUser.sawa;
 
         const referralShare = (r.referredUser.sawa * percentage) / 100;
@@ -345,10 +361,19 @@ router.get("/users/:id/referrals", async (req, res) => {
       referrerId: id,
 
       stats: {
-        totalReferrals: referrals.length,
+        totalReferrals: count,
         totalUsersEarnings: Math.floor(totalUserEarnings),
         totalReferralEarnings: Math.floor(totalReferralEarnings),
         referralPercentage: percentage
+      },
+
+      pagination: {
+        totalItems: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit: limit,
+        hasNextPage: page < Math.ceil(count / limit),
+        hasPrevPage: page > 1
       },
 
       referrals
@@ -377,7 +402,7 @@ router.post("/users", upload.none(), async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: "يجب إدخال رمز الإحالة" });
     }
-    
+
     const existingPhone = await User.findOne({ where: { phone }, transaction: t });
     if (existingPhone) {
       await t.rollback();
