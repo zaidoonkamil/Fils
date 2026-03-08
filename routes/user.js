@@ -12,6 +12,8 @@ const { Op } = require("sequelize");
 const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
+const { sendNotificationToUser } = require('../services/notifications');
+
 
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {
@@ -443,6 +445,16 @@ router.post("/users", upload.none(), async (req, res) => {
     }
 
     await t.commit();
+
+    try {
+      await sendNotificationToUser(
+        referrer.id,
+        `قام المستخدم ${user.name} بالتسجيل باستخدام رمز الإحالة الخاص بك`,
+        "مستخدم جديد من الإحالة"
+      );
+    } catch (notifyError) {
+      console.warn("⚠️ فشل إرسال إشعار الإحالة:", notifyError.message);
+    }
 
     res.status(201).json({
       id: user.id,
