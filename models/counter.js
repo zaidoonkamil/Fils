@@ -25,6 +25,11 @@ const Counter = sequelize.define("Counter", {
          allowNull: false,
           defaultValue: true ,
         } ,
+    isVisible: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+    },
 }, {
     timestamps: true,
 });
