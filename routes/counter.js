@@ -6,58 +6,22 @@ const { User, UserCounter, Counter, Settings, CounterSale} = require("../models"
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.get("/fix-add-isVisible", async (req, res) => {
-  try {
-
-    const [result] = await sequelize.query(`
-      SELECT COUNT(*) as count
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_NAME = 'Counters'
-      AND COLUMN_NAME = 'isVisible'
-      AND TABLE_SCHEMA = DATABASE()
-    `);
-
-    if (result[0].count === 0) {
-
-      await sequelize.query(`
-        ALTER TABLE Counters
-        ADD COLUMN isVisible BOOLEAN NOT NULL DEFAULT true
-      `);
-
-      return res.json({
-        success: true,
-        message: "✅ Column isVisible added successfully"
-      });
-
-    }
-
-    res.json({
-      success: true,
-      message: "ℹ️ Column already exists"
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "❌ Error adding column",
-      error: error.message
-    });
-  }
-});
-
-module.exports = router;
-
 
 router.post("/counters", upload.none(), async (req, res) => {
-    const { type, points, price } = req.body;
+    const { type, points, price, isVisible } = req.body;
 
     if (!["points", "gems"].includes(type)) {
         return res.status(400).json({ error: "type يجب أن يكون 'points' أو 'gems'" });
     }
 
     try {
-        const counter = await Counter.create({ type, points, price });
+        const counter = await Counter.create({
+            type,
+            points,
+            price,
+            // optional visibility override (defaults to true from model)
+            ...(typeof isVisible === "boolean" ? { isVisible } : {}),
+        });
 
         res.status(201).json({
             message: "Counter created successfully",
@@ -72,7 +36,7 @@ router.post("/counters", upload.none(), async (req, res) => {
 router.get("/counters", async (req, res) => {
   try {
     const counters = await Counter.findAll({
-      where: { isActive: true },
+      where: { isActive: true, isVisible: true },
       order: [["id", "ASC"]],
     });
 
@@ -166,6 +130,35 @@ router.delete("/counters/:id", async (req, res) => {
   } catch (err) {
     console.error("❌ Error disabling counter:", err);
     res.status(500).json({ error: "حدث خطأ أثناء تعطيل العداد" });
+  }
+});
+
+router.patch("/counters/:id/visibility", upload.none(), async (req, res) => {
+  const { id } = req.params;
+  const { visible } = req.body;
+
+  try {
+    const counter = await Counter.findByPk(id);
+    if (!counter) {
+      return res.status(404).json({ error: "العداد غير موجود" });
+    }
+
+    if (typeof visible === "boolean") {
+      counter.isVisible = visible;
+    } else {
+      counter.isVisible = !counter.isVisible;
+    }
+
+    await counter.save();
+
+    return res.json({
+      message: counter.isVisible ? "تم إظهار العداد ✅" : "تم إخفاء العداد ✅",
+      isVisible: counter.isVisible,
+      counter,
+    });
+  } catch (err) {
+    console.error("❌ Error toggling counter visibility:", err);
+    res.status(500).json({ error: "حدث خطأ أثناء تعديل رؤية العداد" });
   }
 });
 
