@@ -6,6 +6,48 @@ const { User, UserCounter, Counter, Settings, CounterSale} = require("../models"
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 
+router.get("/fix-add-isVisible", async (req, res) => {
+  try {
+
+    const [result] = await sequelize.query(`
+      SELECT COUNT(*) as count
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'Counters'
+      AND COLUMN_NAME = 'isVisible'
+      AND TABLE_SCHEMA = DATABASE()
+    `);
+
+    if (result[0].count === 0) {
+
+      await sequelize.query(`
+        ALTER TABLE Counters
+        ADD COLUMN isVisible BOOLEAN NOT NULL DEFAULT true
+      `);
+
+      return res.json({
+        success: true,
+        message: "✅ Column isVisible added successfully"
+      });
+
+    }
+
+    res.json({
+      success: true,
+      message: "ℹ️ Column already exists"
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "❌ Error adding column",
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+
 
 router.post("/counters", upload.none(), async (req, res) => {
     const { type, points, price } = req.body;
