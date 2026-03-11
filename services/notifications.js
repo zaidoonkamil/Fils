@@ -58,7 +58,9 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
       }]
     });
 
-    const playerIds = devices.map(device => device.player_id);
+    const playerIds = [...new Set(
+      devices.map(device => device.player_id).filter(Boolean)
+    )];
 
     if (playerIds.length === 0) {
       await NotificationLog.create({
@@ -77,39 +79,28 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
       'Content-Type': 'application/json',
     };
 
-    for (const device of devices) {
-      const data = {
-        app_id: process.env.ONESIGNAL_APP_ID,
-        include_player_ids: [device.player_id],
-        contents: { en: message },
-        headings: { en: title },
-      };
+    const data = {
+      app_id: process.env.ONESIGNAL_APP_ID,
+      include_player_ids: playerIds,
+      contents: { en: message },
+      headings: { en: title },
+    };
 
-      try {
-        await axios.post(url, data, { headers });
-        await NotificationLog.create({
-          title,
-          message,
-          target_type: "user",
-          target_value: device.user_id.toString(),
-          status: "sent"
-        });
-      } catch (error) {
-        console.error(`❌ Failed to send to user ${device.user_id}:`, error.response?.data || error.message);
-        await NotificationLog.create({
-          title,
-          message,
-          target_type: "user",
-          target_value: device.user_id.toString(),
-          status: "failed"
-        });
-      }
-    }
+    await axios.post(url, data, { headers });
+
+    await NotificationLog.create({
+      title,
+      message,
+      target_type: "role",
+      target_value: role,
+      status: "sent"
+    });
 
     return { success: true };
 
   } catch (error) {
-    console.error(`❌ Error sending notification to role ${role}:`, error.response ? error.response.data : error.message);
+    console.error(`❌ Error sending notification to role ${role}:`, error.response?.data || error.message);
+
     await NotificationLog.create({
       title,
       message,
@@ -117,6 +108,7 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
       target_value: role,
       status: "failed"
     });
+
     return { success: false, error: error.message };
   }
 };
@@ -128,14 +120,11 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
   try {
     const devices = await UserDevice.findAll({ where: { user_id: userId } });
 
-
-    const playerIds = devices.map(device => device.player_id);
+    const playerIds = [...new Set(
+      devices.map(device => device.player_id).filter(Boolean)
+    )];
 
     if (playerIds.length === 0) {
-      return { success: false, message: `لا توجد أجهزة للمستخدم ${userId}` };
-    }
-
-    if (devices.length === 0) {
       await NotificationLog.create({
         title,
         message,
@@ -152,39 +141,36 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
       'Content-Type': 'application/json',
     };
 
-    for (const device of devices) {
-      const data = {
-        app_id: process.env.ONESIGNAL_APP_ID,
-        include_player_ids: [device.player_id],
-        contents: { en: message },
-        headings: { en: title },
-      };
+    const data = {
+      app_id: process.env.ONESIGNAL_APP_ID,
+      include_player_ids: playerIds,
+      contents: { en: message },
+      headings: { en: title },
+    };
 
-      try {
-        await axios.post(url, data, { headers });
-        await NotificationLog.create({
-          title,
-          message,
-          target_type: "user",
-          target_value: userId.toString(),
-          status: "sent"
-        });
-      } catch (error) {
-        console.error(`❌ Failed to send to device ${device.id} of user ${userId}:`, error.response?.data || error.message);
-        await NotificationLog.create({
-          title,
-          message,
-          target_type: "user",
-          target_value: userId.toString(),
-          status: "failed"
-        });
-      }
-    }
+    await axios.post(url, data, { headers });
+
+    await NotificationLog.create({
+      title,
+      message,
+      target_type: "user",
+      target_value: userId.toString(),
+      status: "sent"
+    });
 
     return { success: true };
 
   } catch (error) {
-    console.error(`❌ Error sending notification to user ${userId}:`, error.response ? error.response.data : error.message);
+    console.error(`❌ Error sending notification to user ${userId}:`, error.response?.data || error.message);
+
+    await NotificationLog.create({
+      title,
+      message,
+      target_type: "user",
+      target_value: userId.toString(),
+      status: "failed"
+    });
+
     return { success: false, error: error.message };
   }
 };
