@@ -6,40 +6,6 @@ const { User, UserCounter, Counter, Settings, CounterSale} = require("../models"
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 
-router.get("/fix-add-isVisible", async (req, res) => {
-  try {
-    const [rows] = await sequelize.query(`
-      SELECT COUNT(*) AS count
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'Counters'
-      AND COLUMN_NAME = 'isVisible'
-    `);
-
-    if (rows[0].count == 0) {
-      await sequelize.query(`
-        ALTER TABLE Counters
-        ADD COLUMN isVisible TINYINT(1) NOT NULL DEFAULT 1
-      `);
-
-      return res.status(200).json({
-        success: true,
-        message: "تمت إضافة العمود isVisible إلى جدول Counters بنجاح"
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "العمود isVisible موجود مسبقًا"
-    });
-  } catch (error) {
-    console.error("❌ Error adding isVisible column:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
 
 router.post("/counters", upload.none(), async (req, res) => {
     const { type, points, price, isVisible } = req.body;
@@ -169,7 +135,7 @@ router.delete("/counters/:id", async (req, res) => {
 
 router.patch("/counters/:id/visibility", upload.none(), async (req, res) => {
   const { id } = req.params;
-  const { visible } = req.body;
+  const visible = req.body?.visible;
 
   try {
     const counter = await Counter.findByPk(id);
@@ -177,8 +143,16 @@ router.patch("/counters/:id/visibility", upload.none(), async (req, res) => {
       return res.status(404).json({ error: "العداد غير موجود" });
     }
 
-    if (typeof visible === "boolean") {
-      counter.isVisible = visible;
+    if (visible !== undefined) {
+      if (visible === "true" || visible === true) {
+        counter.isVisible = true;
+      } else if (visible === "false" || visible === false) {
+        counter.isVisible = false;
+      } else {
+        return res.status(400).json({
+          error: "visible يجب أن تكون true أو false"
+        });
+      }
     } else {
       counter.isVisible = !counter.isVisible;
     }
