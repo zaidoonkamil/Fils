@@ -34,4 +34,16 @@ const Counter = sequelize.define("Counter", {
     timestamps: true,
 });
 
-module.exports = Counter;
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.addColumn("Counters", "isVisible", {
+      type: Sequelize.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    });
+  },
+
+  async down(queryInterface, Sequelize) {
+    await queryInterface.removeColumn("Counters", "isVisible");
+  }
+};
