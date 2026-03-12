@@ -7,62 +7,6 @@ const { sendNotificationToUser } = require("../services/notifications");
 const { Op } = require("sequelize");
 
 
-
-router.post("/store/fix-add-used-columns", async (req, res) => {
-  try {
-    const tableName = "digital_product_codes";
-
-    const [columns] = await sequelize.query(`
-      SHOW COLUMNS FROM ${tableName}
-    `);
-
-    const columnNames = columns.map(col => col.Field);
-
-    const queries = [];
-
-    if (!columnNames.includes("usedBy")) {
-      queries.push(`
-        ALTER TABLE ${tableName}
-        ADD COLUMN usedBy INT NULL
-      `);
-    }
-
-    if (!columnNames.includes("usedAt")) {
-      queries.push(`
-        ALTER TABLE ${tableName}
-        ADD COLUMN usedAt DATETIME NULL
-      `);
-    }
-
-    if (queries.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "الأعمدة موجودة مسبقًا، لا حاجة لأي تعديل",
-      });
-    }
-
-    for (const query of queries) {
-      await sequelize.query(query);
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "تمت إضافة الأعمدة بنجاح",
-      addedColumns: queries.map(q =>
-        q.includes("usedBy") ? "usedBy" : "usedAt"
-      ),
-    });
-
-  } catch (error) {
-    console.error("❌ خطأ في إضافة الأعمدة:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "حدث خطأ في الخادم",
-    });
-  }
-});
-
-
 // ==================== أقسام المتجر الاستهلاكي ====================
 
 // إضافة قسم جديد (Admin فقط)
