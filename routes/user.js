@@ -902,36 +902,50 @@ router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
   try {
     const shopItem = await IdShop.findByPk(shopId, { transaction: t });
     if (!shopItem || !shopItem.isAvailable) {
+      await t.rollback();
       return res.status(404).json({ error: "العنصر غير موجود أو تم شراؤه" });
     }
 
     const user = await User.findByPk(userId, { transaction: t });
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
     if (user.sawa < shopItem.price) {
+      await t.rollback();
       return res.status(400).json({ error: "رصيدك غير كافي" });
     }
+
+    const oldId = user.id;
+    const newId = shopItem.idForSale;
 
     user.sawa -= shopItem.price;
     await user.save({ transaction: t });
 
-    const newId = shopItem.idForSale;
-
     await UserCounter.update(
       { userId: newId },
-      { where: { userId: user.id }, transaction: t }
+      { where: { userId: oldId }, transaction: t }
     );
 
     await Counter.update(
       { userId: newId },
-      { where: { userId: user.id }, transaction: t }
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await Referrals.update(
+      { referrerId: newId },
+      { where: { referrerId: oldId }, transaction: t }
+    );
+
+    await Referrals.update(
+      { referredUserId: newId },
+      { where: { referredUserId: oldId }, transaction: t }
     );
 
     await User.update(
       { id: newId },
-      { where: { id: user.id }, transaction: t }
+      { where: { id: oldId }, transaction: t }
     );
 
     shopItem.isAvailable = false;
@@ -940,8 +954,8 @@ router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
     await t.commit();
 
     res.status(200).json({
-      message: "✅ تم شراء وتغيير الـ ID بنجاح",
-      oldId: user.id,
+      message: "✅ تم شراء وتغيير الـ ID بنجاح مع نقل الإحالات",
+      oldId,
       newId,
     });
   } catch (err) {
