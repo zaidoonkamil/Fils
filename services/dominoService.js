@@ -2,7 +2,7 @@ const { DominoMatch, User } = require('../models');
 const sequelize = require("../config/db");
 
 
-const TURN_SECONDS = 12;
+const TURN_SECONDS = 7;
 
 const matches = new Map();
 const timers = new Map();
