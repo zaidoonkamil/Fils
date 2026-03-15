@@ -138,16 +138,60 @@ const generateToken = (user) => {
     );
 };
 
-const authenticateToken = (req, res, next) => {
-    const token = req.headers['authorization'];
-    if (!token) return res.status(401).json({ error: "Access denied, no token provided" });
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers["authorization"];
 
-    jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-123456789', (err, user) => {
-        if (err) return res.status(403).json({ error: "Invalid token" });
-        req.user = user;
-        next();
+    if (!authHeader) {
+      return res.status(401).json({ error: "Access denied, no token provided" });
+    }
+
+    // يدعم:
+    // Authorization: Bearer xxx
+    // أو إرسال التوكن مباشرة
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.split(" ")[1]
+      : authHeader;
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "your-secret-key-123456789"
+    );
+
+    if (!decoded.id || !decoded.email) {
+      return res.status(403).json({ error: "Invalid token payload" });
+    }
+
+    const dbUser = await User.findOne({
+      where: {
+        id: decoded.id,
+        email: decoded.email,
+      },
+      attributes: ["id", "email", "role", "isActive", "isVerified"],
     });
+
+    if (!dbUser) {
+      return res.status(403).json({ error: "Invalid token user" });
+    }
+
+    if (dbUser.isActive === false) {
+      return res.status(403).json({ error: "User is blocked" });
+    }
+
+    req.user = {
+      id: dbUser.id,
+      email: dbUser.email,
+      role: dbUser.role,
+      isVerified: dbUser.isVerified,
+    };
+
+    next();
+  } catch (err) {
+    console.error("❌ Token verification error:", err.message);
+    return res.status(403).json({ error: "Invalid or expired token" });
+  }
 };
+
 
 router.post("/otp/generate", upload.none(), async (req, res) => {
   try {
@@ -703,7 +747,11 @@ router.get("/users", async (req, res) => {
 
 router.get("/profile", authenticateToken, async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id, {
+    const user = await User.findOne({
+      where: {
+        id: req.user.id,
+        email: req.user.email,
+      },
       include: [
         {
           model: UserCounter,
@@ -715,7 +763,7 @@ router.get("/profile", authenticateToken, async (req, res) => {
             {
               model: CounterSale,
               where: { isSold: false },
-              required: false, 
+              required: false,
             },
           ],
         },
@@ -728,7 +776,7 @@ router.get("/profile", authenticateToken, async (req, res) => {
 
     const userData = user.toJSON();
 
-    userData.UserCounters = userData.UserCounters.map((counter) => {
+    userData.UserCounters = (userData.UserCounters || []).map((counter) => {
       if (counter.endDate) {
         const now = new Date();
         const endDate = new Date(counter.endDate);
@@ -740,20 +788,27 @@ router.get("/profile", authenticateToken, async (req, res) => {
           remainingDays: diffInDays > 0 ? diffInDays : 0,
         };
       }
-      return { ...counter, remainingDays: null };
+
+      return {
+        ...counter,
+        remainingDays: null,
+      };
     });
 
-    const conversionRateSetting = await Settings.findOne({ 
-      where: { key: 'sawa_to_dollar_rate', isActive: true } 
+    const conversionRateSetting = await Settings.findOne({
+      where: { key: "sawa_to_dollar_rate", isActive: true },
     });
-    const conversionRate = conversionRateSetting ? parseFloat(conversionRateSetting.value) : 1.25;
-    
-    userData.dolar = Number((userData.sawa * conversionRate).toFixed(2))
+
+    const conversionRate = conversionRateSetting
+      ? parseFloat(conversionRateSetting.value)
+      : 1.25;
+
+    userData.dolar = Number((userData.sawa * conversionRate).toFixed(2));
 
     let totalPoints = 0;
     let totalGems = 0;
 
-    userData.UserCounters.forEach((uc) => {
+    for (const uc of userData.UserCounters) {
       if (uc.Counter) {
         if (uc.Counter.type === "points") {
           totalPoints += uc.Counter.points;
@@ -761,15 +816,15 @@ router.get("/profile", authenticateToken, async (req, res) => {
           totalGems += uc.Counter.points;
         }
       }
-    });
+    }
 
     userData.totalPoints = totalPoints;
     userData.totalGems = totalGems;
 
-    res.status(200).json(userData);
+    return res.status(200).json(userData);
   } catch (err) {
     console.error("❌ Error fetching user profile:", err);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
