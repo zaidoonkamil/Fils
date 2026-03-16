@@ -406,26 +406,30 @@ router.get("/users/:id/referrals", async (req, res) => {
 
       return {
         id: r.id,
+        referrerId: Number(id),
+        referredUserId: referredUser?.id ?? null,
         createdAt: r.createdAt,
-        referredUser: {
-          id: referredUser?.id,
-          name: referredUser?.name,
-          email: referredUser?.email,
-          phone: referredUser?.phone,
-          isVerified: referredUser?.isVerified,
-          location: referredUser?.location,
-          createdAt: referredUser?.createdAt,
-        },
-        eligiblePoints: Math.floor(counterPoints),
-        referralProfit: Math.floor(referralProfit),
+        updatedAt: r.updatedAt ?? r.createdAt,
+        referredUser: referredUser
+          ? {
+              id: referredUser.id,
+              name: referredUser.name,
+              email: referredUser.email,
+              phone: referredUser.phone,
+              isVerified: referredUser.isVerified,
+              location: referredUser.location,
+              sawa: Math.floor(counterPoints), // توافق مع الموديل القديم
+              createdAt: referredUser.createdAt,
+            }
+          : null,
       };
     });
 
     res.status(200).json({
-      referrerId: id,
+      referrerId: String(id),
       stats: {
         totalReferrals: count,
-        totalUsersEligiblePoints: Math.floor(totalUsersCounterPoints),
+        totalUsersEarnings: Math.floor(totalUsersCounterPoints), // نفس الاسم القديم
         totalReferralEarnings: Math.floor(totalReferralEarnings),
         referralPercentage: percentage
       },
