@@ -100,6 +100,7 @@ router.post("/assign-counter", upload.none(), async (req, res) => {
       price: counter.price,
       startDate: now,
       endDate,
+      purchaseSource: "system",
     });
 
     res.status(201).json({
@@ -422,6 +423,7 @@ router.post("/counters/buy", upload.none(), async (req, res) => {
     userCounter.userId = buyerId;
     userCounter.points = sale.pointsAfterCut;
     userCounter.isForSale = false;
+    userCounter.purchaseSource = "market";
     await userCounter.save();
 
     res.status(200).json({ message: "تم شراء العداد ونقله بنجاح", sale });

@@ -39,7 +39,11 @@ const UserCounter = sequelize.define("UserCounter", {
   isForSale: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
-  }
+  },
+  purchaseSource: {
+  type: DataTypes.ENUM("system", "market"),
+  defaultValue: "system"
+}
 }, {
   timestamps: true,
 });

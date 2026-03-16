@@ -349,7 +349,7 @@ router.get("/users/:id/referrals", async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const { count, rows: referrals } = await Referrals.findAndCountAll({
+    const { count, rows } = await Referrals.findAndCountAll({
       where: { referrerId: id },
       include: [
         {
@@ -362,8 +362,18 @@ router.get("/users/:id/referrals", async (req, res) => {
             "phone",
             "isVerified",
             "location",
-            "sawa",
             "createdAt"
+          ],
+          include: [
+            {
+              model: UserCounter,
+              attributes: ["id", "points", "type", "purchaseSource"],
+              where: {
+                type: "points",
+                purchaseSource: "system"
+              },
+              required: false
+            }
           ]
         }
       ],
@@ -380,48 +390,54 @@ router.get("/users/:id/referrals", async (req, res) => {
       ? parseFloat(referralPercentageSetting.value)
       : 0;
 
-    const allReferrals = await Referrals.findAll({
-      where: { referrerId: id },
-      include: [
-        {
-          model: User,
-          as: "referredUser",
-          attributes: ["sawa"]
-        }
-      ]
-    });
-
     let totalReferralEarnings = 0;
-    let totalUserEarnings = 0;
+    let totalUsersCounterPoints = 0;
 
-    allReferrals.forEach((r) => {
-      if (r.referredUser && typeof r.referredUser.sawa === "number") {
-        totalUserEarnings += r.referredUser.sawa;
+    const referrals = rows.map((r) => {
+      const referredUser = r.referredUser;
 
-        const referralShare = (r.referredUser.sawa * percentage) / 100;
-        totalReferralEarnings += referralShare;
-      }
+      const counterPoints = (referredUser?.UserCounters || []).reduce((sum, uc) => {
+        return sum + (Number(uc.points) || 0);
+      }, 0);
+
+      const referralProfit = (counterPoints * percentage) / 100;
+
+      totalUsersCounterPoints += counterPoints;
+      totalReferralEarnings += referralProfit;
+
+      return {
+        id: r.id,
+        createdAt: r.createdAt,
+        referredUser: {
+          id: referredUser?.id,
+          name: referredUser?.name,
+          email: referredUser?.email,
+          phone: referredUser?.phone,
+          isVerified: referredUser?.isVerified,
+          location: referredUser?.location,
+          createdAt: referredUser?.createdAt,
+        },
+        eligiblePoints: Math.floor(counterPoints),
+        referralProfit: Math.floor(referralProfit),
+      };
     });
 
     res.status(200).json({
       referrerId: id,
-
       stats: {
         totalReferrals: count,
-        totalUsersEarnings: Math.floor(totalUserEarnings),
+        totalUsersEligiblePoints: Math.floor(totalUsersCounterPoints),
         totalReferralEarnings: Math.floor(totalReferralEarnings),
         referralPercentage: percentage
       },
-
       pagination: {
         totalItems: count,
         totalPages: Math.ceil(count / limit),
         currentPage: page,
-        limit: limit,
+        limit,
         hasNextPage: page < Math.ceil(count / limit),
         hasPrevPage: page > 1
       },
-
       referrals
     });
 
