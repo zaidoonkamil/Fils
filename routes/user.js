@@ -404,25 +404,33 @@ router.get("/users/:id/referrals", async (req, res) => {
       totalUsersCounterPoints += counterPoints;
       totalReferralEarnings += referralProfit;
 
-      return {
+      const referral = {
         id: r.id,
         referrerId: Number(id),
-        referredUserId: referredUser?.id ?? null,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt ?? r.createdAt,
-        referredUser: referredUser
-          ? {
-              id: referredUser.id,
-              name: referredUser.name,
-              email: referredUser.email,
-              phone: referredUser.phone,
-              isVerified: referredUser.isVerified,
-              location: referredUser.location,
-              sawa: Math.floor(counterPoints), // توافق مع الموديل القديم
-              createdAt: referredUser.createdAt,
-            }
-          : null,
       };
+
+      // أضف referredUserId فقط إذا موجود
+      if (r.referredUserId !== null && r.referredUserId !== undefined) {
+        referral.referredUserId = r.referredUserId;
+      }
+
+      // أضف referredUser فقط إذا موجود
+      if (referredUser) {
+        referral.referredUser = {
+          id: referredUser.id,
+          name: referredUser.name,
+          email: referredUser.email,
+          phone: referredUser.phone,
+          isVerified: referredUser.isVerified,
+          location: referredUser.location,
+          sawa: Math.floor(counterPoints),
+          createdAt: referredUser.createdAt,
+        };
+      }
+
+      return referral;
     });
 
     res.status(200).json({
