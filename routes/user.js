@@ -15,6 +15,33 @@ const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
 
 
+router.get("/admin/add-purchase-source-column", async (req, res) => {
+  try {
+    await sequelize.query(`
+      ALTER TABLE UserCounters
+      ADD COLUMN purchaseSource ENUM('system','market') NOT NULL DEFAULT 'system'
+    `);
+
+    res.json({
+      message: "✅ Column purchaseSource added successfully to UserCounters"
+    });
+
+  } catch (error) {
+    console.error("❌ Error adding column:", error);
+
+    if (error.message.includes("Duplicate column")) {
+      return res.json({
+        message: "⚠️ Column purchaseSource already exists"
+      });
+    }
+
+    res.status(500).json({
+      error: "Failed to add column",
+      details: error.message
+    });
+  }
+});
+
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {
     const userId = req.query.id;
