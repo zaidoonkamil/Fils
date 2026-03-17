@@ -2,6 +2,7 @@ const axios = require('axios');
 const UserDevice = require("../models/user_device");
 const User = require("../models/user");
 const NotificationLog = require("../models/notification_log");
+const { Op } = require("sequelize");
 
 const sendNotification = async (message, heading) => {
   if (!message || typeof message !== 'string' || message.trim() === '') {
@@ -118,7 +119,6 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
   if (!id) throw new Error("id مطلوب");
 
   try {
-    // نجيب الأجهزة سواء user أو agent
     const devices = await UserDevice.findAll({
       where: {
         [Op.or]: [
@@ -132,11 +132,21 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
       devices.map(device => device.player_id).filter(Boolean)
     )];
 
+    let targetType = "user";
+    const isAgent = devices.some(device => device.agent_id == id);
+    const isUser = devices.some(device => device.user_id == id);
+
+    if (isAgent) {
+      targetType = "agent";
+    } else if (isUser) {
+      targetType = "user";
+    }
+
     if (playerIds.length === 0) {
       await NotificationLog.create({
         title,
         message,
-        target_type: "unknown",
+        target_type: targetType,
         target_value: id.toString(),
         status: "failed"
       });
@@ -162,7 +172,7 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
     await NotificationLog.create({
       title,
       message,
-      target_type: "user_or_agent",
+      target_type: targetType,
       target_value: id.toString(),
       status: "sent"
     });
@@ -175,7 +185,7 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
     await NotificationLog.create({
       title,
       message,
-      target_type: "user_or_agent",
+      target_type: "user",
       target_value: id.toString(),
       status: "failed"
     });
@@ -183,6 +193,7 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
     return { success: false, error: error.message };
   }
 };
+
 
 module.exports = {
   sendNotification,
