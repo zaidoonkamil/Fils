@@ -2,7 +2,6 @@ const axios = require('axios');
 const UserDevice = require("../models/user_device");
 const User = require("../models/user");
 const NotificationLog = require("../models/notification_log");
-const { Op } = require("sequelize");
 
 const sendNotification = async (message, heading) => {
   if (!message || typeof message !== 'string' || message.trim() === '') {
@@ -120,44 +119,29 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
 
   try {
     const devices = await UserDevice.findAll({
-      where: {
-        [Op.or]: [
-          { user_id: id },
-          { agent_id: id }
-        ]
-      }
+      where: { user_id: id }
     });
 
     const playerIds = [...new Set(
       devices.map(device => device.player_id).filter(Boolean)
     )];
 
-    let targetType = "user";
-    const isAgent = devices.some(device => device.agent_id == id);
-    const isUser = devices.some(device => device.user_id == id);
-
-    if (isAgent) {
-      targetType = "agent";
-    } else if (isUser) {
-      targetType = "user";
-    }
-
     if (playerIds.length === 0) {
       await NotificationLog.create({
         title,
         message,
-        target_type: targetType,
+        target_type: "user",
         target_value: id.toString(),
         status: "failed"
       });
 
-      return { success: false, message: `لا توجد أجهزة لهذا المستخدم/الوكيل ${id}` };
+      return { success: false, message: `لا توجد أجهزة لهذا المستخدم ${id}` };
     }
 
-    const url = 'https://onesignal.com/api/v1/notifications';
+    const url = "https://onesignal.com/api/v1/notifications";
     const headers = {
-      'Authorization': `Basic ${process.env.ONESIGNAL_API_KEY}`,
-      'Content-Type': 'application/json',
+      Authorization: `Basic ${process.env.ONESIGNAL_API_KEY}`,
+      "Content-Type": "application/json",
     };
 
     const data = {
@@ -172,7 +156,7 @@ const sendNotificationToUser = async (id, message, title = "Notification") => {
     await NotificationLog.create({
       title,
       message,
-      target_type: targetType,
+      target_type: "user",
       target_value: id.toString(),
       status: "sent"
     });
