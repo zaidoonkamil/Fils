@@ -370,6 +370,28 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
       fee: 0,
     });
 
+    // إشعار للمرسل
+    try {
+      await sendNotificationToUser(
+        sender.id,
+        `تم تحويل ${transferAmount} كاك إلى ${receiver.name} بدون عمولة`,
+        "تحويل رصيد"
+      );
+    } catch (notifyErr) {
+      console.warn("⚠️ فشل إرسال إشعار للمرسل:", notifyErr);
+    }
+
+    // إشعار للمستلم
+    try {
+      await sendNotificationToUser(
+        receiver.id,
+        `استلمت ${transferAmount} كاك من ${sender.name} بدون عمولة`,
+        "استلام رصيد"
+      );
+    } catch (notifyErr) {
+      console.warn("⚠️ فشل إرسال إشعار للمستلم:", notifyErr);
+    }
+
     res.status(200).json({
       message: `✅ تم تحويل ${transferAmount} كاك من ${sender.name} إلى ${receiver.name}. بدون عمولة.`,
       sender: {
