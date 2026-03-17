@@ -9,7 +9,7 @@ const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin } = require("../middlewares/requireAdmin");
-const { authenticateToken } = require("../middlewares/auth");
+const { requireAdmin } = require("../middlewares/auth");
 
 
 router.post("/daily-action", upload.none(), async (req, res) => {
