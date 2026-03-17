@@ -459,8 +459,8 @@ router.get("/users/:id/referrals", async (req, res) => {
 });
 
 router.post("/users", upload.none(), async (req, res) => {
-  const { id, name, email, location, password, note, url, refId, role = "user" } = req.body;
-  let phone = req.body.phone;
+  const { id, name, email, location, password, note, url, refId } = req.body;
+  const phone = req.body.phone;
 
   const t = await sequelize.transaction();
 
@@ -470,7 +470,10 @@ router.post("/users", upload.none(), async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
     }
-
+    if (!name || !email || !password || !phone) {
+      await t.rollback();
+      return res.status(400).json({ error: "الاسم والبريد وكلمة المرور والهاتف مطلوبة" });
+    }
     if (!refId) {
       await t.rollback();
       return res.status(400).json({ error: "يجب إدخال رمز الإحالة" });
@@ -482,38 +485,31 @@ router.post("/users", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
     }
 
-    let referrer = null;
-    if (refId) {
-      referrer = await User.findByPk(refId, { transaction: t });
-
-      if (!referrer) {
-        await t.rollback();
-        return res.status(400).json({ error: "كود الإحالة غير صحيح" });
-      }
+    const referrer = await User.findByPk(refId, { transaction: t });
+    if (!referrer) {
+      await t.rollback();
+      return res.status(400).json({ error: "كود الإحالة غير صحيح" });
     }
 
     const hashedPassword = await bcrypt.hash(password, saltRounds);
-    const isVerified = role === "admin" || role === "agent";
 
     const user = await User.create({
       id: id || undefined,
       name,
       email,
-      isVerified,
+      isVerified: false,
       phone,
       location,
       password: hashedPassword,
       note: note || null,
       url: url || null,
-      role
+      role: "user"
     }, { transaction: t });
 
-    if (referrer) {
-      await Referrals.create({
-        referrerId: referrer.id,
-        referredUserId: user.id
-      }, { transaction: t });
-    }
+    await Referrals.create({
+      referrerId: referrer.id,
+      referredUserId: user.id
+    }, { transaction: t });
 
     await t.commit();
 
