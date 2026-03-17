@@ -8,7 +8,6 @@ const { sendNotificationToUser } = require("../services/notifications");
 const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const { requireAdmin } = require("../middlewares/requireAdmin");
 const { requireAdmin } = require("../middlewares/auth");
 
 
