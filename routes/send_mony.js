@@ -137,7 +137,7 @@ router.post("/daily-action", upload.none(), async (req, res) => {
       try {
         await sendNotificationToUser(
           referrerUser.id,
-          `حصلت على ${referralBonus} سوا كنسبة إحالة من نشاط المستخدم ${user.name}`,
+          `حصلت على ${referralBonus} كاك كنسبة إحالة من نشاط المستخدم ${user.name}`,
           "مكافأة إحالة"
         );
       } catch (notifyErr) {
@@ -226,7 +226,7 @@ router.post("/sendmony", upload.none(), async (req, res) => {
     }
 
     if (transferAmount < 50) {
-      return res.status(400).json({ error: "لا يمكن تحويل أقل من 50 سوا" });
+      return res.status(400).json({ error: "لا يمكن تحويل أقل من 50 كاك" });
     }
 
     const sender = await User.findByPk(senderId);
@@ -243,7 +243,6 @@ router.post("/sendmony", upload.none(), async (req, res) => {
       return res.status(404).json({ error: "المستلم غير موجود" });
     }
 
-    // تحقق من إجمالي تحويلات اليوم
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -261,27 +260,24 @@ router.post("/sendmony", upload.none(), async (req, res) => {
 
     if ((totalSentToday || 0) + transferAmount > dailyLimit) {
       return res.status(400).json({
-        error: `لا يمكنك تحويل أكثر من ${dailyLimit} سوا في اليوم`,
+        error: `لا يمكنك تحويل أكثر من ${dailyLimit} كاك في اليوم`,
       });
     }
 
-    // حساب العمولة
     const fee = transferAmount * 0.1;
     const netAmount = transferAmount - fee;
 
-if (typeof sender.sawa === "number" && !isNaN(sender.sawa)) {
-  sender.sawa -= transferAmount;
-}
+    if (typeof sender.sawa === "number" && !isNaN(sender.sawa)) {
+      sender.sawa -= transferAmount;
+    }
 
-if (typeof receiver.sawa === "number" && !isNaN(receiver.sawa)) {
-  receiver.sawa += netAmount;
-}
+    if (typeof receiver.sawa === "number" && !isNaN(receiver.sawa)) {
+      receiver.sawa += netAmount;
+    }
 
-await sender.save();
-await receiver.save();
+    await sender.save();
+    await receiver.save();
 
-
-// تسجيل العملية في سجل التحويلات
     await TransferHistory.create({
       senderId,
       receiverId,
@@ -289,8 +285,30 @@ await receiver.save();
       fee,
     });
 
+    // إشعار للمرسل
+    try {
+      await sendNotificationToUser(
+        sender.id,
+        `تم تحويل ${netAmount} كاك إلى ${receiver.name}. العمولة: ${fee} كاك`,
+        "تحويل رصيد"
+      );
+    } catch (notifyErr) {
+      console.warn("⚠️ فشل إرسال إشعار للمرسل:", notifyErr);
+    }
+
+    // إشعار للمستلم
+    try {
+      await sendNotificationToUser(
+        receiver.id,
+        `استلمت ${netAmount} كاك من ${sender.name}`,
+        "استلام رصيد"
+      );
+    } catch (notifyErr) {
+      console.warn("⚠️ فشل إرسال إشعار للمستلم:", notifyErr);
+    }
+
     res.status(200).json({
-      message: `✅ تم تحويل ${netAmount} sawa من ${sender.name} إلى ${receiver.name}. العمولة: ${fee} sawa`,
+      message: `✅ تم تحويل ${netAmount} كاك من ${sender.name} إلى ${receiver.name}. العمولة: ${fee} كاك`,
       sender: {
         id: sender.id,
         name: sender.name,
@@ -353,7 +371,7 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     });
 
     res.status(200).json({
-      message: `✅ تم تحويل ${transferAmount} sawa من ${sender.name} إلى ${receiver.name}. بدون عمولة.`,
+      message: `✅ تم تحويل ${transferAmount} كاك من ${sender.name} إلى ${receiver.name}. بدون عمولة.`,
       sender: {
         id: sender.id,
         name: sender.name,
@@ -458,13 +476,12 @@ router.post("/buy-counter", upload.none(), async (req, res) => {
         if (!counter) return res.status(404).json({ error: "Counter not found" });
 
         if (user.sawa < counter.price) {
-            return res.status(400).json({ error: "Insufficient sawa balance" });
+            return res.status(400).json({ error: "Insufficient كاك balance" });
         }
 
-        // خصم السعر من sawa
-if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
-  user.sawa -= counter.price;
-}        await user.save();
+        if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
+          user.sawa -= counter.price;
+        }        await user.save();
 
         // حفظ العداد للمستخدم
         await UserCounter.create({
@@ -516,7 +533,7 @@ router.post("/deposit-sawa", upload.none(), async (req, res) => {
         await user.save();
 
         res.status(200).json({
-            message: `Successfully updated sawa balance by ${depositAmount} for ${user.name}`,
+            message: `Successfully updated كاك balance by ${depositAmount} for ${user.name}`,
             user: {
                 id: user.id,
                 name: user.name,
@@ -525,7 +542,7 @@ router.post("/deposit-sawa", upload.none(), async (req, res) => {
         });
 
     } catch (err) {
-        console.error("❌ Error during sawa deposit:", err);
+        console.error("❌ Error during كاك deposit:", err);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
