@@ -362,7 +362,6 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     await sender.save();
     await receiver.save();
 
-    // تسجيل العملية في سجل التحويلات بدون عمولة
     await TransferHistory.create({
       senderId,
       receiverId,
@@ -374,7 +373,7 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     try {
       await sendNotificationToUser(
         sender.id,
-        `تم تحويل ${transferAmount} كاك إلى ${receiver.name} بدون عمولة`,
+        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك`,
         "تحويل رصيد"
       );
     } catch (notifyErr) {
@@ -385,7 +384,7 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     try {
       await sendNotificationToUser(
         receiver.id,
-        `استلمت ${transferAmount} كاك من ${sender.name} بدون عمولة`,
+        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك`,
         "استلام رصيد"
       );
     } catch (notifyErr) {
