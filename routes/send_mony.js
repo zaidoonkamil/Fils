@@ -8,6 +8,8 @@ const { sendNotificationToUser } = require("../services/notifications");
 const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
+const { requireAdmin } = require("../middlewares/requireAdmin");
+const { authenticateToken } = require("../middlewares/authenticateToken");
 
 
 router.post("/daily-action", upload.none(), async (req, res) => {
@@ -448,43 +450,6 @@ router.post("/deposit-jewel", upload.none(), async (req, res) => {
     }
 });
 
-router.post("/deposit-card", upload.none(), async (req, res) => {
-    const { userId, amount } = req.body;
-
-    try {
-        const depositAmount = parseInt(amount);
-
-        if (isNaN(depositAmount) || depositAmount <= 0) {
-            return res.status(400).json({ error: "Invalid deposit amount" });
-        }
-
-        const user = await User.findOne({
-            where: { id: userId }
-        });
-
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        user.card += depositAmount;
-
-        await user.save();
-
-        res.status(200).json({
-            message: `Successfully added ${depositAmount} cards to ${user.name}`,
-            user: {
-                id: user.id,
-                name: user.name,
-                newBalance: user.card
-            }
-        });
-
-    } catch (err) {
-        console.error("❌ Error during card deposit:", err);
-        res.status(500).json({ error: "Internal Server Error" });
-    }
-});
-
 router.post("/buy-counter", upload.none(), async (req, res) => {
     const { userId, counterId } = req.body;
 
@@ -523,48 +488,40 @@ router.post("/buy-counter", upload.none(), async (req, res) => {
     }
 });
 
-router.post("/deposit-sawa", upload.none(), async (req, res) => {
-    const { userId, amount } = req.body;
+router.post("/deposit-sawa", requireAdmin, upload.none(), async (req, res) => {
+  const { userId, amount } = req.body;
 
-    try {
-        const depositAmount = parseFloat(amount);
+  try {
+    const depositAmount = parseFloat(amount);
 
-        if (isNaN(depositAmount)) {
-            return res.status(400).json({ error: "Deposit amount must be a valid number" });
-        }
-
-        if (depositAmount === 0) {
-            return res.status(400).json({ error: "Deposit amount cannot be zero" });
-        }
-
-        const user = await User.findOne({
-            where: { id: userId }
-        });
-
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-
-        if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
-          user.sawa += depositAmount;
-        }
-
-        await user.save();
-
-        res.status(200).json({
-            message: `Successfully updated كاك balance by ${depositAmount} for ${user.name}`,
-            user: {
-                id: user.id,
-                name: user.name,
-                newBalance: user.sawa
-            }
-        });
-
-    } catch (err) {
-        console.error("❌ Error during كاك deposit:", err);
-        res.status(500).json({ error: "Internal Server Error" });
+    if (isNaN(depositAmount) || depositAmount <= 0) {
+      return res.status(400).json({ error: "Deposit amount must be greater than zero" });
     }
+
+    const user = await User.findOne({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    user.sawa += depositAmount;
+    await user.save();
+
+    res.status(200).json({
+      message: `Successfully updated كاك balance by ${depositAmount} for ${user.name}`,
+      user: {
+        id: user.id,
+        name: user.name,
+        newBalance: user.sawa
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ Error during كاك deposit:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) => {
