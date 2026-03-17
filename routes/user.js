@@ -622,12 +622,6 @@ router.post("/login", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
     }
 
-    if (user.isVerified) {
-      user.isLoggedIn = false;
-      await user.save();
-    }
-
-
     const token = generateToken(user);
 
     res.status(200).json({
