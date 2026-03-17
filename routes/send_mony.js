@@ -369,7 +369,6 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
       fee: 0,
     });
 
-    // إشعار للمرسل
     try {
       await sendNotificationToUser(
         sender.id,

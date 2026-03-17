@@ -113,12 +113,20 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
   }
 };
 
-const sendNotificationToUser = async (userId, message, title = "Notification") => {
+const sendNotificationToUser = async (id, message, title = "Notification") => {
   if (!message) throw new Error("message مطلوب");
-  if (!userId) throw new Error("userId مطلوب");
+  if (!id) throw new Error("id مطلوب");
 
   try {
-    const devices = await UserDevice.findAll({ where: { user_id: userId } });
+    // نجيب الأجهزة سواء user أو agent
+    const devices = await UserDevice.findAll({
+      where: {
+        [Op.or]: [
+          { user_id: id },
+          { agent_id: id }
+        ]
+      }
+    });
 
     const playerIds = [...new Set(
       devices.map(device => device.player_id).filter(Boolean)
@@ -128,11 +136,12 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
       await NotificationLog.create({
         title,
         message,
-        target_type: "user",
-        target_value: userId.toString(),
+        target_type: "unknown",
+        target_value: id.toString(),
         status: "failed"
       });
-      return { success: false, message: `لا توجد أجهزة للمستخدم ${userId}` };
+
+      return { success: false, message: `لا توجد أجهزة لهذا المستخدم/الوكيل ${id}` };
     }
 
     const url = 'https://onesignal.com/api/v1/notifications';
@@ -153,21 +162,21 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
     await NotificationLog.create({
       title,
       message,
-      target_type: "user",
-      target_value: userId.toString(),
+      target_type: "user_or_agent",
+      target_value: id.toString(),
       status: "sent"
     });
 
     return { success: true };
 
   } catch (error) {
-    console.error(`❌ Error sending notification to user ${userId}:`, error.response?.data || error.message);
+    console.error(`❌ Error sending notification to id ${id}:`, error.response?.data || error.message);
 
     await NotificationLog.create({
       title,
       message,
-      target_type: "user",
-      target_value: userId.toString(),
+      target_type: "user_or_agent",
+      target_value: id.toString(),
       status: "failed"
     });
 
