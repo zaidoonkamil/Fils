@@ -120,6 +120,27 @@ router.post("/admin/agent-requests/:id/action", upload.none(), async (req, res) 
   }
 });
 
+router.post("/admin/reset-all-balances", authenticateToken, requireAdmin, async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const [updatedCount] = await User.update(
+      { sawa: 0, Jewel: 0 },
+      { where: {}, transaction: t }
+    );
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: "✅ تم تصفير أرصدة كاك والجواهر لجميع المستخدمين",
+      affectedUsers: updatedCount
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error resetting all balances:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
