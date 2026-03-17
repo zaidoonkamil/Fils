@@ -643,6 +643,49 @@ router.post("/login", upload.none(), async (req, res) => {
   }
 });
 
+router.post("/admin/login", upload.none(), async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    if (!email || !password) {
+      return res.status(400).json({ error: "يرجى إدخال البريد الإلكتروني وكلمة المرور" });
+    }
+
+    const user = await User.findOne({ where: { email } });
+
+    if (!user) {
+      return res.status(400).json({ error: "البريد الإلكتروني غير صحيح" });
+    }
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "هذا الرابط مخصص للأدمن فقط" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
+    }
+
+    const token = generateToken(user);
+
+    res.status(200).json({
+      message: "Admin login successful",
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      },
+      token
+    });
+
+  } catch (err) {
+    console.error("❌ خطأ أثناء تسجيل دخول الأدمن:", err);
+    res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
 router.post("/logout", upload.none(), async (req, res) => {
   const { id } = req.body;
 
