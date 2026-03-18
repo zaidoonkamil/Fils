@@ -169,7 +169,7 @@ router.post("/create-room", authenticateToken, async (req, res) => {
 // عرض الغرف المتوفرة
 router.get("/rooms", authenticateToken, async (req, res) => {
     try {
-        const { category, page = 1, limit = 10 } = req.query;
+        const { category, page = 1, limit = 20 } = req.query;
         
         let whereClause = { isActive: true };
         if (category) {
