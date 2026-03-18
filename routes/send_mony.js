@@ -373,7 +373,7 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     try {
       await sendNotificationToUser(
         sender.id,
-        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك`,
+        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك الى ${receiver.name}`,
         "تحويل رصيد"
       );
     } catch (notifyErr) {
@@ -384,7 +384,7 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     try {
       await sendNotificationToUser(
         receiver.id,
-        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك`,
+        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك الى ${receiver.name}`,
         "استلام رصيد"
       );
     } catch (notifyErr) {
