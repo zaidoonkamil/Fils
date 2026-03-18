@@ -16,8 +16,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-123456789');
-        // التحقق من وجود id أو userId في التوكن
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.id || decoded.userId;
         if (!userId) {
             return res.status(401).json({ error: "Token غير صالح - لا يوجد معرف مستخدم" });
@@ -108,20 +107,6 @@ router.post("/create-test-users", async (req, res) => {
     } catch (error) {
         console.error("خطأ في إنشاء المستخدمين:", error);
         res.status(500).json({ error: "خطأ في إنشاء المستخدمين" });
-    }
-});
-
-// إنشاء Token تجريبي للاختبار
-router.post("/test-token", async (req, res) => {
-    try {
-        const token = jwt.sign({ id: 10001 }, process.env.JWT_SECRET || 'your-secret-key-123456789');
-        res.json({ 
-            token,
-            message: "Token تم إنشاؤه بنجاح",
-            userId: 10001
-        });
-    } catch (error) {
-        res.status(500).json({ error: "خطأ في إنشاء Token" });
     }
 });
 
