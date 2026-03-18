@@ -43,6 +43,13 @@ app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 app.use((req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+});
+
+app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
@@ -50,8 +57,11 @@ app.use((req, res, next) => {
 });
 
 app.use("/uploads", express.static("./" + "uploads"));
-app.use(express.static("public"));
-
+app.use(express.static("public", {
+    setHeaders: (res) => {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
+}));
 
 sequelize.sync({
     force: false,
@@ -60,11 +70,6 @@ sequelize.sync({
     .then(() => {
         console.log("✅ Database & User table synced!");
     }).catch(err => console.error("❌ Error syncing database:", err));
-
-app.get("/", (req, res) => {
-    res.sendFile(__dirname + "/public/index.html");
-});
-
 
 
 app.use("/", usersRouter);
