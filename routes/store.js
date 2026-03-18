@@ -4,11 +4,12 @@ const upload = require("../middlewares/uploads");
 const sequelize = require("../config/db");
 const { StoreCategory, DigitalProduct, ProductPurchase, User, DigitalProductCode } = require("../models");
 const { sendNotificationToUser } = require("../services/notifications");
+const { requireAdmin } = require("../middlewares/auth");
 
 // ==================== أقسام المتجر ====================
 
 // إضافة قسم جديد (Admin فقط)
-router.post("/store/categories", upload.single("image"), async (req, res) => {
+router.post("/store/categories", requireAdmin, upload.single("image"), async (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -51,7 +52,7 @@ router.get("/store/categories", async (req, res) => {
 });
 
 // تحديث قسم (Admin فقط)
-router.put("/store/categories/:id", upload.single("image"), async (req, res) => {
+router.put("/store/categories/:id", requireAdmin, upload.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, isActive } = req.body;
@@ -79,7 +80,7 @@ router.put("/store/categories/:id", upload.single("image"), async (req, res) => 
 });
 
 // حذف قسم (Admin فقط)
-router.delete("/store/categories/:id", async (req, res) => {
+router.delete("/store/categories/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -100,7 +101,7 @@ router.delete("/store/categories/:id", async (req, res) => {
 // ==================== المنتجات الرقمية ====================
 
 // إضافة منتج رقمي جديد (Admin فقط)
-router.post("/store/products", upload.array("images", 5), async (req, res) => {
+router.post("/store/products", requireAdmin, upload.array("images", 5), async (req, res) => {
   try {
     const { categoryId, title, description, price, codes } = req.body;
 
@@ -193,7 +194,7 @@ router.post("/store/products", upload.array("images", 5), async (req, res) => {
 });
 
 
-router.post("/store/products/:id/add-codes", upload.none(), async (req, res) => {
+router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
     const { codes } = req.body;
@@ -321,7 +322,7 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
 });
 
 // حذف منتج (Admin فقط)
-router.delete("/store/products/:id", async (req, res) => {
+router.delete("/store/products/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
