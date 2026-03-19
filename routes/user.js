@@ -13,7 +13,7 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
-const { requireAdmin } = require("../middlewares/auth");
+const { requireAdmin, authenticateTokenUser } = require("../middlewares/auth");
 
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {
@@ -144,10 +144,6 @@ const authenticateToken = async (req, res, next) => {
     if (!authHeader) {
       return res.status(401).json({ error: "Access denied, no token provided" });
     }
-
-    // يدعم:
-    // Authorization: Bearer xxx
-    // أو إرسال التوكن مباشرة
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.split(" ")[1]
       : authHeader;
@@ -191,6 +187,85 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, location, note, url, password, isActive, isVerified, role } = req.body;
+
+    const loggedInUser = req.user;
+
+    if (loggedInUser.role !== "admin" && String(loggedInUser.id) !== String(id)) {
+      return res.status(403).json({ error: "غير مسموح لك تعديل بيانات مستخدم آخر" });
+    }
+
+    const user = await User.findByPk(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (email && email !== user.email) {
+      const existingEmail = await User.findOne({ where: { email } });
+      if (existingEmail) {
+        return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
+      }
+      user.email = email;
+    }
+
+    if (phone && phone !== user.phone) {
+      const existingPhone = await User.findOne({ where: { phone } });
+      if (existingPhone) {
+        return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
+      }
+      user.phone = phone;
+    }
+
+    if (name !== undefined) user.name = name;
+    if (location !== undefined) user.location = location;
+    if (note !== undefined) user.note = note;
+    if (url !== undefined) user.url = url;
+
+    if (password !== undefined && password !== "") {
+      user.password = await bcrypt.hash(password, saltRounds);
+    }
+
+    if (loggedInUser.role === "admin") {
+      if (isActive !== undefined) {
+        user.isActive = isActive === "true" || isActive === true;
+      }
+
+      if (isVerified !== undefined) {
+        user.isVerified = isVerified === "true" || isVerified === true;
+      }
+
+      if (role !== undefined && role !== "") {
+        user.role = role;
+      }
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "تم تعديل بيانات المستخدم بنجاح",
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        location: user.location,
+        note: user.note,
+        url: user.url,
+        role: user.role,
+        isActive: user.isActive,
+        isVerified: user.isVerified,
+        updatedAt: user.updatedAt,
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error updating user:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 router.post("/otp/generate", upload.none(), async (req, res) => {
   try {
