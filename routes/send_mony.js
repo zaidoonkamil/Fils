@@ -491,12 +491,13 @@ router.post("/deposit-sawa", requireAdmin, upload.none(), async (req, res) => {
   const { userId, amount } = req.body;
 
   try {
-    const depositAmount = parseFloat(amount);
+    const depositAmount = Number(amount);
 
-    if (isNaN(depositAmount) || depositAmount <= 0) {
-      return res.status(400).json({ error: "Deposit amount must be greater than zero" });
+    if (!Number.isFinite(depositAmount)) {
+      return res.status(400).json({
+        error: "Amount must be a valid number"
+      });
     }
-
     const user = await User.findOne({
       where: { id: userId }
     });

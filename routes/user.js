@@ -13,6 +13,7 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
+const { requireAdmin } = require("../middlewares/auth");
 
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {
