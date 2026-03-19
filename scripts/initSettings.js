@@ -174,6 +174,22 @@ async function initializeSettings() {
       console.log('ℹ️ referral_reward_percentage setting already exists');
     }
 
+    const profileUpdateCostSetting = await Settings.findOne({
+      where: { key: 'profile_update_cost' },
+    });
+
+    if (!profileUpdateCostSetting) {
+      await Settings.create({
+        key: 'profile_update_cost',
+        value: '0',
+        description: 'تكلفة تعديل بيانات الحساب',
+        isActive: true,
+      });
+      console.log('✅ Default profile_update_cost setting created successfully');
+    } else {
+      console.log('ℹ️ profile_update_cost setting already exists');
+    }
+
   } catch (error) {
     console.error('❌ Error initializing settings:', error);
   }
