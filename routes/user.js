@@ -13,8 +13,7 @@ const axios = require('axios');
 const sequelize = require("../config/db"); 
 const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
-const { requireAdmin  } = require("../middlewares/auth");
-const { authenticateToken } = require("../middlewares/auth");
+const { requireAdmin } = require("../middlewares/auth");
 
 router.post("/request-agent", upload.none(), async (req, res) => {
   try {
@@ -129,6 +128,69 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS,
   },
 });
+
+const generateToken = (user) => {
+    return jwt.sign(
+        { id: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET || 'your-secret-key-123456789',
+        { expiresIn: '350d' } 
+    );
+};
+
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers["authorization"];
+
+    if (!authHeader) {
+      return res.status(401).json({ error: "Access denied, no token provided" });
+    }
+
+    // يدعم:
+    // Authorization: Bearer xxx
+    // أو إرسال التوكن مباشرة
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.split(" ")[1]
+      : authHeader;
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "your-secret-key-123456789"
+    );
+
+    if (!decoded.id || !decoded.email) {
+      return res.status(403).json({ error: "Invalid token payload" });
+    }
+
+    const dbUser = await User.findOne({
+      where: {
+        id: decoded.id,
+        email: decoded.email,
+      },
+      attributes: ["id", "email", "role", "isActive", "isVerified"],
+    });
+
+    if (!dbUser) {
+      return res.status(403).json({ error: "Invalid token user" });
+    }
+
+    if (dbUser.isActive === false) {
+      return res.status(403).json({ error: "User is blocked" });
+    }
+
+    req.user = {
+      id: dbUser.id,
+      email: dbUser.email,
+      role: dbUser.role,
+      isVerified: dbUser.isVerified,
+    };
+
+    next();
+  } catch (err) {
+    console.error("❌ Token verification error:", err.message);
+    return res.status(403).json({ error: "Invalid or expired token" });
+  }
+};
+
 
 router.post("/otp/generate", upload.none(), async (req, res) => {
   try {
