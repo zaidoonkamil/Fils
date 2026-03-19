@@ -77,11 +77,13 @@ const authenticateTokenUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!authHeader) {
       return res.status(401).json({ error: "Token not provided. Unauthorized access." });
     }
 
-    const token = authHeader.split(" ")[1];
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.split(" ")[1]
+      : authHeader;
 
     jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
       if (err) {
