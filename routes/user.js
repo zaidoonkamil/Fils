@@ -137,56 +137,6 @@ const generateToken = (user) => {
     );
 };
 
-const authenticateToken = async (req, res, next) => {
-  try {
-    const authHeader = req.headers["authorization"];
-
-    if (!authHeader) {
-      return res.status(401).json({ error: "Access denied, no token provided" });
-    }
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.split(" ")[1]
-      : authHeader;
-
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "your-secret-key-123456789"
-    );
-
-    if (!decoded.id || !decoded.email) {
-      return res.status(403).json({ error: "Invalid token payload" });
-    }
-
-    const dbUser = await User.findOne({
-      where: {
-        id: decoded.id,
-        email: decoded.email,
-      },
-      attributes: ["id", "email", "role", "isActive", "isVerified"],
-    });
-
-    if (!dbUser) {
-      return res.status(403).json({ error: "Invalid token user" });
-    }
-
-    if (dbUser.isActive === false) {
-      return res.status(403).json({ error: "User is blocked" });
-    }
-
-    req.user = {
-      id: dbUser.id,
-      email: dbUser.email,
-      role: dbUser.role,
-      isVerified: dbUser.isVerified,
-    };
-
-    next();
-  } catch (err) {
-    console.error("❌ Token verification error:", err.message);
-    return res.status(403).json({ error: "Invalid or expired token" });
-  }
-};
-
 router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
