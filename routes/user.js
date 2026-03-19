@@ -191,6 +191,24 @@ router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) 
       if (role !== undefined && role !== "") {
         user.role = role;
       }
+    } else {
+      const profileUpdateCostSetting = await Settings.findOne({
+        where: { key: "profile_update_cost", isActive: true }
+      });
+
+      const profileUpdateCost = profileUpdateCostSetting
+        ? parseFloat(profileUpdateCostSetting.value)
+        : 0;
+
+      if (profileUpdateCost > 0) {
+        if ((user.sawa || 0) < profileUpdateCost) {
+          return res.status(400).json({
+            error: "رصيدك غير كافي لتعديل الحساب"
+          });
+        }
+
+        user.sawa -= profileUpdateCost;
+      }
     }
 
     await user.save();
@@ -208,6 +226,7 @@ router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) 
         role: user.role,
         isActive: user.isActive,
         isVerified: user.isVerified,
+        sawa: user.sawa,
         updatedAt: user.updatedAt,
       }
     });
