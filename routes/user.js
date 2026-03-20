@@ -1366,5 +1366,98 @@ router.post("/terms", upload.none(), async (req, res) => {
     }
 });
 
+router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, res) => {
+  const { id } = req.params;
+  const { newId } = req.body;
+
+  const t = await sequelize.transaction();
+
+  try {
+    if (!newId) {
+      await t.rollback();
+      return res.status(400).json({ error: "الـ newId مطلوب" });
+    }
+
+    if (String(newId) === String(id)) {
+      await t.rollback();
+      return res.status(400).json({ error: "الـ newId يجب أن يكون مختلف عن الـ id الحالي" });
+    }
+
+    const existingUserWithNewId = await User.findByPk(newId, { transaction: t });
+    if (existingUserWithNewId) {
+      await t.rollback();
+      return res.status(400).json({ error: "هذا الـ ID مستخدم بالفعل" });
+    }
+
+    const user = await User.findByPk(id, { transaction: t });
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const oldId = user.id;
+
+    await UserCounter.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await Counter.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await UserDevice.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await AgentRequest.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await Referrals.update(
+      { referrerId: newId },
+      { where: { referrerId: oldId }, transaction: t }
+    );
+
+    await Referrals.update(
+      { referredUserId: newId },
+      { where: { referredUserId: oldId }, transaction: t }
+    );
+
+    await User.update(
+      { id: newId },
+      { where: { id: oldId }, transaction: t }
+    );
+
+    await t.commit();
+
+    const updatedUser = await User.findByPk(newId);
+
+    return res.status(200).json({
+      message: "تم تغيير الـ ID بنجاح بدون فقدان البيانات ✅",
+      oldId,
+      newId,
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+      }
+    });
+
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error changing user ID:", err);
+    return res.status(500).json({
+      error: "Internal Server Error",
+      details: err.message
+    });
+  }
+});
+
 
 module.exports = router;
