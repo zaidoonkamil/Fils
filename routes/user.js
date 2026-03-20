@@ -1459,5 +1459,31 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
   }
 });
 
+router.get("/users/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q) {
+      return res.status(400).json({ error: "يرجى إدخال كلمة البحث" });
+    }
+
+    const users = await User.findAll({
+      where: {
+        [Op.or]: [
+          { name: { [Op.like]: `%${q}%` } },
+          { email: { [Op.like]: `%${q}%` } },
+          { phone: { [Op.like]: `%${q}%` } },
+        ],
+      },
+      attributes: ["id", "name", "email", "phone", "role", "isActive", "isVerified"],
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json(users);
+  } catch (err) {
+    console.error("❌ Error searching users:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 module.exports = router;
