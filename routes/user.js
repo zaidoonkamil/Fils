@@ -419,6 +419,9 @@ router.get("/users/:id/referrals", async (req, res) => {
         {
           model: User,
           as: "referredUser",
+          distinct: true,
+          col: 'id',
+          where: { isActive: true },
           attributes: [
             "id",
             "name",
