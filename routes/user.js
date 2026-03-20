@@ -587,7 +587,7 @@ router.post("/users", upload.none(), async (req, res) => {
     try {
       await sendNotificationToUser(
         referrer.id,
-        `قام المستخدم ${user.name} بالتسجيل باستخدام رمز الإحالة الخاص بك`,
+        `قام المستخدم ${user.name}  بالتسجيل باستخدام رمز الإحالة الخاص بك للعلم لا يدخل الى الفريق الابتوثيق حسابه`,
         "مستخدم جديد من الإحالة"
       );
     } catch (notifyError) {
