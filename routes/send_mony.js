@@ -214,7 +214,7 @@ router.get("/daily-action/:user_id", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ أثناء جلب الوقت المتبقي" });
   }
 });
-
+/*
 router.post("/sendmony", upload.none(), async (req, res) => {
   const { senderId, receiverId, amount } = req.body;
 
@@ -410,7 +410,7 @@ router.post("/sendmony-simple", upload.none(), async (req, res) => {
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
-
+*/
 router.post("/deposit-jewel", upload.none(), async (req, res) => {
     const { userId, amount } = req.body;
 
