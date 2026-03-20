@@ -121,13 +121,35 @@ router.post("/admin/agent-requests/:id/action", upload.none(), async (req, res) 
   }
 });
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const sendMailWithFallback = async (mailOptions) => {
+  const accounts = [
+    { user: process.env.EMAIL_USER,  pass: process.env.EMAIL_PASS  },
+    { user: process.env.EMAIL_USER2, pass: process.env.EMAIL_PASS2 },
+    { user: process.env.EMAIL_USER3, pass: process.env.EMAIL_PASS3 },
+    { user: process.env.EMAIL_USER4, pass: process.env.EMAIL_PASS4 },
+  ];
+
+  for (let i = 0; i < accounts.length; i++) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: accounts[i].user, pass: accounts[i].pass },
+      });
+
+      await transporter.sendMail({
+        ...mailOptions,
+        from: `"كاك" <${accounts[i].user}>`,
+      });
+
+      console.log(`✅ Email sent via account ${i + 1}`);
+      return;
+    } catch (err) {
+      console.warn(`⚠️ Account ${i + 1} failed: ${err.message}`);
+    }
+  }
+
+  console.error("❌ All email accounts failed");
+};
 
 const generateToken = (user) => {
     return jwt.sign(
@@ -254,12 +276,11 @@ router.post("/otp/generate", upload.none(), async (req, res) => {
       expiryDate,
     });
 
-    await transporter.sendMail({
-      from: `"كاك" <${process.env.EMAIL_USER}>`,
+    sendMailWithFallback({
       to: email,
       subject: "رمز التحقق OTP",
       text: `رمز التحقق الخاص بك هو: ${otp} صالح لمدة دقيقتين.`,
-    });
+    }).catch(err => console.error("❌ Mail error:", err.message));
 
     return res.status(201).json({
       message: "تم إرسال OTP إلى البريد الإلكتروني",
