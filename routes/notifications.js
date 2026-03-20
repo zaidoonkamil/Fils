@@ -118,7 +118,7 @@ router.post('/send-notification-to-role', upload.none(), async (req, res) => {
 });
 
 router.get("/notifications-log", async (req, res) => {
-  const { userId, page = 1, limit = 40 } = req.query;
+  const { userId, page = 1, limit = 30 } = req.query;
 
   try {
     if (!userId) {
