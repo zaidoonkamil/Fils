@@ -421,7 +421,10 @@ router.get("/users/:id/referrals", async (req, res) => {
           as: "referredUser",
           distinct: true,
           col: 'id',
-          where: { isActive: true },
+          where: { 
+            isActive: true,
+            isVerified: true
+          },
           attributes: [
             "id",
             "name",
