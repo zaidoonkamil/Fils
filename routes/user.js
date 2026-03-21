@@ -399,12 +399,15 @@ router.delete("/users/:id", async (req, res) => {
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
-    await user.destroy(); 
+    await user.destroy();
 
-    res.status(200).json({ message: "تم حذف المستخدم وأجهزته بنجاح" });
+    return res.status(200).json({
+      message: "تم حذف المستخدم وأجهزته بنجاح",
+      deletedUserId: id
+    });
   } catch (err) {
     console.error("❌ خطأ أثناء الحذف:", err);
-    res.status(500).json({ error: "حدث خطأ أثناء عملية الحذف" });
+    return res.status(500).json({ error: "حدث خطأ أثناء عملية الحذف" });
   }
 });
 
