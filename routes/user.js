@@ -1501,34 +1501,4 @@ router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
   }
 });
 
-router.post("/emergency/fix-columns", async (req, res) => {
-  const results = [];
-
-  const queries = [
-    {
-      name: "purchaseSource في UserCounters",
-      sql: "ALTER TABLE UserCounters ADD COLUMN purchaseSource VARCHAR(50) DEFAULT 'system'"
-    },
-    {
-      name: "isVisible في Counters",
-      sql: "ALTER TABLE Counters ADD COLUMN isVisible BOOLEAN DEFAULT true"
-    }
-  ];
-
-  for (const q of queries) {
-    try {
-      await sequelize.query(q.sql);
-      results.push({ column: q.name, status: "✅ تمت الإضافة" });
-    } catch (err) {
-      if (err.original?.code === 'ER_DUP_FIELDNAME') {
-        results.push({ column: q.name, status: "⚠️ موجود مسبقاً" });
-      } else {
-        results.push({ column: q.name, status: "❌ فشل", error: err.message });
-      }
-    }
-  }
-
-  res.status(200).json({ results });
-});
-
 module.exports = router;
