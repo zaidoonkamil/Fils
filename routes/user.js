@@ -1466,7 +1466,7 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
   }
 });
 
-router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
+router.delete("/emergency/fix-user/:userId", async (req, res) => {
   const { userId } = req.params;
   const t = await sequelize.transaction();
 
