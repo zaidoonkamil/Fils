@@ -158,7 +158,7 @@ router.get("/notifications-log", authenticateTokenUser, async (req, res) => {
 
 router.get("/notifications-log-admin/:userId", requireAdmin, async (req, res) => {
   const { userId } = req.params;
-  const { page = 1, limit = 30 } = req.query;
+  const { page = 1, limit = 50 } = req.query;
 
   try {
     const user = await User.findByPk(userId);
