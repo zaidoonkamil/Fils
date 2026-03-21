@@ -336,6 +336,7 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
   }
 });
 
+/*
 router.post('/admin/reset-password', upload.none(), async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -383,7 +384,7 @@ router.post('/reset-password', upload.none(), async (req, res) => {
     return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
   }
 });
-
+*/
 router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
 
