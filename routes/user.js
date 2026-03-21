@@ -387,7 +387,7 @@ router.post('/reset-password', upload.none(), async (req, res) => {
 });
 */
 
-router.delete("/users/:id", async (req, res) => {
+router.delete("/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -399,15 +399,12 @@ router.delete("/users/:id", async (req, res) => {
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
-    await user.destroy();
+    await user.destroy(); 
 
-    return res.status(200).json({
-      message: "تم حذف المستخدم وأجهزته بنجاح",
-      deletedUserId: id
-    });
+    res.status(200).json({ message: "تم حذف المستخدم وأجهزته بنجاح" });
   } catch (err) {
     console.error("❌ خطأ أثناء الحذف:", err);
-    return res.status(500).json({ error: "حدث خطأ أثناء عملية الحذف" });
+    res.status(500).json({ error: "حدث خطأ أثناء عملية الحذف" });
   }
 });
 
@@ -1469,7 +1466,7 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
   }
 });
 
-router.delete("/emergency/fix-user/:userId", async (req, res) => {
+router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
   const { userId } = req.params;
   const t = await sequelize.transaction();
 
@@ -1503,5 +1500,7 @@ router.delete("/emergency/fix-user/:userId", async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+
 
 module.exports = router;
