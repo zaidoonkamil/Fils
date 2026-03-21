@@ -156,5 +156,45 @@ router.get("/notifications-log", authenticateTokenUser, async (req, res) => {
   }
 });
 
+router.get("/notifications-log-admin/:userId", requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { page = 1, limit = 30 } = req.query;
+
+  try {
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const whereCondition = {
+      [Op.or]: [
+        { target_type: 'all' },
+        { target_type: 'user', target_value: userId.toString() }
+      ]
+    };
+
+    const offset = (page - 1) * limit;
+
+    const { count, rows: logs } = await NotificationLog.findAndCountAll({
+      where: whereCondition,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+
+    res.json({
+      userId,
+      userName: user.name,
+      total: count,
+      page: parseInt(page),
+      totalPages: Math.ceil(count / limit),
+      logs
+    });
+
+  } catch (err) {
+    console.error("❌ Error fetching notification logs:", err);
+    res.status(500).json({ error: "خطأ أثناء جلب السجل" });
+  }
+});
 
 module.exports = router;
