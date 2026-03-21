@@ -1501,21 +1501,34 @@ router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
   }
 });
 
-router.post("/emergency/add-purchase-source", async (req, res) => {
-  try {
-    await sequelize.query(
-      "ALTER TABLE UserCounters ADD COLUMN purchaseSource VARCHAR(50) DEFAULT 'system'"
-    );
+router.post("/emergency/fix-columns", async (req, res) => {
+  const results = [];
 
-    res.status(200).json({ message: "✅ تم إضافة عمود purchaseSource بنجاح" });
-
-  } catch (err) {
-    if (err.original?.code === 'ER_DUP_FIELDNAME') {
-      return res.status(400).json({ error: "العمود موجود بالفعل" });
+  const queries = [
+    {
+      name: "purchaseSource في UserCounters",
+      sql: "ALTER TABLE UserCounters ADD COLUMN purchaseSource VARCHAR(50) DEFAULT 'system'"
+    },
+    {
+      name: "isVisible في Counters",
+      sql: "ALTER TABLE Counters ADD COLUMN isVisible BOOLEAN DEFAULT true"
     }
-    console.error("❌ Error:", err);
-    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  ];
+
+  for (const q of queries) {
+    try {
+      await sequelize.query(q.sql);
+      results.push({ column: q.name, status: "✅ تمت الإضافة" });
+    } catch (err) {
+      if (err.original?.code === 'ER_DUP_FIELDNAME') {
+        results.push({ column: q.name, status: "⚠️ موجود مسبقاً" });
+      } else {
+        results.push({ column: q.name, status: "❌ فشل", error: err.message });
+      }
+    }
   }
+
+  res.status(200).json({ results });
 });
 
 module.exports = router;
