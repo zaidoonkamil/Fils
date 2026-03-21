@@ -1501,4 +1501,23 @@ router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
   }
 });
 
+router.post("/emergency/add-purchase-source", requireAdmin, async (req, res) => {
+  try {
+    await sequelize.query(`
+      ALTER TABLE UserCounters 
+      ADD COLUMN purchaseSource VARCHAR(50) DEFAULT 'system'
+    `);
+
+    res.status(200).json({ message: "✅ تم إضافة عمود purchaseSource بنجاح" });
+
+  } catch (err) {
+    // لو العمود موجود بالفعل
+    if (err.original?.code === 'ER_DUP_FIELDNAME') {
+      return res.status(400).json({ error: "العمود موجود بالفعل" });
+    }
+    console.error("❌ Error:", err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  }
+});
+
 module.exports = router;
