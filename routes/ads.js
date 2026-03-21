@@ -3,8 +3,9 @@ const Ads = require("../models/ads");
 const router = express.Router();
 const upload = require("../middlewares/uploads");
 const { sendNotificationToRole  } = require('../services/notifications');
+const { requireAdmin } = require("../middlewares/auth");
 
-router.post("/ads", upload.array("images", 5), async (req, res) => {
+router.post("/ads", requireAdmin, upload.array("images", 5), async (req, res) => {
   try {
     const { name, description } = req.body;
     if (!req.files || req.files.length === 0) {
@@ -34,12 +35,12 @@ router.get("/ads", async (req, res) => {
     const ads = await Ads.findAll();
     res.json(ads);
 } catch (err) {
-    console.error("❌ Error creating ads:", err);
+    console.error("❌ Error fetching ads:", err);
     res.status(500).json({ error: "Internal Server Error" });
 }
 });
 
-router.delete("/ads/:id", async (req, res) => {
+router.delete("/ads/:id", requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
         const ad = await Ads.findByPk(id);

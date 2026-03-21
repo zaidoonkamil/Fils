@@ -11,7 +11,7 @@ function shuffle(array) {
   }
   return array;
 }
-
+/*
 router.post("/join-game/:id", async (req, res) => {
   try {
     const userId = req.params.id;
@@ -110,7 +110,7 @@ router.post("/join-game/:id", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ أثناء الدخول للعبة" });
   }
 });
-
+*/
 router.get("/last-finished-game/:userId", async (req, res) => {
   try {
     const { userId } = req.params;

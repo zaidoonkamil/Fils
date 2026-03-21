@@ -8,15 +8,11 @@ const { sendNotificationToUser } = require("../services/notifications");
 const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const { requireAdmin } = require("../middlewares/auth");
+const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
-router.post("/daily-action", upload.none(), async (req, res) => {
-  const { user_id } = req.body;
-
-  if (!user_id) {
-    return res.status(400).json({ error: "user_id مطلوب" });
-  }
+router.post("/daily-action", authenticateTokenUser, upload.none(), async (req, res) => {
+  const user_id = req.user.id;
 
   const t = await sequelize.transaction();
 
@@ -165,8 +161,8 @@ router.post("/daily-action", upload.none(), async (req, res) => {
   }
 });
 
-router.get("/daily-action/:user_id", async (req, res) => {
-  const { user_id } = req.params;
+router.get("/daily-action", authenticateTokenUser, async (req, res) => {
+  const user_id = req.user.id;
 
   if (!user_id) {
     return res.status(400).json({ error: "user_id مطلوب في الرابط" });
@@ -214,203 +210,136 @@ router.get("/daily-action/:user_id", async (req, res) => {
     res.status(500).json({ error: "حدث خطأ أثناء جلب الوقت المتبقي" });
   }
 });
-/*
-router.post("/sendmony", upload.none(), async (req, res) => {
-  const { senderId, receiverId, amount } = req.body;
 
+router.post("/sendmony", authenticateTokenUser, upload.none(), async (req, res) => {
+  const { receiverId, amount } = req.body;
+  const senderId = req.user.id;
+
+  const t = await sequelize.transaction();
   try {
     const transferAmount = parseFloat(amount);
     const dailyLimit = 500;
 
     if (isNaN(transferAmount) || transferAmount <= 0) {
+      await t.rollback();
       return res.status(400).json({ error: "المبلغ غير صالح" });
     }
 
     if (transferAmount < 50) {
+      await t.rollback();
       return res.status(400).json({ error: "لا يمكن تحويل أقل من 50 كاك" });
     }
 
-    const sender = await User.findByPk(senderId);
+    if (String(senderId) === String(receiverId)) {
+      await t.rollback();
+      return res.status(400).json({ error: "لا يمكن تحويل رصيد لنفسك" });
+    }
+
+    const sender = await User.findByPk(senderId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!sender) {
-      return res.status(404).json({ error: "المستخدم المرسل غير موجود" });
+      await t.rollback();
+      return res.status(404).json({ error: "المرسل غير موجود" });
     }
 
     if (sender.sawa < transferAmount) {
+      await t.rollback();
       return res.status(400).json({ error: "رصيد المرسل غير كافي" });
     }
 
-    const receiver = await User.findByPk(receiverId);
+    const receiver = await User.findByPk(receiverId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!receiver) {
+      await t.rollback();
       return res.status(404).json({ error: "المستلم غير موجود" });
     }
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
     const totalSentToday = await TransferHistory.sum("amount", {
-      where: {
-        senderId,
-        createdAt: {
-          [Op.between]: [todayStart, todayEnd],
-        },
-      },
+      where: { senderId, createdAt: { [Op.between]: [todayStart, todayEnd] } },
+      transaction: t
     });
 
     if ((totalSentToday || 0) + transferAmount > dailyLimit) {
-      return res.status(400).json({
-        error: `لا يمكنك تحويل أكثر من ${dailyLimit} كاك في اليوم`,
-      });
+      await t.rollback();
+      return res.status(400).json({ error: `لا يمكنك تحويل أكثر من ${dailyLimit} كاك في اليوم` });
     }
 
     const fee = transferAmount * 0.1;
     const netAmount = transferAmount - fee;
 
-    if (typeof sender.sawa === "number" && !isNaN(sender.sawa)) {
-      sender.sawa -= transferAmount;
-    }
+    sender.sawa -= transferAmount;
+    receiver.sawa += netAmount;
 
-    if (typeof receiver.sawa === "number" && !isNaN(receiver.sawa)) {
-      receiver.sawa += netAmount;
-    }
+    await sender.save({ transaction: t });
+    await receiver.save({ transaction: t });
 
-    await sender.save();
-    await receiver.save();
+    await TransferHistory.create({ senderId, receiverId, amount: transferAmount, fee }, { transaction: t });
 
-    await TransferHistory.create({
-      senderId,
-      receiverId,
-      amount: transferAmount,
-      fee,
-    });
+    await t.commit();
 
-    // إشعار للمرسل
-    try {
-      await sendNotificationToUser(
-        sender.id,
-        `تم تحويل ${netAmount} كاك إلى ${receiver.name}. العمولة: ${fee} كاك`,
-        "تحويل رصيد"
-      );
-    } catch (notifyErr) {
-      console.warn("⚠️ فشل إرسال إشعار للمرسل:", notifyErr);
-    }
+    // الإشعارات بعد الـ commit
+    try { await sendNotificationToUser(sender.id, `تم تحويل ${netAmount} كاك إلى ${receiver.name}`, "تحويل رصيد"); } catch {}
+    try { await sendNotificationToUser(receiver.id, `استلمت ${netAmount} كاك من ${sender.name}`, "استلام رصيد"); } catch {}
 
-    // إشعار للمستلم
-    try {
-      await sendNotificationToUser(
-        receiver.id,
-        `استلمت ${netAmount} كاك من ${sender.name}`,
-        "استلام رصيد"
-      );
-    } catch (notifyErr) {
-      console.warn("⚠️ فشل إرسال إشعار للمستلم:", notifyErr);
-    }
-
-    res.status(200).json({
-      message: `✅ تم تحويل ${netAmount} كاك من ${sender.name} إلى ${receiver.name}. العمولة: ${fee} كاك`,
-      sender: {
-        id: sender.id,
-        name: sender.name,
-        balance: sender.sawa,
-      },
-      receiver: {
-        id: receiver.id,
-        name: receiver.name,
-        balance: receiver.sawa,
-      },
-    });
+    res.status(200).json({ message: `✅ تم تحويل ${netAmount} كاك. العمولة: ${fee} كاك` });
 
   } catch (err) {
+    await t.rollback();
     console.error("❌ خطأ أثناء التحويل:", err);
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
 
-router.post("/sendmony-simple", upload.none(), async (req, res) => {
-  const { senderId, receiverId, amount } = req.body;
+router.post("/sendmony-simple", authenticateTokenUser, upload.none(), async (req, res) => {
+  const { receiverId, amount } = req.body;
+  const senderId = req.user.id;
 
+  const t = await sequelize.transaction();
   try {
     const transferAmount = parseFloat(amount);
 
     if (isNaN(transferAmount) || transferAmount <= 0) {
+      await t.rollback();
       return res.status(400).json({ error: "المبلغ غير صالح" });
     }
 
-    const sender = await User.findByPk(senderId);
-    if (!sender) {
-      return res.status(404).json({ error: "المستخدم المرسل غير موجود" });
+    if (String(senderId) === String(receiverId)) {
+      await t.rollback();
+      return res.status(400).json({ error: "لا يمكن تحويل رصيد لنفسك" });
     }
 
-    if (sender.sawa < transferAmount) {
-      return res.status(400).json({ error: "رصيد المرسل غير كافي" });
-    }
+    const sender = await User.findByPk(senderId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!sender) { await t.rollback(); return res.status(404).json({ error: "المرسل غير موجود" }); }
 
-    const receiver = await User.findByPk(receiverId);
-    if (!receiver) {
-      return res.status(404).json({ error: "المستلم غير موجود" });
-    }
+    if (sender.sawa < transferAmount) { await t.rollback(); return res.status(400).json({ error: "رصيد المرسل غير كافي" }); }
 
-    if (typeof sender.sawa === "number" && !isNaN(sender.sawa)) {
-      sender.sawa -= transferAmount;
-    }
+    const receiver = await User.findByPk(receiverId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!receiver) { await t.rollback(); return res.status(404).json({ error: "المستلم غير موجود" }); }
 
-    if (typeof receiver.sawa === "number" && !isNaN(receiver.sawa)) {
-      receiver.sawa += transferAmount;
-    }
+    sender.sawa -= transferAmount;
+    receiver.sawa += transferAmount;
 
-    await sender.save();
-    await receiver.save();
+    await sender.save({ transaction: t });
+    await receiver.save({ transaction: t });
 
-    await TransferHistory.create({
-      senderId,
-      receiverId,
-      amount: transferAmount,
-      fee: 0,
-    });
+    await TransferHistory.create({ senderId, receiverId, amount: transferAmount, fee: 0 }, { transaction: t });
 
-    try {
-      await sendNotificationToUser(
-        sender.id,
-        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك الى ${receiver.name}`,
-        "تحويل رصيد"
-      );
-    } catch (notifyErr) {
-      console.warn("⚠️ فشل إرسال إشعار للمرسل:", notifyErr);
-    }
+    await t.commit();
 
-    // إشعار للمستلم
-    try {
-      await sendNotificationToUser(
-        receiver.id,
-        `تم تحويل من ${sender.name} مبلغ ${transferAmount} كاك الى ${receiver.name}`,
-        "استلام رصيد"
-      );
-    } catch (notifyErr) {
-      console.warn("⚠️ فشل إرسال إشعار للمستلم:", notifyErr);
-    }
+    try { await sendNotificationToUser(sender.id, `تم تحويل ${transferAmount} كاك إلى ${receiver.name}`, "تحويل رصيد"); } catch {}
+    try { await sendNotificationToUser(receiver.id, `استلمت ${transferAmount} كاك من ${sender.name}`, "استلام رصيد"); } catch {}
 
-    res.status(200).json({
-      message: `✅ تم تحويل ${transferAmount} كاك من ${sender.name} إلى ${receiver.name}. بدون عمولة.`,
-      sender: {
-        id: sender.id,
-        name: sender.name,
-        balance: sender.sawa,
-      },
-      receiver: {
-        id: receiver.id,
-        name: receiver.name,
-        balance: receiver.sawa,
-      },
-    });
+    res.status(200).json({ message: `✅ تم تحويل ${transferAmount} كاك من ${sender.name} إلى ${receiver.name}. بدون عمولة.` });
 
   } catch (err) {
-    console.error("❌ خطأ أثناء التحويل:", err);
+    await t.rollback();
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
-*/
+
 router.post("/deposit-jewel", upload.none(), async (req, res) => {
     const { userId, amount } = req.body;
 
@@ -449,8 +378,9 @@ router.post("/deposit-jewel", upload.none(), async (req, res) => {
     }
 });
 
-router.post("/buy-counter", upload.none(), async (req, res) => {
-    const { userId, counterId } = req.body;
+router.post("/buy-counter", authenticateTokenUser, upload.none(), async (req, res) => {
+    const { counterId } = req.body;
+    const userId = req.user.id;
 
     try {
         const user = await User.findByPk(userId);
@@ -467,7 +397,6 @@ router.post("/buy-counter", upload.none(), async (req, res) => {
           user.sawa -= counter.price;
         }        await user.save();
 
-        // حفظ العداد للمستخدم
         await UserCounter.create({
             userId: user.id,
             counterId: counter.id
@@ -524,44 +453,34 @@ router.post("/deposit-sawa", requireAdmin, upload.none(), async (req, res) => {
   }
 });
 
-router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) => {
+router.post("/withdrawalRequest", authenticateTokenUser, upload.array("images", 5), async (req, res) => {
   try {
-    const { userId, amount, method, accountNumber, cardOfName} = req.body;
-
-    /*
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: "جميع الحقول مطلوبة" });
-    }
-    */
+    const { amount, method, accountNumber, cardOfName} = req.body;
+    const userId = req.user.id;
 
     if (!userId || !amount || !method || !accountNumber || !cardOfName) {
       return res.status(400).json({ message: "يرجى إدخال جميع الحقول" });
     }
 
-    // تحويل المبلغ إلى فلوت
     const withdrawalAmount = parseFloat(amount);
     if (isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
       return res.status(400).json({ message: "المبلغ غير صالح" });
     }
 
-    // جلب إعدادات العمولة والحد الأدنى
     const commissionSetting = await Settings.findOne({ where: { key: "withdrawal_commission" } });
     const minAmountSetting = await Settings.findOne({ where: { key: "withdrawal_min_amount" } });
 
-    // تحويل القيم لفلوت وتنظيف الفراغات
     const commissionRate = commissionSetting ? parseFloat(commissionSetting.value.trim()) / 100 : 0;
     const minAmount = minAmountSetting ? parseFloat(minAmountSetting.value.trim()) : 6400;
 
     console.log("commissionRate:", commissionRate, "minAmount:", minAmount, "withdrawalAmount:", withdrawalAmount);
 
-    // التحقق من المستخدم ورصيده
     const user = await User.findOne({ where: { id: userId } });
     if (!user) return res.status(404).json({ message: "المستخدم غير موجود" });
     if (user.sawa < withdrawalAmount) {
       return res.status(400).json({ message: "رصيدك غير كافٍ" });
     }
 
-    // حساب العمولة والمبلغ الصافي
     const commission = withdrawalAmount * commissionRate;
     const netAmount = withdrawalAmount - commission;
 
@@ -613,7 +532,7 @@ router.post("/withdrawalRequest", upload.array("images", 5), async (req, res) =>
   }
 });
 
-router.get("/withdrawalRequest/pending", async (req, res) => {
+router.get("/withdrawalRequest/pending", requireAdmin, async (req, res) => {
   try {
     const requests = await WithdrawalRequest.findAll({
       where: { status: "قيد الانتظار" },
@@ -679,7 +598,7 @@ router.get("/withdrawalRequest/processed", async (req, res) => {
   }
 });
 
-router.post("/withdrawalRequest/:id/status", async (req, res) => {
+router.post("/withdrawalRequest/:id/status", requireAdmin, async (req, res) => {
   try {
     const requestId = req.params.id;
     const { status } = req.body;
@@ -732,7 +651,7 @@ router.post("/withdrawalRequest/:id/status", async (req, res) => {
   }
 });
 
-router.delete("/withdrawalRequest/:id", async (req, res) => {
+router.delete("/withdrawalRequest/:id", requireAdmin, async (req, res) => {
   try {
     const requestId = req.params.id;
 

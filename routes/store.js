@@ -4,7 +4,7 @@ const upload = require("../middlewares/uploads");
 const sequelize = require("../config/db");
 const { StoreCategory, DigitalProduct, ProductPurchase, User, DigitalProductCode } = require("../models");
 const { sendNotificationToUser } = require("../services/notifications");
-const { requireAdmin } = require("../middlewares/auth");
+const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 // ==================== أقسام المتجر ====================
 
@@ -343,9 +343,10 @@ router.delete("/store/products/:id", requireAdmin, async (req, res) => {
 // ==================== عملية الشراء ====================
 
 // شراء منتج رقمي
-router.post("/store/buy-product", upload.none(), async (req, res) => {
+router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
-    const { userId, productId } = req.body;
+    const { productId } = req.body;
+    const userId = req.user.id;
 
     if (!userId || !productId) {
       return res.status(400).json({ error: "userId و productId مطلوبة" });

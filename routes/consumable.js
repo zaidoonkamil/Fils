@@ -5,12 +5,13 @@ const sequelize = require("../config/db");
 const { ConsumableCategory, ConsumableProduct, ConsumablePurchase, User } = require("../models");
 const { sendNotificationToUser } = require("../services/notifications");
 const { Op } = require("sequelize");
+const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
 // ==================== أقسام المتجر الاستهلاكي ====================
 
 // إضافة قسم جديد (Admin فقط)
-router.post("/consumable-store/categories", upload.single("image"), async (req, res) => {
+router.post("/consumable-store/categories", requireAdmin, upload.single("image"), async (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -53,7 +54,7 @@ router.get("/consumable-store/categories", async (req, res) => {
 });
 
 // تحديث قسم (Admin فقط)
-router.put("/consumable-store/categories/:id", upload.single("image"), async (req, res) => {
+router.put("/consumable-store/categories/:id", requireAdmin, upload.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, isActive } = req.body;
@@ -81,7 +82,7 @@ router.put("/consumable-store/categories/:id", upload.single("image"), async (re
 });
 
 // حذف قسم (Admin فقط)
-router.delete("/consumable-store/categories/:id", async (req, res) => {
+router.delete("/consumable-store/categories/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -102,7 +103,7 @@ router.delete("/consumable-store/categories/:id", async (req, res) => {
 // ==================== المنتجات الاستهلاكية ====================
 
 // إضافة منتج جديد (Admin فقط)
-router.post("/consumable-store/products", upload.array("images", 5), async (req, res) => {
+router.post("/consumable-store/products", requireAdmin, upload.array("images", 5), async (req, res) => {
   try {
     const { categoryId, name, description, price, stock } = req.body;
 
@@ -192,7 +193,7 @@ router.get("/consumable-store/products/:id", async (req, res) => {
 });
 
 // تحديث منتج (Admin فقط)
-router.put("/consumable-store/products/:id", upload.array("images", 5), async (req, res) => {
+router.put("/consumable-store/products/:id", requireAdmin, upload.array("images", 5), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, price, stock, isActive } = req.body;
@@ -226,7 +227,7 @@ router.put("/consumable-store/products/:id", upload.array("images", 5), async (r
 });
 
 // تحديث المخزون منتج (Admin فقط)
-router.put("/consumable-store/products/:id/stock", upload.none(), async (req, res) => {
+router.put("/consumable-store/products/:id/stock", requireAdmin, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
     const { stock } = req.body;
@@ -251,7 +252,7 @@ router.put("/consumable-store/products/:id/stock", upload.none(), async (req, re
 });
 
 // حذف منتج (Admin فقط)
-router.delete("/consumable-store/products/:id", async (req, res) => {
+router.delete("/consumable-store/products/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -272,9 +273,10 @@ router.delete("/consumable-store/products/:id", async (req, res) => {
 // ==================== عملية الشراء ====================
 
 // شراء منتج استهلاكي
-router.post("/consumable-store/buy-product", upload.none(), async (req, res) => {
+router.post("/consumable-store/buy-product", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
-    const { userId, productId, quantity, phone, location } = req.body;
+    const { productId, quantity, phone, location } = req.body;
+    const userId = req.user.id;
 
     if (!userId || !productId || !quantity) {
       return res.status(400).json({ error: "userId, productId, quantity مطلوبة" });
@@ -441,7 +443,7 @@ router.get("/consumable-store/orders", async (req, res) => {
 });
 
 // تحديث حالة الطلب (Admin فقط)
-router.put("/consumable-store/orders/:orderId/status", upload.none(), async (req, res) => {
+router.put("/consumable-store/orders/:orderId/status", requireAdmin, upload.none(), async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { orderId } = req.params;

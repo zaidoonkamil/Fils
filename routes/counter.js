@@ -5,9 +5,10 @@ const upload = multer();
 const { User, UserCounter, Counter, Settings, CounterSale} = require("../models");
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
+const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
-router.post("/counters", upload.none(), async (req, res) => {
+router.post("/counters", requireAdmin, upload.none(), async (req, res) => {
     const { type, points, price, isVisible } = req.body;
 
     if (!["points", "gems"].includes(type)) {
@@ -19,7 +20,6 @@ router.post("/counters", upload.none(), async (req, res) => {
             type,
             points,
             price,
-            // optional visibility override (defaults to true from model)
             ...(typeof isVisible === "boolean" ? { isVisible } : {}),
         });
 
@@ -58,12 +58,12 @@ router.get("/counters", async (req, res) => {
   }
 });
 
+router.post("/assign-counter", authenticateTokenUser, upload.none(), async (req, res) => {
+  const { counterId } = req.body;
+  const userId = req.user.id;
 
-router.post("/assign-counter", upload.none(), async (req, res) => {
-  const { userId, counterId } = req.body;
-
-  if (!userId || !counterId) {
-    return res.status(400).json({ error: "يجب توفير userId, counterId" });
+  if (!counterId) {
+    return res.status(400).json({ error: "يجب توفير counterId" });
   }
 
   try {
@@ -114,7 +114,7 @@ router.post("/assign-counter", upload.none(), async (req, res) => {
   }
 });
 
-router.delete("/counters/:id", async (req, res) => {
+router.delete("/counters/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -134,7 +134,7 @@ router.delete("/counters/:id", async (req, res) => {
   }
 });
 
-router.patch("/counters/:id/visibility", upload.none(), async (req, res) => {
+router.patch("/counters/:id/visibility", requireAdmin, upload.none(), async (req, res) => {
   const { id } = req.params;
   const visible = req.body?.visible;
 
@@ -171,8 +171,9 @@ router.patch("/counters/:id/visibility", upload.none(), async (req, res) => {
   }
 });
 
-router.post("/counters/sell", upload.none(), async (req, res) => {
-  const { userId, userCounterId, price } = req.body;
+router.post("/counters/sell", authenticateTokenUser, upload.none(), async (req, res) => {
+  const { userCounterId, price } = req.body;
+  const userId = req.user.id;
 
   try {
     const userCounter = await UserCounter.findOne({
@@ -215,7 +216,7 @@ router.post("/counters/sell", upload.none(), async (req, res) => {
   }
 });
 
-router.patch("/counters/sell/:saleId/visibility/toggle", upload.none(), async (req, res) => {
+router.patch("/counters/sell/:saleId/visibility/toggle", authenticateTokenUser, upload.none(), async (req, res) => {
     const { saleId } = req.params;
 
     try {
@@ -239,7 +240,6 @@ router.patch("/counters/sell/:saleId/visibility/toggle", upload.none(), async (r
     }
   }
 );
-
 
 router.get("/counters/for-sale", async (req, res) => {
   try {
@@ -294,7 +294,7 @@ router.get("/counters/for-sale", async (req, res) => {
   }
 });
 
-router.get("/counters/for-sale-admin", async (req, res) => {
+router.get("/counters/for-sale-admin", requireAdmin, async (req, res) => {
   try {
 
     const sales = await CounterSale.findAll({
@@ -344,9 +344,9 @@ router.get("/counters/for-sale-admin", async (req, res) => {
   }
 });
 
-router.delete("/counters/sell/:saleId", upload.none(), async (req, res) => {
+router.delete("/counters/sell/:saleId", authenticateTokenUser, upload.none(), async (req, res) => {
   const { saleId } = req.params;
-  const { userId } = req.body;
+  const userId = req.user.id;
 
   try {
     const sale = await CounterSale.findOne({
@@ -378,8 +378,9 @@ router.delete("/counters/sell/:saleId", upload.none(), async (req, res) => {
   }
 });
 
-router.post("/counters/buy", upload.none(), async (req, res) => {
-  const { saleId, buyerId } = req.body;
+router.post("/counters/buy", authenticateTokenUser, upload.none(), async (req, res) => {
+  const { saleId } = req.body;
+  const buyerId = req.user.id;
 
   try {
     const sale = await CounterSale.findOne({

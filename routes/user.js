@@ -15,7 +15,8 @@ const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
 const { requireAdmin, authenticateTokenUser } = require("../middlewares/auth");
 
-router.post("/request-agent", upload.none(), async (req, res) => {
+
+router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const userId = req.query.id;
     const { url } = req.body;
@@ -66,7 +67,7 @@ router.get("/admin/agent-requests", async (req, res) => {
   }
 });
 
-router.post("/admin/agent-requests/:id/action", upload.none(), async (req, res) => {
+router.post("/admin/agent-requests/:id/action", requireAdmin, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
     const { action } = req.body;
@@ -336,8 +337,7 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
   }
 });
 
-/*
-router.post('/admin/reset-password', upload.none(), async (req, res) => {
+router.post('/admin/reset-password', requireAdmin, upload.none(), async (req, res) => {
   try {
     const { email, newPassword } = req.body;
 
@@ -361,6 +361,7 @@ router.post('/admin/reset-password', upload.none(), async (req, res) => {
   }
 });
 
+/*
 router.post('/reset-password', upload.none(), async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -385,7 +386,8 @@ router.post('/reset-password', upload.none(), async (req, res) => {
   }
 });
 */
-router.delete("/users/:id", async (req, res) => {
+
+router.delete("/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -616,7 +618,7 @@ router.post("/users", upload.none(), async (req, res) => {
   }
 });
 
-router.post("/users/always-verified", upload.none(), async (req, res) => {
+router.post("/users/always-verified", requireAdmin, upload.none(), async (req, res) => {
   const { id, name, email, location, password, note, url, role = "user" } = req.body;
   let phone = req.body.phone;
 
@@ -759,30 +761,7 @@ router.post("/admin/login", upload.none(), async (req, res) => {
   }
 });
 
-router.post("/logout", upload.none(), async (req, res) => {
-  const { id } = req.body;
-
-  if (!id) {
-    return res.status(400).json({ error: "يجب إرسال id المستخدم" });
-  }
-
-  try {
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: "المستخدم غير موجود" });
-    }
-
-    user.isLoggedIn = false;
-    await user.save();
-
-    res.json({ message: "تم تسجيل الخروج بنجاح" });
-  } catch (err) {
-    console.error("❌ خطأ أثناء تسجيل الخروج:", err);
-    res.status(500).json({ error: "خطأ داخلي في الخادم" });
-  }
-});
-
-router.patch("/users/:id/status", async (req, res) => {
+router.patch("/users/:id/status", requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { isActive } = req.body;
 
@@ -1076,7 +1055,7 @@ router.get("/roleAgents", async (req, res) => {
   }
 });
 
-router.put("/users/:id/gems", upload.none() , async (req, res) => {
+router.put("/users/:id/gems", requireAdmin, upload.none() , async (req, res) => {
   const { id } = req.params;
   const { gems } = req.body;
 
@@ -1109,7 +1088,7 @@ router.get("/store/id", async (req, res) => {
   }
 });
 
-router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
+router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, res) => {
   const { shopId, userId } = req.params;
 
   const t = await sequelize.transaction();
@@ -1179,7 +1158,7 @@ router.post("/store/buy-id/:shopId/:userId", async (req, res) => {
   }
 });
 
-router.post("/store/add", upload.none(), async (req, res) => {
+router.post("/store/add", requireAdmin, upload.none(), async (req, res) => {
   try {
     const { idForSale, price } = req.body;
 
@@ -1215,7 +1194,7 @@ router.post("/store/add", upload.none(), async (req, res) => {
   }
 });
 
-router.delete("/store/:shopId", async (req, res) => {
+router.delete("/store/:shopId", requireAdmin, async (req, res) => {
   const { shopId } = req.params;
   try {
     if (isNaN(shopId)) {
@@ -1315,7 +1294,7 @@ router.get("/admin/settings", async (req, res) => {
   }
 });
 
-router.post("/admin/settings", upload.none(), async (req, res) => {
+router.post("/admin/settings", requireAdmin, upload.none(), async (req, res) => {
   try {
     const { key, value, description } = req.body;
 
@@ -1371,7 +1350,7 @@ router.get("/terms", async (req, res) => {
     }
 });
 
-router.post("/terms", upload.none(), async (req, res) => {
+router.post("/terms", requireAdmin, upload.none(), async (req, res) => {
     try {
         const { content } = req.body;
 
@@ -1487,5 +1466,39 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
   }
 });
 
+router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const t = await sequelize.transaction();
+
+  try {
+    const user = await User.findByPk(userId, { transaction: t });
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const deleted = await UserCounter.destroy({
+      where: { userId },
+      transaction: t
+    });
+
+    user.sawa = 0;
+    await user.save({ transaction: t });
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: "✅ تم حذف العدادات وتصفير الرصيد",
+      userId,
+      deletedCounters: deleted,
+      newBalance: 0
+    });
+
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 module.exports = router;

@@ -4,9 +4,10 @@ const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
+const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 // إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
-router.post("/gift-items", upload.single("image"), async (req, res) => {
+router.post("/gift-items", requireAdmin, upload.single("image"), async (req, res) => {
     try {
         const { name, points } = req.body;
         let image = req.file ? req.file.path : null;
@@ -48,7 +49,7 @@ router.get("/gift-items", async (req, res) => {
 });
 
 // تعديل حالة الهدية (إيقاف/تفعيل) - بدلاً من التعليق
-router.patch("/gift-items/:id/toggle", async (req, res) => {
+router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
     try {
         const giftItemId = req.params.id;
         const item = await GiftItem.findByPk(giftItemId);
@@ -72,12 +73,11 @@ router.patch("/gift-items/:id/toggle", async (req, res) => {
     }
 });
 
-
 // شراء هدية (تضاف لمخزون المستخدم)
-router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
+router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
   try {
-    const { userId } = req.body;
+    const userId = req.user.id;
     const { giftItemId } = req.params;
 
     const user = await User.findByPk(userId, { transaction: t, lock: t.LOCK.UPDATE });
@@ -135,12 +135,12 @@ router.post("/buy-gift/:giftItemId", upload.none(), async (req, res) => {
   }
 });
 
-
-router.post("/send-gift", upload.none(), async (req, res) => {
+router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
 
   try {
-    const { senderId, receiverId, giftItemId, roomId } = req.body;
+    const { receiverId, giftItemId, roomId } = req.body;
+    const senderId = req.user.id;
 
     if (!roomId) {
       await t.rollback();
@@ -151,7 +151,7 @@ router.post("/send-gift", upload.none(), async (req, res) => {
       await t.rollback();
       return res
         .status(400)
-        .json({ error: "senderId, receiverId, giftItemId مطلوبة" });
+        .json({ error: "receiverId, giftItemId مطلوبة" });
     }
 
     if (String(senderId) === String(receiverId)) {
@@ -272,9 +272,9 @@ router.post("/send-gift", upload.none(), async (req, res) => {
 });
 
 // عرض الهدايا التي يملكها المستخدم
-router.get("/my-gifts/:userId", async (req, res) => {
+router.get("/my-gifts/:userId", authenticateTokenUser,async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
     const { type } = req.query;
 
     const where = { userId, status: "active" };
@@ -304,11 +304,11 @@ router.get("/my-gifts/:userId", async (req, res) => {
 });
 
 // تحويل هدية يملكها المستخدم إلى نقاط
-router.post("/convert-gift/:userGiftId", upload.none(), async (req, res) => {
+router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
   try {
     const { userGiftId } = req.params;
-    const { userId } = req.body;
+    const userId = req.user.id;
 
     if (!userId) {
       await t.rollback();

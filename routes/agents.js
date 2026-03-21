@@ -3,6 +3,7 @@ const router = express.Router();
 const Agent = require("../models/agent");
 const multer = require("multer");
 const upload = multer();
+const { requireAdmin } = require("../middlewares/auth");
 
 router.post("/agents", upload.none(), async (req, res) => {
   const { name, phone, location, description } = req.body;
@@ -39,7 +40,7 @@ router.get("/agents", async (req, res) => {
   }
 });
 
-router.delete("/agents/:id", async (req, res) => {
+router.delete("/agents/:id", requireAdmin, async (req, res) => {
   const agentId = req.params.id;
 
   try {

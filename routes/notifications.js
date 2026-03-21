@@ -7,6 +7,7 @@ const upload = multer();
 const { User, UserDevice, NotificationLog} = require('../models'); 
 const axios = require('axios');
 const { Op } = require("sequelize");
+const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
 router.post("/register-device", async (req, res) => {
@@ -33,7 +34,7 @@ router.post("/register-device", async (req, res) => {
     }
 });
 
-router.post('/send-notification', upload.none(), (req, res) => {
+router.post('/send-notification', requireAdmin, upload.none(), (req, res) => {
     const { title, message } = req.body;
 
     if (!message) {
@@ -45,7 +46,7 @@ router.post('/send-notification', upload.none(), (req, res) => {
     res.json({ success: true, message: '✅ Notification sent to all devices!' });
 });
 
-router.post('/send-notification-to-role', upload.none(), async (req, res) => {
+router.post('/send-notification-to-role', requireAdmin, upload.none(), async (req, res) => {
   const { title, message, role } = req.body;
 
   if (!message) {
@@ -117,8 +118,9 @@ router.post('/send-notification-to-role', upload.none(), async (req, res) => {
   }
 });
 
-router.get("/notifications-log", async (req, res) => {
-  const { userId, page = 1, limit = 30 } = req.query;
+router.get("/notifications-log", authenticateTokenUser, async (req, res) => {
+  const { page = 1, limit = 30 } = req.query;
+  const userId = req.user.id;
 
   try {
     if (!userId) {
