@@ -340,31 +340,26 @@ router.post("/sendmony-simple", authenticateTokenUser, upload.none(), async (req
   }
 });
 
-router.post("/deposit-jewel", upload.none(), async (req, res) => {
+router.post("/deposit-jewel", requireAdmin, upload.none(), async (req, res) => {
     const { userId, amount } = req.body;
 
     try {
         const depositAmount = parseInt(amount);
 
-        if (isNaN(depositAmount) || depositAmount <= 0) {
+        if (isNaN(depositAmount) || depositAmount === 0) {
             return res.status(400).json({ error: "Invalid deposit amount" });
         }
 
-        // جلب المستخدم
-        const user = await User.findOne({
-            where:  { id: userId }
-        });
-
+        const user = await User.findOne({ where: { id: userId } });
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
 
         user.Jewel += depositAmount;
-
         await user.save();
 
         res.status(200).json({
-            message: `Successfully added ${depositAmount} jewels to ${user.name}`,
+            message: `Successfully ${depositAmount > 0 ? "added" : "removed"} ${Math.abs(depositAmount)} jewels ${depositAmount > 0 ? "to" : "from"} ${user.name}`,
             user: {
                 id: user.id,
                 name: user.name,
