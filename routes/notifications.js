@@ -118,7 +118,7 @@ router.post('/send-notification-to-role', requireAdmin, upload.none(), async (re
   }
 });
 
-router.get("/notifications-log", async (req, res) => {
+router.get("/notifications-log", authenticateTokenUser, async (req, res) => {
   const { page = 1, limit = 30 } = req.query;
   const userId = req.user.id;
 
