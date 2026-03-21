@@ -1501,6 +1501,26 @@ router.delete("/emergency/fix-user/:userId", requireAdmin, async (req, res) => {
   }
 });
 
+router.get("/leaderboard/sawa", requireAdmin, async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
 
+    const users = await User.findAll({
+      where: {
+        role: "user",
+        isActive: true
+      },
+      attributes: ["id", "name", "sawa"],
+      order: [["sawa", "DESC"]],
+      limit: parseInt(limit)
+    });
+
+    res.status(200).json(users);
+
+  } catch (err) {
+    console.error("❌ Error fetching leaderboard:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 module.exports = router;
