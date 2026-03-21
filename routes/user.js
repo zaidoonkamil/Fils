@@ -1512,15 +1512,53 @@ router.get("/leaderboard/sawa", requireAdmin, async (req, res) => {
       },
       attributes: ["id", "name", "sawa"],
       order: [["sawa", "DESC"]],
-      limit: parseInt(limit)
+      limit: parseInt(limit),
+      include: [
+        {
+          model: UserCounter,
+          include: [{ model: Counter, paranoid: false }]
+        }
+      ]
     });
 
-    res.status(200).json(users);
+    const conversionRateSetting = await Settings.findOne({
+      where: { key: "sawa_to_dollar_rate", isActive: true }
+    });
+
+    const conversionRate = conversionRateSetting
+      ? parseFloat(conversionRateSetting.value)
+      : 1.25;
+
+    const result = users.map(u => {
+      const userData = u.toJSON();
+
+      let totalPoints = 0;
+      let totalGems = 0;
+
+      (userData.UserCounters || []).forEach(uc => {
+        if (uc.Counter) {
+          if (uc.Counter.type === "points") totalPoints += uc.Counter.points;
+          else if (uc.Counter.type === "gems") totalGems += uc.Counter.points;
+        }
+      });
+
+      return {
+        id: userData.id,
+        name: userData.name,
+        sawa: userData.sawa,
+        dolar: Number((userData.sawa * conversionRate).toFixed(2)),
+        totalPoints,
+        totalGems
+      };
+    });
+
+    res.status(200).json(result);
 
   } catch (err) {
     console.error("❌ Error fetching leaderboard:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 module.exports = router;
