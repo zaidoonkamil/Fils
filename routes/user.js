@@ -387,7 +387,7 @@ router.post('/reset-password', upload.none(), async (req, res) => {
 });
 */
 
-router.delete("/users/:id", requireAdmin, async (req, res) => {
+router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
