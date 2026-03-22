@@ -160,33 +160,6 @@ const generateToken = (user) => {
     );
 };
 
-router.get("/admin/fix-db", requireAdmin, async (req, res) => {
-  try {
-    const [columns] = await sequelize.query("SHOW COLUMNS FROM Users LIKE 'extraPassword'");
-
-    if (columns.length === 0) {
-      await sequelize.query(`
-        ALTER TABLE Users
-        ADD COLUMN extraPassword VARCHAR(255) NULL
-      `);
-
-      return res.status(200).json({
-        message: "✅ تم إضافة العمود extraPassword بنجاح"
-      });
-    }
-
-    return res.status(200).json({
-      message: "⚠️ العمود extraPassword موجود مسبقًا"
-    });
-  } catch (err) {
-    console.error("❌ Error fixing Users table:", err);
-    return res.status(500).json({
-      error: "حدث خطأ أثناء تعديل الجدول",
-      details: err.message
-    });
-  }
-});
-
 router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
