@@ -263,6 +263,39 @@ router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) 
   }
 });
 
+router.post("/users/:id/extra-password/set", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { extraPassword } = req.body;
+
+    if (req.user.role !== "admin" && String(req.user.id) !== String(id)) {
+      return res.status(403).json({ error: "غير مسموح لك تعيين رمز لمستخدم آخر" });
+    }
+
+    if (!extraPassword) {
+      return res.status(400).json({ error: "يرجى إدخال الرمز الإضافي" });
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (user.extraPassword) {
+      return res.status(400).json({ error: "الرمز الإضافي مُعيَّن مسبقاً، تواصل مع الأدمن لإعادة تعيينه" });
+    }
+
+    user.extraPassword = await bcrypt.hash(extraPassword, saltRounds);
+    await user.save();
+
+    return res.status(200).json({ message: "✅ تم تعيين الرمز الإضافي بنجاح" });
+
+  } catch (err) {
+    console.error("❌ Error setting extra password:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/users/:id/extra-password/verify", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
