@@ -163,7 +163,7 @@ const generateToken = (user) => {
 router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, location, note, url, password, isActive, isVerified, role } = req.body;
+    const { name, email, phone, location, note, url, password, extraPassword, isActive, isVerified, role } = req.body;
 
     const loggedInUser = req.user;
 
@@ -200,6 +200,10 @@ router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) 
 
     if (password !== undefined && password !== "") {
       user.password = await bcrypt.hash(password, saltRounds);
+    }
+
+    if (extraPassword !== undefined && extraPassword !== "") {
+      user.extraPassword = await bcrypt.hash(extraPassword, saltRounds);
     }
 
     if (loggedInUser.role === "admin") {
@@ -256,6 +260,64 @@ router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) 
   } catch (err) {
     console.error("❌ Error updating user:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/users/:id/extra-password/verify", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { extraPassword } = req.body;
+
+    if (!extraPassword) {
+      return res.status(400).json({ error: "يرجى إدخال الرمز الإضافي" });
+    }
+
+    if (req.user.role !== "admin" && String(req.user.id) !== String(id)) {
+      return res.status(403).json({ error: "غير مسموح لك التحقق لمستخدم آخر" });
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (!user.extraPassword) {
+      return res.status(400).json({ error: "لم يتم تعيين الرمز الإضافي لهذا المستخدم بعد" });
+    }
+
+    const isValid = await bcrypt.compare(extraPassword, user.extraPassword);
+
+    return res.status(200).json({
+      valid: isValid,
+      message: isValid ? "الرمز الإضافي صحيح" : "الرمز الإضافي غير صحيح"
+    });
+  } catch (err) {
+    console.error("❌ Error verifying extra password:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post('/admin/users/:id/reset-extra-password', requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { newExtraPassword } = req.body;
+
+    if (!newExtraPassword) {
+      return res.status(400).json({ message: 'يرجى إدخال الرمز الإضافي الجديد' });
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ message: 'المستخدم غير موجود' });
+    }
+
+    user.extraPassword = await bcrypt.hash(newExtraPassword, saltRounds);
+    await user.save();
+
+    return res.status(200).json({ message: 'تم تحديث الرمز الإضافي بنجاح ✅' });
+  } catch (error) {
+    console.error('خطأ في إعادة تعيين الرمز الإضافي:', error);
+    return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
   }
 });
 
