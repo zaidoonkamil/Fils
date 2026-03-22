@@ -263,6 +263,46 @@ router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) 
   }
 });
 
+router.post("/users/extra-password/change", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    const id = req.user.id;
+
+    const { currentExtraPassword, newExtraPassword } = req.body;
+
+    if (!currentExtraPassword || !newExtraPassword) {
+      return res.status(400).json({ error: "يرجى إدخال الرمز الحالي والرمز الجديد" });
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (!user.extraPassword) {
+      return res.status(400).json({ error: "لم يتم تعيين الرمز الإضافي بعد" });
+    }
+
+    const isValid = await bcrypt.compare(currentExtraPassword, user.extraPassword);
+    if (!isValid) {
+      return res.status(400).json({ error: "الرمز الإضافي الحالي غير صحيح" });
+    }
+
+    const isSame = await bcrypt.compare(newExtraPassword, user.extraPassword);
+    if (isSame) {
+      return res.status(400).json({ error: "الرمز الجديد يجب أن يكون مختلفاً عن الحالي" });
+    }
+
+    user.extraPassword = await bcrypt.hash(newExtraPassword, saltRounds);
+    await user.save();
+
+    return res.status(200).json({ message: "تم تغيير الرمز الإضافي بنجاح" });
+
+  } catch (err) {
+    console.error("❌ Error changing extra password:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/users/:id/extra-password/set", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
@@ -288,7 +328,7 @@ router.post("/users/:id/extra-password/set", authenticateTokenUser, upload.none(
     user.extraPassword = await bcrypt.hash(extraPassword, saltRounds);
     await user.save();
 
-    return res.status(200).json({ message: "✅ تم تعيين الرمز الإضافي بنجاح" });
+    return res.status(200).json({ message: "تم تعيين الرمز الإضافي بنجاح" });
 
   } catch (err) {
     console.error("❌ Error setting extra password:", err);
@@ -347,7 +387,7 @@ router.post('/admin/users/:id/reset-extra-password', requireAdmin, upload.none()
     user.extraPassword = await bcrypt.hash(newExtraPassword, saltRounds);
     await user.save();
 
-    return res.status(200).json({ message: 'تم تحديث الرمز الإضافي بنجاح ✅' });
+    return res.status(200).json({ message: 'تم تحديث الرمز الإضافي بنجاح' });
   } catch (error) {
     console.error('خطأ في إعادة تعيين الرمز الإضافي:', error);
     return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
