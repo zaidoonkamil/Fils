@@ -160,13 +160,17 @@ const generateToken = (user) => {
     );
 };
 
-router.get("/admin/fix-db", async (req, res) => {
+router.get("/admin/fix-db", requireAdmin, async (req, res) => {
   try {
     await sequelize.query(
-      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS extraPassword VARCHAR(255) NULL"
+      "ALTER TABLE Users ADD COLUMN extraPassword VARCHAR(255) NULL"
     );
     res.json({ message: "✅ تم إضافة العمود بنجاح" });
   } catch (err) {
+    // لو العمود موجود أصلاً ما يعطي error
+    if (err.original?.code === 'ER_DUP_FIELDNAME') {
+      return res.json({ message: "⚠️ العمود موجود مسبقاً" });
+    }
     res.status(500).json({ error: err.message });
   }
 });
