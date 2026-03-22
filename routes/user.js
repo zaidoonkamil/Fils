@@ -160,6 +160,17 @@ const generateToken = (user) => {
     );
 };
 
+router.get("/admin/fix-db", async (req, res) => {
+  try {
+    await sequelize.query(
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS extraPassword VARCHAR(255) NULL"
+    );
+    res.json({ message: "✅ تم إضافة العمود بنجاح" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
