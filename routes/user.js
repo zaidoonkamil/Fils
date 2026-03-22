@@ -162,16 +162,28 @@ const generateToken = (user) => {
 
 router.get("/admin/fix-db", requireAdmin, async (req, res) => {
   try {
-    await sequelize.query(
-      "ALTER TABLE Users ADD COLUMN extraPassword VARCHAR(255) NULL"
-    );
-    res.json({ message: "✅ تم إضافة العمود بنجاح" });
-  } catch (err) {
-    // لو العمود موجود أصلاً ما يعطي error
-    if (err.original?.code === 'ER_DUP_FIELDNAME') {
-      return res.json({ message: "⚠️ العمود موجود مسبقاً" });
+    const [columns] = await sequelize.query("SHOW COLUMNS FROM Users LIKE 'extraPassword'");
+
+    if (columns.length === 0) {
+      await sequelize.query(`
+        ALTER TABLE Users
+        ADD COLUMN extraPassword VARCHAR(255) NULL
+      `);
+
+      return res.status(200).json({
+        message: "✅ تم إضافة العمود extraPassword بنجاح"
+      });
     }
-    res.status(500).json({ error: err.message });
+
+    return res.status(200).json({
+      message: "⚠️ العمود extraPassword موجود مسبقًا"
+    });
+  } catch (err) {
+    console.error("❌ Error fixing Users table:", err);
+    return res.status(500).json({
+      error: "حدث خطأ أثناء تعديل الجدول",
+      details: err.message
+    });
   }
 });
 
