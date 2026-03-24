@@ -16,6 +16,10 @@ const Counter = sequelize.define("Counter", {
         allowNull: false,
           defaultValue: "points"
     },
+    durationDays: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+    },
     price: {
         type: DataTypes.DOUBLE,
         allowNull: false,

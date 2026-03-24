@@ -9,29 +9,45 @@ const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
 router.post("/counters", requireAdmin, upload.none(), async (req, res) => {
-    const { type, points, price, isVisible, durationDays } = req.body;
+  const { type, points, price, isVisible, durationDays } = req.body;
 
-    if (!["points", "gems"].includes(type)) {
-        return res.status(400).json({ error: "type يجب أن يكون 'points' أو 'gems'" });
-    }
+  if (!["points", "gems"].includes(type)) {
+    return res.status(400).json({ error: "type يجب أن يكون 'points' أو 'gems'" });
+  }
 
-    try {
-        const counter = await Counter.create({
-            type,
-            points,
-            price,
-            durationDays: durationDays ? parseInt(durationDays) : null,
-            ...(typeof isVisible === "boolean" ? { isVisible } : {}),
-        });
+  const parsedPoints = parseInt(String(points).replace(/,/g, "").trim(), 10);
+  const parsedPrice = parseFloat(String(price).replace(/,/g, "").trim());
+  const parsedDurationDays = parseInt(String(durationDays).trim(), 10);
 
-        res.status(201).json({
-            message: "Counter created successfully",
-            counter
-        });
-    } catch (err) {
-        console.error("❌ Error creating counter:", err);
-        res.status(500).json({ error: "Internal Server Error" });
-    }
+  if (Number.isNaN(parsedPoints) || parsedPoints <= 0) {
+    return res.status(400).json({ error: "قيمة points غير صحيحة" });
+  }
+
+  if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+    return res.status(400).json({ error: "قيمة price غير صحيحة" });
+  }
+
+  if (Number.isNaN(parsedDurationDays) || parsedDurationDays <= 0) {
+    return res.status(400).json({ error: "قيمة durationDays غير صحيحة" });
+  }
+
+  try {
+    const counter = await Counter.create({
+      type,
+      points: parsedPoints,
+      price: parsedPrice,
+      durationDays: parsedDurationDays,
+      isVisible: isVisible === "false" ? false : true,
+    });
+
+    return res.status(201).json({
+      message: "Counter created successfully",
+      counter,
+    });
+  } catch (err) {
+    console.error("❌ Error creating counter:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 router.get("/counters", async (req, res) => {
@@ -440,14 +456,14 @@ router.post("/counters/buy", authenticateTokenUser, upload.none(), async (req, r
   }
 });
 
-router.get("/admin/fix-db-usercounter", requireAdmin, async (req, res) => {
+router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
   try {
     await sequelize.query(
-      "ALTER TABLE UserCounters ADD COLUMN durationDays INT NULL"
+      "ALTER TABLE Counters ADD COLUMN durationDays INT NULL"
     );
-    res.json({ message: "✅ تم إضافة العمود بنجاح" });
+    res.json({ message: "✅ تم إضافة العمود durationDays إلى Counters بنجاح" });
   } catch (err) {
-    if (err.original?.code === 'ER_DUP_FIELDNAME') {
+    if (err.original?.code === "ER_DUP_FIELDNAME") {
       return res.json({ message: "⚠️ العمود موجود مسبقاً" });
     }
     res.status(500).json({ error: err.message });
