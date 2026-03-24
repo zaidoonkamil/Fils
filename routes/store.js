@@ -561,4 +561,47 @@ router.get("/store/statistics", async (req, res) => {
 });
 
 
+// جلب قائمة المشترين من المتجر (Admin فقط)
+router.get("/store/buyers", requireAdmin, async (req, res) => {
+  try {
+    const purchases = await ProductPurchase.findAll({
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name"],
+        },
+        {
+          model: DigitalProduct,
+          as: "product",
+          attributes: ["id", "title", "price"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const buyers = purchases.map((p) => ({
+      purchaseId: p.id,
+      purchasedAt: p.createdAt,
+      pricePaid: p.price,
+      user: p.user
+        ? { id: p.user.id, name: p.user.name }
+        : { id: p.userId, name: "غير معروف" },
+      product: p.product
+        ? { id: p.product.id, title: p.product.title }
+        : { id: p.productId, title: "منتج محذوف" },
+    }));
+
+    res.status(200).json({
+      success: true,
+      total: buyers.length,
+      buyers,
+    });
+  } catch (error) {
+    console.error("❌ خطأ في جلب المشترين:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
 module.exports = router;
+
