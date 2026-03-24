@@ -440,10 +440,10 @@ router.post("/counters/buy", authenticateTokenUser, upload.none(), async (req, r
   }
 });
 
-router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
+router.get("/admin/fix-db-usercounter", requireAdmin, async (req, res) => {
   try {
     await sequelize.query(
-      "ALTER TABLE Counters ADD COLUMN durationDays INT NULL"
+      "ALTER TABLE UserCounters ADD COLUMN durationDays INT NULL"
     );
     res.json({ message: "✅ تم إضافة العمود بنجاح" });
   } catch (err) {
