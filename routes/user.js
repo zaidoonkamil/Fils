@@ -1179,11 +1179,12 @@ router.get("/roleAgents", async (req, res) => {
   try {
     const agents = await User.findAll({
       where: { role: "agent" },
-      attributes: ["id", "name", "phone", "sawa", "location","note", "createdAt", "url"],
-      order: [["createdAt", "DESC"]],
+      attributes: ["id", "name", "phone", "sawa", "location", "note", "createdAt", "url"],
     });
 
-    res.status(200).json(agents);
+    const shuffled = agents.sort(() => Math.random() - 0.5);
+
+    res.status(200).json(shuffled);
   } catch (err) {
     console.error("❌ خطأ أثناء جلب الوكلاء:", err);
     res.status(500).json({ error: "خطأ في الخادم" });
