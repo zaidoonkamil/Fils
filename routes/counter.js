@@ -9,7 +9,7 @@ const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
 router.post("/counters", requireAdmin, upload.none(), async (req, res) => {
-    const { type, points, price, isVisible } = req.body;
+    const { type, points, price, isVisible, durationDays } = req.body;
 
     if (!["points", "gems"].includes(type)) {
         return res.status(400).json({ error: "type يجب أن يكون 'points' أو 'gems'" });
@@ -20,6 +20,7 @@ router.post("/counters", requireAdmin, upload.none(), async (req, res) => {
             type,
             points,
             price,
+            durationDays: durationDays ? parseInt(durationDays) : null,
             ...(typeof isVisible === "boolean" ? { isVisible } : {}),
         });
 
@@ -43,13 +44,15 @@ router.get("/counters", async (req, res) => {
     const durationSetting = await Settings.findOne({
       where: { key: "counter_duration_days", isActive: true },
     });
+    const defaultDuration = durationSetting ? parseInt(durationSetting.value, 10) : 365;
 
-    const durationDays = durationSetting ? parseInt(durationSetting.value, 10) : 365;
-
-    const result = counters.map((c) => ({
-      ...c.toJSON(),
-      durationDays, 
-    }));
+    const result = counters.map((c) => {
+      const counter = c.toJSON();
+      return {
+        ...counter,
+        durationDays: counter.durationDays ?? defaultDuration,
+      };
+    });
 
     return res.status(200).json(result);
   } catch (err) {
@@ -77,16 +80,18 @@ router.post("/assign-counter", authenticateTokenUser, upload.none(), async (req,
       return res.status(400).json({ error: "رصيد sawa غير كافي لشراء هذا العداد" });
     }
 
-    if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
-      user.sawa -= counter.price;
-    }
+    user.sawa -= counter.price;
     await user.save();
 
-    const durationSetting = await Settings.findOne({
-      where: { key: "counter_duration_days", isActive: true },
-    });
-
-    const durationDays = durationSetting ? parseInt(durationSetting.value) : 365;
+    let durationDays;
+    if (counter.durationDays !== null && counter.durationDays !== undefined) {
+      durationDays = counter.durationDays;
+    } else {
+      const durationSetting = await Settings.findOne({
+        where: { key: "counter_duration_days", isActive: true },
+      });
+      durationDays = durationSetting ? parseInt(durationSetting.value) : 365;
+    }
 
     const now = new Date();
     const endDate = new Date();
@@ -435,5 +440,18 @@ router.post("/counters/buy", authenticateTokenUser, upload.none(), async (req, r
   }
 });
 
+router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
+  try {
+    await sequelize.query(
+      "ALTER TABLE Counters ADD COLUMN durationDays INT NULL"
+    );
+    res.json({ message: "✅ تم إضافة العمود بنجاح" });
+  } catch (err) {
+    if (err.original?.code === 'ER_DUP_FIELDNAME') {
+      return res.json({ message: "⚠️ العمود موجود مسبقاً" });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;

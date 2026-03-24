@@ -25,10 +25,8 @@ cron.schedule("0 0 * * *", async () => {
       const counter = uc.Counter;
 
       if (user && counter) {
-        // تحقق إن dailyReward موجود ورقم موجب
         const reward = parseFloat(counter.dailyReward);
         if (!isNaN(reward) && reward > 0) {
-          // تحقق من نوع user.sawa
           if (typeof user.sawa === "number" && !isNaN(user.sawa)) {
             user.sawa += reward;
             await user.save();
