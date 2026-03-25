@@ -451,10 +451,17 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
     await otpRecord.save();
 
     const user = await User.findOne({ where: { email } });
-    if (user) {
-      user.isVerified = true;
-      await user.save();
+    
+    // ✅ الإضافة هنا — فحص إذا المستخدم موجود
+    if (!user) {
+      return res.status(200).json({ 
+        message: "تم التحقق من OTP بنجاح",
+        user: null  // أو ما ترجع user أصلاً
+      });
     }
+
+    user.isVerified = true;
+    await user.save();
 
     return res.status(200).json({ 
       message: "تم التحقق من OTP بنجاح",
