@@ -7,6 +7,11 @@ const Room = sequelize.define("Room", {
         autoIncrement: true,
         primaryKey: true,
     },
+    images: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: []
+    },
     name: {
         type: DataTypes.STRING,
         allowNull: false,

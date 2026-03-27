@@ -5,8 +5,8 @@ const Message = require("../models/message");
 const User = require("../models/user");
 const jwt = require("jsonwebtoken");
 const Settings = require("../models/settings");
+const upload = require("../middlewares/uploads");
 
-// Middleware للتحقق من التوكن
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -111,11 +111,16 @@ router.post("/create-test-users", async (req, res) => {
 });
 
 // إنشاء غرفة جديدة
-router.post("/create-room", authenticateToken, async (req, res) => {
+router.post("/create-room", authenticateToken, upload.array("images", 5), async (req, res) => {
     try {
         const { name, description, cost, maxUsers, category } = req.body;
         
-        // التحقق من وجود النقاط الكافية
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: "الرجاء رفع صورة واحدة على الأقل" });
+        }
+        
+        const images = req.files.map(file => file.filename);
+        
         if (req.user.sawa < cost) {
             return res.status(400).json({ 
                 error: "نقاط غير كافية لإنشاء الغرفة",
@@ -124,14 +129,14 @@ router.post("/create-room", authenticateToken, async (req, res) => {
             });
         }
 
-        // إنشاء الغرفة
         const room = await Room.create({
             name,
             description,
             creatorId: req.user.id,
             cost,
             maxUsers: maxUsers || 50,
-            category: category || 'general'
+            category: category || 'general',
+            images: images || []
         });
 
         // خصم النقاط من المستخدم
@@ -289,6 +294,17 @@ router.get("/room-settings", async (req, res) => {
     console.error("❌ Error fetching room settings:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
+});
+
+// راوت لتحديث جدول الغرف وإضافة عامود الصور
+router.get("/migrate-rooms-images", async (req, res) => {
+    try {
+        await require("../models/room").sync({ alter: true });
+        res.json({ message: "تم تحديث جدول الغرف وإضافة عامود الصور بنجاح" });
+    } catch (error) {
+        console.error("خطأ في تحديث قاعدة البيانات:", error);
+        res.status(500).json({ error: "خطأ في تحديث قاعدة البيانات", details: error.message });
+    }
 });
 
 module.exports = router;
