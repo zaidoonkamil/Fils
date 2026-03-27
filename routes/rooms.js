@@ -156,6 +156,50 @@ router.post("/create-room", authenticateToken, upload.array("images", 5), async 
     }
 });
 
+// البحث عن غرفة باستخدام id أو name
+router.get("/search-rooms", authenticateToken, async (req, res) => {
+    try {
+        const { query } = req.query;
+        const { Op } = require("sequelize");
+        
+        if (!query) {
+            return res.status(400).json({ error: "الرجاء توفير كلمة البحث" });
+        }
+
+        let whereClause = { isActive: true };
+        const isNumeric = !isNaN(query) && query.trim() !== "";
+
+        if (isNumeric) {
+            whereClause[Op.or] = [
+                { id: parseInt(query) },
+                { name: { [Op.like]: `%${query}%` } }
+            ];
+        } else {
+            whereClause.name = { [Op.like]: `%${query}%` };
+        }
+
+        const rooms = await Room.findAll({
+            where: whereClause,
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name'],
+                required: false
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.json({
+            rooms: rooms,
+            total: rooms.length
+        });
+
+    } catch (error) {
+        console.error("خطأ في البحث عن الغرف:", error);
+        res.status(500).json({ error: "خطأ في البحث عن الغرف", details: error.message });
+    }
+});
+
 // عرض الغرف المتوفرة
 router.get("/rooms", authenticateToken, async (req, res) => {
     try {
