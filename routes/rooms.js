@@ -114,6 +114,16 @@ router.post("/create-test-users", async (req, res) => {
 router.post("/create-room", authenticateToken, upload.array("images", 5), async (req, res) => {
     try {
         const { name, description, cost, maxUsers, category } = req.body;
+
+        const existingRoom = await Room.findOne({
+            where: { creatorId: req.user.id }
+        });
+
+        if (existingRoom) {
+            return res.status(400).json({
+                error: "لا يمكن إنشاء أكثر من غرفة واحدة لكل مستخدم"
+            });
+        }
         
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ error: "الرجاء رفع صورة واحدة على الأقل" });
@@ -218,7 +228,10 @@ router.get("/rooms", authenticateToken, async (req, res) => {
                 attributes: ['id', 'name'],
                 required: false  // LEFT JOIN بدلاً من INNER JOIN
             }],
-            order: [['createdAt', 'DESC']],
+            order: [
+                ['currentUsers', 'DESC'],
+                ['createdAt', 'DESC']
+            ],
             limit: parseInt(limit),
             offset: (parseInt(page) - 1) * parseInt(limit)
         });
@@ -238,6 +251,34 @@ router.get("/rooms", authenticateToken, async (req, res) => {
             error: "خطأ في جلب الغرف",
             details: error.message 
         });
+    }
+});
+
+// الحصول على تفاصيل غرفة معينة
+router.get("/my-room", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findOne({
+            where: { creatorId: req.user.id },
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+
+        if (!room) {
+            return res.status(404).json({ error: "لا توجد غرفة لهذا المستخدم" });
+        }
+
+        if (!room.isActive) {
+            return res.status(400).json({ error: "آخر غرفة للمستخدم غير نشطة" });
+        }
+
+        res.json({ room });
+    } catch (error) {
+        console.error("خطأ في جلب غرفة المستخدم:", error);
+        res.status(500).json({ error: "خطأ في جلب غرفة المستخدم" });
     }
 });
 
