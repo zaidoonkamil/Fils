@@ -554,6 +554,28 @@ router.get("/withdrawalRequest/pending", requireAdmin, async (req, res) => {
   }
 });
 
+router.get("/withdrawalRequest/accepted", requireAdmin, async (req, res) => {
+  try {
+    const requests = await WithdrawalRequest.findAll({
+      where: { status: "مكتمل" },
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "amount", "method", "accountNumber", "status", "cardOfName","images", "createdAt"],
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "phone", "location", "role"],
+        },
+      ],
+    });
+
+    res.status(200).json({ requests });
+  } catch (error) {
+    console.error("خطأ أثناء جلب الطلبات المكتملة:", error);
+    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
+  }
+});
+
 router.get("/withdrawalRequest/processed", async (req, res) => {
   try {
     const userId = req.query.userId;
