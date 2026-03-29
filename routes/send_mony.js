@@ -319,9 +319,9 @@ router.post("/sendmony-simple", authenticateTokenUser, upload.none(), async (req
     const receiver = await User.findByPk(receiverId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!receiver) { await t.rollback(); return res.status(404).json({ error: "المستلم غير موجود" }); }
 
-    if (sender.role === "agent" || receiver.role === "agent") {
+    if (sender.role === "agent" && receiver.role === "agent") {
       await t.rollback();
-      return res.status(400).json({ error: "لا يمكن التحويل إذا كان أحد الطرفين وكيلاً" });
+      return res.status(400).json({ error: "لا يمكن التحويل بين الوكلاء فقط" });
     }
 
     sender.sawa -= transferAmount;
