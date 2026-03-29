@@ -470,4 +470,23 @@ router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
   }
 });
 
+router.delete("/user-counters/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const userCounter = await UserCounter.findByPk(id);
+
+    if (!userCounter) {
+      return res.status(404).json({ error: "العداد غير موجود" });
+    }
+
+    await userCounter.destroy();
+
+    return res.json({ message: "تم حذف العداد من المستخدم بنجاح" });
+  } catch (err) {
+    console.error("❌ Error deleting user counter:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء الحذف" });
+  }
+});
+
 module.exports = router;
