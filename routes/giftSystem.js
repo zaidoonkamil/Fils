@@ -6,28 +6,107 @@ const { Op } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
-// إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
-router.post("/gift-items", requireAdmin, upload.single("image"), async (req, res) => {
-    try {
-        const { name, points } = req.body;
-        let image = req.file ? req.file.path : null;
+function buildGiftConversionErrorResponse(error, res) {
+  if (error.message === "INVALID_GIFT_POINTS") {
+    return res.status(400).json({ error: "نقاط الهدية غير صالحة" });
+  }
 
-        if (!name || !points || !image) {
-            return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، والصورة" });
+  if (error.message === "RECEIVER_NOT_FOUND") {
+    return res.status(404).json({ error: "المستخدم غير موجود" });
+  }
+
+  return null;
+}
+
+async function convertGiftToPoints({
+  userGift,
+  receiverId,
+  transaction,
+}) {
+  const points = Number(userGift.item?.points ?? 0);
+  if (!points || points <= 0) {
+    throw new Error("INVALID_GIFT_POINTS");
+  }
+
+  const receiver = await User.findByPk(receiverId, {
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+  if (!receiver) {
+    throw new Error("RECEIVER_NOT_FOUND");
+  }
+
+  const isReceivedGift = userGift.senderId != null;
+
+  let ownerCutRate = 0;
+  let ownerShare = 0;
+  let receiverShare = points;
+
+  if (isReceivedGift && userGift.roomId) {
+    const room = await Room.findByPk(userGift.roomId, { transaction });
+
+    if (room) {
+      const cutSetting = await Settings.findOne({
+        where: { key: "room_gift_owner_cut", isActive: true },
+        transaction,
+      });
+
+      ownerCutRate = Number(cutSetting?.value ?? 0);
+      if (ownerCutRate < 0) ownerCutRate = 0;
+      if (ownerCutRate > 1) ownerCutRate = 1;
+
+      const actualRoomOwnerId = room.creatorId;
+
+      const roomOwner = await User.findByPk(actualRoomOwnerId, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      if (roomOwner && ownerCutRate > 0 && String(roomOwner.id) !== String(receiver.id)) {
+        ownerShare = Math.floor(points * ownerCutRate);
+        receiverShare = points - ownerShare;
+
+        if (ownerShare > 0) {
+          await roomOwner.increment({ sawa: ownerShare }, { transaction });
         }
-
-        const newItem = await GiftItem.create({
-            name,
-            points,
-            image
-        });
-
-        res.json({ message: "تمت إضافة الهدية للمتجر", item: newItem });
-
-    } catch (error) {
-        console.error("❌ خطأ أثناء إضافة الهدية:", error);
-        res.status(500).json({ error: "حدث خطأ أثناء إضافة الهدية" });
+      }
     }
+  }
+
+  await receiver.increment({ sawa: receiverShare }, { transaction });
+  userGift.status = "converted";
+  await userGift.save({ transaction });
+
+  return {
+    points,
+    isReceivedGift,
+    ownerCutRate,
+    ownerShare,
+    receiverShare,
+  };
+}
+
+// إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
+router.post("/gift-items", requireAdmin, upload.single("video"), async (req, res) => {
+  try {
+    const { name, points } = req.body;
+    const video = req.file ? req.file.path : null;
+
+    if (!name || !points || !video) {
+      return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، والفيديو" });
+    }
+
+    const newItem = await GiftItem.create({
+      name,
+      points,
+      video
+    });
+
+    res.json({ message: "تمت إضافة الهدية للمتجر", item: newItem });
+  } catch (error) {
+    console.error("❌ خطأ أثناء إضافة الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء إضافة الهدية" });
+  }
 });
 
 // عرض جميع الهدايا المتاحة في المتجر (اختياري: يمكن تصفية المتاح فقط للمستخدمين)
@@ -222,11 +301,24 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     userGift.roomOwnerId = roomOwnerId;
 
     await userGift.save({ transaction: t });
+    userGift.item = item;
+
+    const conversionResult = await convertGiftToPoints({
+      userGift,
+      receiverId,
+      transaction: t,
+    });
 
     await t.commit();
 
+    const updatedReceiver = await User.findByPk(receiverId);
+    const updatedOwner = userGift.roomOwnerId
+      ? await User.findByPk(userGift.roomOwnerId)
+      : null;
+
     const payload = {
-      message: "وصلتك هدية جديدة 🎁",
+      message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
+      autoConvertedToPoints: true,
       userGift: {
         id: userGift.id,
         status: userGift.status,
@@ -239,7 +331,15 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
           id: item.id,
           name: item.name,
           points: item.points,
-          image: item.image,
+          video: item.video,
+        },
+        conversion: {
+          originalPoints: conversionResult.points,
+          ownerCutRate: conversionResult.ownerCutRate,
+          ownerShare: conversionResult.ownerShare,
+          receiverShare: conversionResult.receiverShare,
+          receiverNewBalance: updatedReceiver?.sawa,
+          roomOwnerNewBalance: updatedOwner?.sawa,
         },
       },
     };
@@ -254,17 +354,25 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     const senderSocketId = connectedUsers.get(String(senderId));
     if (roomsIO && senderSocketId) {
       roomsIO.to(senderSocketId).emit("gift-sent", {
-        message: "تم إرسال الهدية بنجاح ✅",
+        message: "تم إرسال الهدية وتحويلها مباشرة إلى نقاط ✅",
+        autoConvertedToPoints: true,
         receiver: { id: receiver.id, name: receiver.name },
         item: payload.userGift.item,
+        conversion: payload.userGift.conversion,
       });
     }
 
     return res.json({
-      message: "تم إرسال الهدية بنجاح",
+      message: "تم إرسال الهدية وتحويلها مباشرة إلى نقاط",
       ...payload,
     });
   } catch (error) {
+    const handledResponse = buildGiftConversionErrorResponse(error, res);
+    if (handledResponse) {
+      await t.rollback();
+      return handledResponse;
+    }
+
     console.error("❌ خطأ أثناء إرسال الهدية:", error);
     await t.rollback();
     res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية" });
@@ -316,7 +424,7 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
     }
 
     const userGift = await UserGift.findOne({
-      where: { id: userGiftId },
+      where: { id: userGiftId, status: "active" },
       include: { model: GiftItem, as: "item" },
       transaction: t,
       lock: t.LOCK.UPDATE,
@@ -332,77 +440,34 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
       return res.status(403).json({ error: "لا تملك هذه الهدية" });
     }
 
-    const points = Number(userGift.item?.points ?? 0);
-    if (!points || points <= 0) {
-      await t.rollback();
-      return res.status(400).json({ error: "نقاط الهدية غير صالحة" });
-    }
-
-    const receiver = await User.findByPk(userId, {
+    const conversionResult = await convertGiftToPoints({
+      userGift,
+      receiverId: userId,
       transaction: t,
-      lock: t.LOCK.UPDATE,
     });
-    if (!receiver) {
-      await t.rollback();
-      return res.status(404).json({ error: "المستخدم غير موجود" });
-    }
-
-    const isReceivedGift = userGift.senderId != null;
-
-    let ownerCutRate = 0;
-    let ownerShare = 0;
-    let receiverShare = points;
-
-    if (isReceivedGift && userGift.roomId) {
-      const room = await Room.findByPk(userGift.roomId, { transaction: t });
-
-      if (room) {
-        const cutSetting = await Settings.findOne({
-          where: { key: "room_gift_owner_cut", isActive: true },
-          transaction: t,
-        });
-
-        ownerCutRate = Number(cutSetting?.value ?? 0);
-        if (ownerCutRate < 0) ownerCutRate = 0;
-        if (ownerCutRate > 1) ownerCutRate = 1;
-
-        const actualRoomOwnerId = room.creatorId; // ✅ هذا المهم
-
-        const roomOwner = await User.findByPk(actualRoomOwnerId, {
-          transaction: t,
-          lock: t.LOCK.UPDATE,
-        });
-
-        if (roomOwner && ownerCutRate > 0 && String(roomOwner.id) !== String(receiver.id)) {
-          ownerShare = Math.floor(points * ownerCutRate);
-          receiverShare = points - ownerShare;
-
-          if (ownerShare > 0) {
-            await roomOwner.increment({ sawa: ownerShare }, { transaction: t });
-          }
-        }
-      }
-    }
-
-    await receiver.increment({ sawa: receiverShare }, { transaction: t });
-    await userGift.destroy({ transaction: t, force: true });
 
     await t.commit();
     const updatedReceiver = await User.findByPk(userId);
     const updatedOwner = userGift.roomOwnerId ? await User.findByPk(userGift.roomOwnerId) : null;
 
     return res.json({
-      message: "تم تحويل الهدية إلى نقاط وحذفها ✅",
-      originalPoints: points,
-      isReceivedGift,
-      ownerCutRate,
-      ownerShare,
-      receiverShare,
+      message: "تم تحويل الهدية إلى نقاط ✅",
+      originalPoints: conversionResult.points,
+      isReceivedGift: conversionResult.isReceivedGift,
+      ownerCutRate: conversionResult.ownerCutRate,
+      ownerShare: conversionResult.ownerShare,
+      receiverShare: conversionResult.receiverShare,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
     });
   } catch (error) {
     await t.rollback();
+
+    const handledResponse = buildGiftConversionErrorResponse(error, res);
+    if (handledResponse) {
+      return handledResponse;
+    }
+
     console.error("❌ خطأ أثناء تحويل الهدية:", error);
     res.status(500).json({ error: "حدث خطأ أثناء تحويل الهدية" });
   }
