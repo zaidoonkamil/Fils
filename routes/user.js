@@ -503,6 +503,41 @@ router.post('/admin/reset-password', requireAdmin, upload.none(), async (req, re
   }
 });
 
+router.patch("/admin/users/:id/name", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "الاسم مطلوب" });
+    }
+
+    const user = await User.findByPk(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    user.name = name.trim();
+    await user.save();
+
+    return res.status(200).json({
+      message: "تم تعديل اسم المستخدم بنجاح ✅",
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        updatedAt: user.updatedAt,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error updating user name:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 /*
 router.post('/reset-password', upload.none(), async (req, res) => {
   try {
