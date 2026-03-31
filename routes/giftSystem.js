@@ -1,10 +1,35 @@
 const express = require("express");
+const fs = require("fs/promises");
+const path = require("path");
 const router = express.Router();
 const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op, DataTypes } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
+
+const uploadsDir = path.resolve(process.cwd(), "uploads");
+
+async function deleteGiftMediaFile(filePath) {
+  if (!filePath || typeof filePath !== "string") {
+    return;
+  }
+
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  const absolutePath = path.resolve(process.cwd(), normalizedPath);
+
+  if (!absolutePath.startsWith(uploadsDir + path.sep) && absolutePath !== uploadsDir) {
+    return;
+  }
+
+  try {
+    await fs.unlink(absolutePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
 
 function buildGiftConversionErrorResponse(error, res) {
   if (error.message === "INVALID_GIFT_POINTS") {
@@ -234,6 +259,43 @@ router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
 });
 
 // شراء هدية (تضاف لمخزون المستخدم)
+router.delete("/gift-items/:id", requireAdmin, async (req, res) => {
+  const transaction = await GiftItem.sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const item = await GiftItem.findByPk(id, { transaction });
+
+    if (!item) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "الهدية غير موجودة" });
+    }
+
+    const filesToDelete = [item.image, item.video].filter(Boolean);
+
+    await UserGift.destroy({
+      where: { giftItemId: item.id },
+      transaction,
+    });
+
+    await item.destroy({ transaction });
+    await transaction.commit();
+
+    for (const filePath of filesToDelete) {
+      await deleteGiftMediaFile(filePath);
+    }
+
+    return res.json({
+      message: "تم حذف الهدية ومحتواها من السيرفر",
+      deletedGiftId: item.id,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("❌ خطأ أثناء حذف الهدية:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء حذف الهدية" });
+  }
+});
+
 router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
   try {
