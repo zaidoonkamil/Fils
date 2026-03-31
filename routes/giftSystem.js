@@ -357,6 +357,172 @@ router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async
   }
 });
 
+router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (req, res) => {
+  const t = await User.sequelize.transaction();
+
+  try {
+    const { receiverId, giftItemId, roomId } = req.body;
+    const senderId = req.user.id;
+
+    if (!senderId || !receiverId || !giftItemId) {
+      await t.rollback();
+      return res.status(400).json({ error: "receiverId و giftItemId مطلوبة" });
+    }
+
+    if (String(senderId) === String(receiverId)) {
+      await t.rollback();
+      return res.status(400).json({ error: "لا يمكن إرسال هدية لنفسك" });
+    }
+
+    const sender = await User.findByPk(senderId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+      attributes: ["id", "name", "sawa"],
+    });
+    if (!sender) {
+      await t.rollback();
+      return res.status(404).json({ error: "المرسل غير موجود" });
+    }
+
+    const receiver = await User.findByPk(receiverId, {
+      transaction: t,
+      attributes: ["id", "name"],
+    });
+    if (!receiver) {
+      await t.rollback();
+      return res.status(404).json({ error: "المستلم غير موجود" });
+    }
+
+    const item = await GiftItem.findByPk(giftItemId, { transaction: t });
+    if (!item) {
+      await t.rollback();
+      return res.status(404).json({ error: "الهدية غير موجودة" });
+    }
+
+    if (!item.isAvailable) {
+      await t.rollback();
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
+    }
+
+    const giftCost = Number(item.points ?? 0);
+    if (!giftCost || giftCost <= 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "سعر الهدية غير صالح" });
+    }
+
+    if (Number(sender.sawa ?? 0) < giftCost) {
+      await t.rollback();
+      return res.status(400).json({
+        error: "رصيد النقاط غير كافٍ لإرسال هذه الهدية",
+        requiredPoints: giftCost,
+        currentBalance: Number(sender.sawa ?? 0),
+      });
+    }
+
+    let roomOwnerId = null;
+    if (roomId) {
+      const room = await Room.findByPk(roomId, { transaction: t });
+      if (!room) {
+        await t.rollback();
+        return res.status(404).json({ error: "الغرفة غير موجودة" });
+      }
+      roomOwnerId = room.creatorId;
+    }
+
+    sender.sawa = Number(sender.sawa ?? 0) - giftCost;
+    await sender.save({ transaction: t });
+
+    const userGift = await UserGift.create({
+      userId: receiverId,
+      senderId,
+      giftItemId,
+      roomId: roomId || null,
+      roomOwnerId,
+      status: "active",
+    }, { transaction: t });
+
+    userGift.item = item;
+
+    const conversionResult = await convertGiftToPoints({
+      userGift,
+      receiverId,
+      transaction: t,
+    });
+
+    await t.commit();
+
+    const updatedReceiver = await User.findByPk(receiverId);
+    const updatedOwner = userGift.roomOwnerId
+      ? await User.findByPk(userGift.roomOwnerId)
+      : null;
+
+    const payload = {
+      message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
+      autoConvertedToPoints: true,
+      senderBalance: sender.sawa,
+      userGift: {
+        id: userGift.id,
+        status: userGift.status,
+        createdAt: userGift.createdAt,
+        sender: {
+          id: sender.id,
+          name: sender.name,
+        },
+        item: {
+          id: item.id,
+          name: item.name,
+          image: item.image,
+          video: item.video,
+          points: item.points,
+        },
+        conversion: {
+          originalPoints: conversionResult.points,
+          ownerCutRate: conversionResult.ownerCutRate,
+          ownerShare: conversionResult.ownerShare,
+          receiverShare: conversionResult.receiverShare,
+          receiverNewBalance: updatedReceiver?.sawa,
+          roomOwnerNewBalance: updatedOwner?.sawa,
+        },
+      },
+    };
+
+    const roomsIO = req.app.get("roomsIO");
+    const receiverSocketId = connectedUsers.get(String(receiverId));
+    if (roomsIO && receiverSocketId) {
+      roomsIO.to(receiverSocketId).emit("gift-received", payload);
+    }
+
+    const senderSocketId = connectedUsers.get(String(senderId));
+    if (roomsIO && senderSocketId) {
+      roomsIO.to(senderSocketId).emit("gift-sent", {
+        message: "تم إرسال الهدية مباشرة وخصم قيمتها من رصيدك ✅",
+        autoConvertedToPoints: true,
+        receiver: { id: receiver.id, name: receiver.name },
+        item: payload.userGift.item,
+        senderBalance: sender.sawa,
+        conversion: payload.userGift.conversion,
+      });
+    }
+
+    return res.json({
+      message: "تم إرسال الهدية مباشرة بنجاح",
+      deductedPoints: giftCost,
+      senderBalance: sender.sawa,
+      ...payload,
+    });
+  } catch (error) {
+    const handledResponse = buildGiftConversionErrorResponse(error, res);
+    if (handledResponse) {
+      await t.rollback();
+      return handledResponse;
+    }
+
+    await t.rollback();
+    console.error("❌ خطأ أثناء الإرسال المباشر للهدية:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء الإرسال المباشر للهدية" });
+  }
+});
+
 router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
 
