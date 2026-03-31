@@ -6,6 +6,10 @@ const GiftItem = sequelize.define("GiftItem", {
         type: DataTypes.STRING,
         allowNull: false,
     },
+    image: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     video: {
     type: DataTypes.STRING,
     allowNull: false,

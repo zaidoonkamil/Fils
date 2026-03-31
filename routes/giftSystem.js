@@ -96,11 +96,26 @@ router.post("/gift-items", requireAdmin, upload.single("video"), async (req, res
       return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، والفيديو" });
     }
 
-    const newItem = await GiftItem.create({
+    const queryInterface = GiftItem.sequelize.getQueryInterface();
+    const tableName = GiftItem.getTableName();
+    const tableDefinition = await queryInterface.describeTable(tableName);
+
+    const giftItemPayload = {
       name,
       points,
-      video
-    });
+      isAvailable: true,
+    };
+
+    if (tableDefinition.video) {
+      giftItemPayload.video = video;
+    }
+
+    if (tableDefinition.image) {
+      // قواعد بيانات أقدم ما زالت تشترط image، فنملؤه بنفس مسار الفيديو مؤقتاً.
+      giftItemPayload.image = video;
+    }
+
+    const newItem = await GiftItem.create(giftItemPayload);
 
     res.json({ message: "تمت إضافة الهدية للمتجر", item: newItem });
   } catch (error) {
@@ -136,6 +151,40 @@ router.post("/gift-items/ensure-video-column", requireAdmin, async (req, res) =>
   } catch (error) {
     console.error("❌ خطأ أثناء إضافة حقل video:", error);
     return res.status(500).json({ error: "حدث خطأ أثناء إضافة الحقل video" });
+  }
+});
+
+router.post("/gift-items/fix-schema", requireAdmin, async (req, res) => {
+  try {
+    const queryInterface = GiftItem.sequelize.getQueryInterface();
+    const tableName = GiftItem.getTableName();
+    const tableDefinition = await queryInterface.describeTable(tableName);
+    const changes = [];
+
+    if (!tableDefinition.video) {
+      await queryInterface.addColumn(tableName, "video", {
+        type: DataTypes.STRING,
+        allowNull: true,
+        after: "name",
+      });
+      changes.push("added_video");
+    }
+
+    if (tableDefinition.image) {
+      await queryInterface.changeColumn(tableName, "image", {
+        type: DataTypes.STRING,
+        allowNull: true,
+      });
+      changes.push("image_nullable");
+    }
+
+    return res.json({
+      message: changes.length ? "تم إصلاح بنية جدول الهدايا" : "بنية جدول الهدايا سليمة بالفعل",
+      changes,
+    });
+  } catch (error) {
+    console.error("❌ خطأ أثناء إصلاح جدول الهدايا:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء إصلاح جدول الهدايا" });
   }
 });
 
