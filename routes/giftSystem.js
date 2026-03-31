@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
-const { Op } = require("sequelize");
+const { Op, DataTypes } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
@@ -110,6 +110,35 @@ router.post("/gift-items", requireAdmin, upload.single("video"), async (req, res
 });
 
 // عرض جميع الهدايا المتاحة في المتجر (اختياري: يمكن تصفية المتاح فقط للمستخدمين)
+router.post("/gift-items/ensure-video-column", requireAdmin, async (req, res) => {
+  try {
+    const queryInterface = GiftItem.sequelize.getQueryInterface();
+    const tableName = GiftItem.getTableName();
+    const tableDefinition = await queryInterface.describeTable(tableName);
+
+    if (tableDefinition.video) {
+      return res.json({
+        message: "حقل video موجود بالفعل",
+        added: false,
+      });
+    }
+
+    await queryInterface.addColumn(tableName, "video", {
+      type: DataTypes.STRING,
+      allowNull: true,
+      after: "name",
+    });
+
+    return res.json({
+      message: "تمت إضافة حقل video بنجاح",
+      added: true,
+    });
+  } catch (error) {
+    console.error("❌ خطأ أثناء إضافة حقل video:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء إضافة الحقل video" });
+  }
+});
+
 router.get("/gift-items", async (req, res) => {
     try {
         const { includeUnavailable } = req.query; // للسماح للأدمن برؤية الكل
