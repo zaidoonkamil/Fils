@@ -87,13 +87,17 @@ async function convertGiftToPoints({
 }
 
 // إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
-router.post("/gift-items", requireAdmin, upload.single("video"), async (req, res) => {
+router.post("/gift-items", requireAdmin, upload.fields([
+  { name: "image", maxCount: 1 },
+  { name: "video", maxCount: 1 },
+]), async (req, res) => {
   try {
     const { name, points } = req.body;
-    const video = req.file ? req.file.path : null;
+    const image = req.files?.image?.[0]?.path || null;
+    const video = req.files?.video?.[0]?.path || null;
 
-    if (!name || !points || !video) {
-      return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، والفيديو" });
+    if (!name || !points || !image || !video) {
+      return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، الصورة، والفيديو" });
     }
 
     const queryInterface = GiftItem.sequelize.getQueryInterface();
@@ -111,8 +115,7 @@ router.post("/gift-items", requireAdmin, upload.single("video"), async (req, res
     }
 
     if (tableDefinition.image) {
-      // قواعد بيانات أقدم ما زالت تشترط image، فنملؤه بنفس مسار الفيديو مؤقتاً.
-      giftItemPayload.image = video;
+      giftItemPayload.image = image;
     }
 
     const newItem = await GiftItem.create(giftItemPayload);
