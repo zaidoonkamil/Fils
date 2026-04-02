@@ -43,6 +43,52 @@ function buildGiftConversionErrorResponse(error, res) {
   return null;
 }
 
+function serializeGiftItem(item) {
+  if (!item) return null;
+
+  return {
+    id: item.id,
+    name: item.name,
+    image: item.image,
+    video: item.video,
+    points: item.points,
+    isAvailable: item.isAvailable,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function buildGiftSocketPayload({
+  userGift,
+  sender,
+  receiver,
+  item,
+  conversion,
+  message,
+  senderBalance,
+}) {
+  return {
+    message,
+    autoConvertedToPoints: true,
+    senderBalance,
+    userGift: {
+      id: userGift.id,
+      userId: userGift.userId,
+      senderId: userGift.senderId,
+      giftItemId: userGift.giftItemId,
+      roomId: userGift.roomId,
+      roomOwnerId: userGift.roomOwnerId,
+      status: userGift.status,
+      createdAt: userGift.createdAt,
+      updatedAt: userGift.updatedAt,
+      sender: sender ? { id: sender.id, name: sender.name } : null,
+      receiver: receiver ? { id: receiver.id, name: receiver.name } : null,
+      item: serializeGiftItem(item),
+      conversion,
+    },
+  };
+}
+
 async function convertGiftToPoints({
   userGift,
   receiverId,
@@ -456,35 +502,24 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
       ? await User.findByPk(userGift.roomOwnerId)
       : null;
 
-    const payload = {
-      message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
-      autoConvertedToPoints: true,
-      senderBalance: sender.sawa,
-      userGift: {
-        id: userGift.id,
-        status: userGift.status,
-        createdAt: userGift.createdAt,
-        sender: {
-          id: sender.id,
-          name: sender.name,
-        },
-        item: {
-          id: item.id,
-          name: item.name,
-          image: item.image,
-          video: item.video,
-          points: item.points,
-        },
-        conversion: {
-          originalPoints: conversionResult.points,
-          ownerCutRate: conversionResult.ownerCutRate,
-          ownerShare: conversionResult.ownerShare,
-          receiverShare: conversionResult.receiverShare,
-          receiverNewBalance: updatedReceiver?.sawa,
-          roomOwnerNewBalance: updatedOwner?.sawa,
-        },
-      },
+    const conversion = {
+      originalPoints: conversionResult.points,
+      ownerCutRate: conversionResult.ownerCutRate,
+      ownerShare: conversionResult.ownerShare,
+      receiverShare: conversionResult.receiverShare,
+      receiverNewBalance: updatedReceiver?.sawa,
+      roomOwnerNewBalance: updatedOwner?.sawa,
     };
+
+    const payload = buildGiftSocketPayload({
+      userGift,
+      sender,
+      receiver,
+      item,
+      conversion,
+      message: "\u0648\u0635\u0644\u062a\u0643 \u0647\u062f\u064a\u0629 \u0648\u062a\u0645 \u062a\u062d\u0648\u064a\u0644\u0647\u0627 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0646\u0642\u0627\u0637 \u{1F381}",
+      senderBalance: sender.sawa,
+    });
 
     const roomsIO = req.app.get("roomsIO");
     const receiverSocketId = connectedUsers.get(String(receiverId));
@@ -495,12 +530,8 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     const senderSocketId = connectedUsers.get(String(senderId));
     if (roomsIO && senderSocketId) {
       roomsIO.to(senderSocketId).emit("gift-sent", {
-        message: "تم إرسال الهدية مباشرة وخصم قيمتها من رصيدك ✅",
-        autoConvertedToPoints: true,
-        receiver: { id: receiver.id, name: receiver.name },
-        item: payload.userGift.item,
-        senderBalance: sender.sawa,
-        conversion: payload.userGift.conversion,
+        ...payload,
+        message: "\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0647\u062f\u064a\u0629 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u062e\u0635\u0645 \u0642\u064a\u0645\u062a\u0647\u0627 \u0645\u0646 \u0631\u0635\u064a\u062f\u0643 \u2705",
       });
     }
 
@@ -625,33 +656,23 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
       ? await User.findByPk(userGift.roomOwnerId)
       : null;
 
-    const payload = {
-      message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
-      autoConvertedToPoints: true,
-      userGift: {
-        id: userGift.id,
-        status: userGift.status,
-        createdAt: userGift.createdAt,
-        sender: {
-          id: sender.id,
-          name: sender.name,
-        },
-        item: {
-          id: item.id,
-          name: item.name,
-          points: item.points,
-          video: item.video,
-        },
-        conversion: {
-          originalPoints: conversionResult.points,
-          ownerCutRate: conversionResult.ownerCutRate,
-          ownerShare: conversionResult.ownerShare,
-          receiverShare: conversionResult.receiverShare,
-          receiverNewBalance: updatedReceiver?.sawa,
-          roomOwnerNewBalance: updatedOwner?.sawa,
-        },
-      },
+    const conversion = {
+      originalPoints: conversionResult.points,
+      ownerCutRate: conversionResult.ownerCutRate,
+      ownerShare: conversionResult.ownerShare,
+      receiverShare: conversionResult.receiverShare,
+      receiverNewBalance: updatedReceiver?.sawa,
+      roomOwnerNewBalance: updatedOwner?.sawa,
     };
+
+    const payload = buildGiftSocketPayload({
+      userGift,
+      sender,
+      receiver,
+      item,
+      conversion,
+      message: "\u0648\u0635\u0644\u062a\u0643 \u0647\u062f\u064a\u0629 \u0648\u062a\u0645 \u062a\u062d\u0648\u064a\u0644\u0647\u0627 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0646\u0642\u0627\u0637 \u{1F381}",
+    });
 
     const roomsIO = req.app.get("roomsIO");
     const receiverSocketId = connectedUsers.get(String(receiverId));
@@ -663,11 +684,8 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     const senderSocketId = connectedUsers.get(String(senderId));
     if (roomsIO && senderSocketId) {
       roomsIO.to(senderSocketId).emit("gift-sent", {
-        message: "تم إرسال الهدية وتحويلها مباشرة إلى نقاط ✅",
-        autoConvertedToPoints: true,
-        receiver: { id: receiver.id, name: receiver.name },
-        item: payload.userGift.item,
-        conversion: payload.userGift.conversion,
+        ...payload,
+        message: "\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0647\u062f\u064a\u0629 \u0648\u062a\u062d\u0648\u064a\u0644\u0647\u0627 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0646\u0642\u0627\u0637 \u2705",
       });
     }
 
