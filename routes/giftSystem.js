@@ -7,6 +7,7 @@ const upload = require("../middlewares/uploads");
 const { Op, DataTypes } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
+const { sendNotificationToUser } = require("../services/notifications");
 
 const uploadsDir = path.resolve(process.cwd(), "uploads");
 
@@ -556,6 +557,16 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
       });
     }
 
+    try {
+      await sendNotificationToUser(
+        receiverId,
+        `${sender.name} ارسل اليك هدية`,
+        "هدية جديدة"
+      );
+    } catch (notifyError) {
+      console.warn("⚠️ فشل إرسال إشعار الهدية:", notifyError.message);
+    }
+
     return res.json({
       message: "تم إرسال الهدية مباشرة بنجاح",
       deductedPoints: giftCost,
@@ -716,6 +727,16 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
         ...payload,
         message: "\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0647\u062f\u064a\u0629 \u0648\u062a\u062d\u0648\u064a\u0644\u0647\u0627 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0646\u0642\u0627\u0637 \u2705",
       });
+    }
+
+    try {
+      await sendNotificationToUser(
+        receiverId,
+        `${sender.name} ارسل اليك هدية`,
+        "هدية جديدة"
+      );
+    } catch (notifyError) {
+      console.warn("⚠️ فشل إرسال إشعار الهدية:", notifyError.message);
     }
 
     return res.json({
