@@ -89,6 +89,26 @@ function buildGiftSocketPayload({
   };
 }
 
+function emitRoomGiftNotification({
+  roomsIO,
+  roomId,
+  senderSocketId,
+  payload,
+}) {
+  if (!roomsIO || !roomId) {
+    return;
+  }
+
+  const roomTarget = roomsIO.to(`room-${roomId}`);
+
+  if (senderSocketId) {
+    roomsIO.except(senderSocketId).to(`room-${roomId}`).emit("gift-received", payload);
+    return;
+  }
+
+  roomTarget.emit("gift-received", payload);
+}
+
 async function convertGiftToPoints({
   userGift,
   receiverId,
@@ -522,12 +542,22 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     });
 
     const roomsIO = req.app.get("roomsIO");
-    const receiverSocketId = connectedUsers.get(String(receiverId));
-    if (roomsIO && receiverSocketId) {
-      roomsIO.to(receiverSocketId).emit("gift-received", payload);
+    const senderSocketId = connectedUsers.get(String(senderId));
+
+    if (roomId) {
+      emitRoomGiftNotification({
+        roomsIO,
+        roomId,
+        senderSocketId,
+        payload,
+      });
+    } else {
+      const receiverSocketId = connectedUsers.get(String(receiverId));
+      if (roomsIO && receiverSocketId) {
+        roomsIO.to(receiverSocketId).emit("gift-received", payload);
+      }
     }
 
-    const senderSocketId = connectedUsers.get(String(senderId));
     if (roomsIO && senderSocketId) {
       roomsIO.to(senderSocketId).emit("gift-sent", {
         ...payload,
@@ -675,13 +705,22 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     });
 
     const roomsIO = req.app.get("roomsIO");
-    const receiverSocketId = connectedUsers.get(String(receiverId));
+    const senderSocketId = connectedUsers.get(String(senderId));
 
-    if (roomsIO && receiverSocketId) {
-      roomsIO.to(receiverSocketId).emit("gift-received", payload);
+    if (roomId) {
+      emitRoomGiftNotification({
+        roomsIO,
+        roomId,
+        senderSocketId,
+        payload,
+      });
+    } else {
+      const receiverSocketId = connectedUsers.get(String(receiverId));
+      if (roomsIO && receiverSocketId) {
+        roomsIO.to(receiverSocketId).emit("gift-received", payload);
+      }
     }
 
-    const senderSocketId = connectedUsers.get(String(senderId));
     if (roomsIO && senderSocketId) {
       roomsIO.to(senderSocketId).emit("gift-sent", {
         ...payload,
