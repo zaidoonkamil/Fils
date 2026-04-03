@@ -92,21 +92,13 @@ function buildGiftSocketPayload({
 function emitRoomGiftNotification({
   roomsIO,
   roomId,
-  senderSocketId,
   payload,
 }) {
   if (!roomsIO || !roomId) {
     return;
   }
 
-  const roomTarget = roomsIO.to(`room-${roomId}`);
-
-  if (senderSocketId) {
-    roomsIO.except(senderSocketId).to(`room-${roomId}`).emit("gift-received", payload);
-    return;
-  }
-
-  roomTarget.emit("gift-received", payload);
+  roomsIO.to(`room-${roomId}`).emit("gift-received", payload);
 }
 
 async function convertGiftToPoints({
@@ -548,7 +540,6 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
       emitRoomGiftNotification({
         roomsIO,
         roomId,
-        senderSocketId,
         payload,
       });
     } else {
@@ -711,7 +702,6 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
       emitRoomGiftNotification({
         roomsIO,
         roomId,
-        senderSocketId,
         payload,
       });
     } else {
