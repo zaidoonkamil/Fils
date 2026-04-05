@@ -503,6 +503,20 @@ router.post('/admin/reset-password', requireAdmin, upload.none(), async (req, re
   }
 });
 
+router.get("/fix/add-images-column", async (req, res) => {
+  try {
+    await sequelize.query(`
+      ALTER TABLE Users 
+      ADD COLUMN images JSON NULL
+    `);
+
+    res.json({ message: "✅ تم إضافة عمود images بنجاح" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.patch("/admin/users/:id/name", requireAdmin, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
