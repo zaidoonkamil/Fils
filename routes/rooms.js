@@ -193,7 +193,7 @@ router.get("/search-rooms", authenticateToken, async (req, res) => {
             include: [{
                 model: User,
                 as: 'creator',
-                attributes: ['id', 'name'],
+                attributes: ['id', 'name', 'images'],
                 required: false
             }],
             order: [['createdAt', 'DESC']]
@@ -225,7 +225,7 @@ router.get("/rooms", authenticateToken, async (req, res) => {
             include: [{
                 model: User,
                 as: 'creator',
-                attributes: ['id', 'name'],
+                attributes: ['id', 'name', 'images'],
                 required: false  // LEFT JOIN بدلاً من INNER JOIN
             }],
             order: [
@@ -262,7 +262,7 @@ router.get("/my-room", authenticateToken, async (req, res) => {
             include: [{
                 model: User,
                 as: 'creator',
-                attributes: ['id', 'name']
+                attributes: ['id', 'name', 'images'],
             }],
             order: [['createdAt', 'DESC']]
         });
@@ -291,7 +291,7 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
             include: [{
                 model: User,
                 as: 'creator',
-                attributes: ['id', 'name']
+                attributes: ['id', 'name', 'images'],
             }]
         });
 
@@ -325,7 +325,7 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
             include: [{
                 model: User,
                 as: 'user',
-                attributes: ['id', 'name']
+                attributes: ['id', 'name', 'images'],
             }],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),

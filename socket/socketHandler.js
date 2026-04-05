@@ -22,11 +22,12 @@ function initializeSocketIO(io) {
       const userId = decoded.id || decoded.userId;
       if (!userId) return next(new Error("Invalid token - no user ID"));
 
-      const user = await User.findByPk(userId, { attributes: ["id", "name"] });
+      const user = await User.findByPk(userId, { attributes: ["id", "name", "images"] });
       if (!user) return next(new Error("User not found"));
 
       socket.userId = user.id;
       socket.userName = user.name;
+      socket.userImage = (user.images && user.images.length > 0) ? user.images[0] : null;
 
       next();
     } catch (error) {
@@ -79,6 +80,7 @@ function initializeSocketIO(io) {
           usersSet.add({
             id: socket.userId,
             name: socket.userName,
+            image: socket.userImage,
             socketId: socket.id,
           });
           await room.update({ currentUsers: usersSet.size });
@@ -93,6 +95,7 @@ function initializeSocketIO(io) {
           socket.to(`room-${roomId}`).emit("user-joined", {
             userId: socket.userId,
             userName: socket.userName,
+            userImage: socket.userImage,
             message: `${socket.userName} انضم إلى الغرفة`,
           });
         }
@@ -100,6 +103,7 @@ function initializeSocketIO(io) {
         const currentUsers = Array.from(usersSet).map((u) => ({
           id: u.id,
           name: u.name,
+          image: u.image,
         }));
         io.to(`room-${roomId}`).emit("room-users", currentUsers);
       } catch (error) {
@@ -133,6 +137,7 @@ function initializeSocketIO(io) {
           user: {
             id: socket.userId,
             name: socket.userName,
+            image: socket.userImage,
           },
         };
 
@@ -169,6 +174,7 @@ function initializeSocketIO(io) {
           const currentUsers = Array.from(usersSet).map((u) => ({
             id: u.id,
             name: u.name,
+            image: u.image,
           }));
           io.to(`room-${roomId}`).emit("room-users", currentUsers);
 
@@ -251,6 +257,7 @@ function initializeSocketIO(io) {
           const currentUsers = Array.from(usersSet).map((u) => ({
             id: u.id,
             name: u.name,
+            image: u.image,
           }));
           io.to(`room-${roomId}`).emit("room-users", currentUsers);
 
@@ -295,6 +302,7 @@ function initializeSocketIO(io) {
               const currentUsers = Array.from(usersSet).map((u) => ({
                 id: u.id,
                 name: u.name,
+                image: u.image,
               }));
               io.to(`room-${roomId}`).emit("room-users", currentUsers);
             }
