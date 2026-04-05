@@ -1,5 +1,7 @@
 const express = require('express');
 const bcrypt = require("bcrypt");
+const fs = require("fs");
+const path = require("path");
 const saltRounds = 10;
 const router = express.Router();
 const jwt = require('jsonwebtoken');
@@ -162,6 +164,9 @@ const generateToken = (user) => {
 
 router.put("/users/:id", authenticateTokenUser, upload.array("images", 5), async (req, res) => {
   try {
+    console.log("==== PUT /users/" + req.params.id + " ====");
+    console.log("REQ.FILES:", req.files);
+    console.log("REQ.BODY:", JSON.stringify(req.body, null, 2));
     const { id } = req.params;
     const {
       name, email, phone, location, note, url,
@@ -181,11 +186,20 @@ router.put("/users/:id", authenticateTokenUser, upload.array("images", 5), async
     }
 
     if (req.files && req.files.length > 0) {
+      if (user.images && user.images.length > 0) {
+        user.images.forEach((oldImage) => {
+          const oldImagePath = path.join(__dirname, "..", "uploads", oldImage);
+          if (fs.existsSync(oldImagePath)) {
+            fs.unlinkSync(oldImagePath);
+          }
+        });
+      }
+
       const images = req.files
         .map(file => file.filename)
         .filter(Boolean);
 
-      user.images = images; // ✅ فقط هنا
+      user.images = images;
     }
 
     // باقي الحقول
