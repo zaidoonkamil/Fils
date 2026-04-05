@@ -12,7 +12,7 @@ const GiftItem = sequelize.define("GiftItem", {
     },
     video: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
     },
     points: {
         type: DataTypes.INTEGER,
