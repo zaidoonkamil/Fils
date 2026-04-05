@@ -333,7 +333,14 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
         });
 
         res.json({
-            messages: messages.rows.reverse(), // عكس الترتيب لعرض الرسائل من الأقدم للأحدث
+            messages: messages.rows.reverse().map(msg => {
+                const m = msg.toJSON();
+                if (m.user && m.user.images) {
+                    m.user.image = m.user.images.length > 0 ? m.user.images[0] : null;
+                    delete m.user.images;
+                }
+                return m;
+            }),
             total: messages.count,
             currentPage: parseInt(page),
             totalPages: Math.ceil(messages.count / parseInt(limit))
