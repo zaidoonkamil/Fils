@@ -180,10 +180,12 @@ router.put("/users/:id", authenticateTokenUser, upload.array("images", 5), async
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
-    // ✅ الصور
     if (req.files && req.files.length > 0) {
-      const images = req.files.map(file => file.filename);
-      user.images = images;
+      const images = req.files
+        .map(file => file.filename)
+        .filter(Boolean);
+
+      user.images = images; // ✅ فقط هنا
     }
 
     // باقي الحقول
