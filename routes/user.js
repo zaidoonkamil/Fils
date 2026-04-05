@@ -13,9 +13,10 @@ const storage = multer.diskStorage({
     cb(null, "uploads/");
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
     const ext = file.originalname.split(".").pop();
-    cb(null, file.fieldname + "-" + uniqueSuffix + "." + ext);
+    // نستخدم Date.now() مع رقم عشوائي صغير لتجنب تعارض الأسماء إذا تم رفع أكثر من صورة في نفس اللحظة
+    const uniqueSuffix = Date.now().toString() + Math.floor(Math.random() * 1000);
+    cb(null, uniqueSuffix + "." + ext);
   }
 });
 const upload = multer({ storage: storage });
