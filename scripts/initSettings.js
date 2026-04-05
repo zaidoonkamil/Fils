@@ -158,6 +158,35 @@ async function initializeSettings() {
       console.log('ℹ️ room_gift_owner_cut setting already exists');
     }
 
+    const roomGiftReceiverCutSetting = await Settings.findOne({
+      where: { key: 'room_gift_receiver_cut' },
+    });
+
+    if (!roomGiftReceiverCutSetting) {
+      await Settings.create({
+        key: 'room_gift_receiver_cut',
+        value: '0.5',
+        description: 'نسبة من قيمة الهدية تذهب للمستلم عند إرسالها في غرفة (مثلاً 0.5 = 50%)',
+        isActive: true,
+      });
+      console.log('✅ Default room_gift_receiver_cut setting created successfully');
+    }
+
+    const roomGiftAdminCutSetting = await Settings.findOne({
+      where: { key: 'room_gift_admin_cut' },
+    });
+
+    if (!roomGiftAdminCutSetting) {
+      await Settings.create({
+        key: 'room_gift_admin_cut',
+        value: '0.4',
+        description: 'نسبة من قيمة الهدية تخصم للإدارة (مثلاً 0.4 = 40%)',
+        isActive: true,
+      });
+      console.log('✅ Default room_gift_admin_cut setting created successfully');
+    }
+
+
     const referralRewardSetting = await Settings.findOne({
       where: { key: 'referral_reward_percentage' },
     });

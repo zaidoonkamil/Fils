@@ -123,21 +123,32 @@ async function convertGiftToPoints({
   const isReceivedGift = userGift.senderId != null;
 
   let ownerCutRate = 0;
+  let receiverCutRate = 1.0;
+  let adminCutRate = 0;
+  
   let ownerShare = 0;
   let receiverShare = points;
+  let adminShare = 0;
 
   if (isReceivedGift && userGift.roomId) {
     const room = await Room.findByPk(userGift.roomId, { transaction });
 
     if (room) {
-      const cutSetting = await Settings.findOne({
-        where: { key: "room_gift_owner_cut", isActive: true },
+      // جلب جميع إعدادات نسب التوزيع للرومات
+      const settings = await Settings.findAll({
+        where: {
+          key: ["room_gift_owner_cut", "room_gift_receiver_cut", "room_gift_admin_cut"],
+          isActive: true,
+        },
         transaction,
       });
 
-      ownerCutRate = Number(cutSetting?.value ?? 0);
-      if (ownerCutRate < 0) ownerCutRate = 0;
-      if (ownerCutRate > 1) ownerCutRate = 1;
+      const config = {};
+      settings.forEach((s) => (config[s.key] = Number(s.value)));
+
+      ownerCutRate = config.room_gift_owner_cut ?? 0.1;
+      receiverCutRate = config.room_gift_receiver_cut ?? 0.5;
+      adminCutRate = config.room_gift_admin_cut ?? 0.4;
 
       const actualRoomOwnerId = room.creatorId;
 
@@ -146,16 +157,24 @@ async function convertGiftToPoints({
         lock: transaction.LOCK.UPDATE,
       });
 
-      if (roomOwner && ownerCutRate > 0 && String(roomOwner.id) !== String(receiver.id)) {
+      if (roomOwner && String(roomOwner.id) !== String(receiver.id)) {
+        // تقسيم الهدية لثلاثة أقسام إذا لم يكن المستلم هو صاحب الغرفة
         ownerShare = Math.floor(points * ownerCutRate);
-        receiverShare = points - ownerShare;
+        receiverShare = Math.floor(points * receiverCutRate);
+        adminShare = points - ownerShare - receiverShare;
 
         if (ownerShare > 0) {
           await roomOwner.increment({ sawa: ownerShare }, { transaction });
         }
+      } else {
+        // إذا كان المستلم هو صاحب الغرفة، يحصل على نصيب المستلم + نصيب المالك، والباقي للإدارة
+        receiverShare = Math.floor(points * (receiverCutRate + ownerCutRate));
+        adminShare = points - receiverShare;
+        ownerShare = 0; // تم دمجه مع المستلم
       }
     }
   }
+
 
   await receiver.increment({ sawa: receiverShare }, { transaction });
   userGift.status = "converted";
@@ -165,9 +184,13 @@ async function convertGiftToPoints({
     points,
     isReceivedGift,
     ownerCutRate,
+    receiverCutRate,
+    adminCutRate,
     ownerShare,
     receiverShare,
+    adminShare,
   };
+
 }
 
 // إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
@@ -549,11 +572,15 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     const conversion = {
       originalPoints: conversionResult.points,
       ownerCutRate: conversionResult.ownerCutRate,
+      receiverCutRate: conversionResult.receiverCutRate,
+      adminCutRate: conversionResult.adminCutRate,
       ownerShare: conversionResult.ownerShare,
       receiverShare: conversionResult.receiverShare,
+      adminShare: conversionResult.adminShare,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
     };
+
 
     const payload = buildGiftSocketPayload({
       userGift,
@@ -722,11 +749,15 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     const conversion = {
       originalPoints: conversionResult.points,
       ownerCutRate: conversionResult.ownerCutRate,
+      receiverCutRate: conversionResult.receiverCutRate,
+      adminCutRate: conversionResult.adminCutRate,
       ownerShare: conversionResult.ownerShare,
       receiverShare: conversionResult.receiverShare,
+      adminShare: conversionResult.adminShare,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
     };
+
 
     const payload = buildGiftSocketPayload({
       userGift,
@@ -863,10 +894,14 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
       originalPoints: conversionResult.points,
       isReceivedGift: conversionResult.isReceivedGift,
       ownerCutRate: conversionResult.ownerCutRate,
+      receiverCutRate: conversionResult.receiverCutRate,
+      adminCutRate: conversionResult.adminCutRate,
       ownerShare: conversionResult.ownerShare,
       receiverShare: conversionResult.receiverShare,
+      adminShare: conversionResult.adminShare,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
+
     });
   } catch (error) {
     await t.rollback();
