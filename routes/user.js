@@ -160,108 +160,123 @@ const generateToken = (user) => {
     );
 };
 
-router.put("/users/:id", authenticateTokenUser, upload.none(), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, email, phone, location, note, url, password, extraPassword, isActive, isVerified, role } = req.body;
+router.put("/users/:id", authenticateTokenUser, upload.array("images", 5), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        name, email, phone, location, note, url,
+        password, extraPassword, isActive, isVerified, role
+      } = req.body;
 
-    const loggedInUser = req.user;
+      const loggedInUser = req.user;
 
-    if (loggedInUser.role !== "admin" && String(loggedInUser.id) !== String(id)) {
-      return res.status(403).json({ error: "غير مسموح لك تعديل بيانات مستخدم آخر" });
-    }
-
-    const user = await User.findByPk(id);
-
-    if (!user) {
-      return res.status(404).json({ error: "المستخدم غير موجود" });
-    }
-
-    if (email && email !== user.email) {
-      const existingEmail = await User.findOne({ where: { email } });
-      if (existingEmail) {
-        return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
-      }
-      user.email = email;
-    }
-
-    if (phone && phone !== user.phone) {
-      const existingPhone = await User.findOne({ where: { phone } });
-      if (existingPhone) {
-        return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
-      }
-      user.phone = phone;
-    }
-
-    if (name !== undefined) user.name = name;
-    if (location !== undefined) user.location = location;
-    if (note !== undefined) user.note = note;
-    if (url !== undefined) user.url = url;
-
-    if (password !== undefined && password !== "") {
-      user.password = await bcrypt.hash(password, saltRounds);
-    }
-
-    if (extraPassword !== undefined && extraPassword !== "") {
-      user.extraPassword = await bcrypt.hash(extraPassword, saltRounds);
-    }
-
-    if (loggedInUser.role === "admin") {
-      if (isActive !== undefined) {
-        user.isActive = isActive === "true" || isActive === true;
+      if (loggedInUser.role !== "admin" && String(loggedInUser.id) !== String(id)) {
+        return res.status(403).json({ error: "غير مسموح لك تعديل بيانات مستخدم آخر" });
       }
 
-      if (isVerified !== undefined) {
-        user.isVerified = isVerified === "true" || isVerified === true;
+      const user = await User.findByPk(id);
+
+      if (!user) {
+        return res.status(404).json({ error: "المستخدم غير موجود" });
       }
 
-      if (role !== undefined && role !== "") {
-        user.role = role;
+      if (req.files && req.files.length > 0) {
+        const newImages = req.files.map(file => file.filename);
+
+        const currentImages = user.images || [];
+
+        user.images = [...currentImages, ...newImages];
       }
-    } else {
-      const profileUpdateCostSetting = await Settings.findOne({
-        where: { key: "profile_update_cost", isActive: true }
-      });
 
-      const profileUpdateCost = profileUpdateCostSetting
-        ? parseFloat(profileUpdateCostSetting.value)
-        : 0;
 
-      if (profileUpdateCost > 0) {
-        if ((user.sawa || 0) < profileUpdateCost) {
-          return res.status(400).json({
-            error: "رصيدك غير كافي لتعديل الحساب"
-          });
+      if (email && email !== user.email) {
+        const existingEmail = await User.findOne({ where: { email } });
+        if (existingEmail) {
+          return res.status(400).json({ error: "البريد الإلكتروني قيد الاستخدام بالفعل" });
+        }
+        user.email = email;
+      }
+
+      if (phone && phone !== user.phone) {
+        const existingPhone = await User.findOne({ where: { phone } });
+        if (existingPhone) {
+          return res.status(400).json({ error: "الهاتف قيد الاستخدام بالفعل" });
+        }
+        user.phone = phone;
+      }
+
+      if (name !== undefined) user.name = name;
+      if (location !== undefined) user.location = location;
+      if (note !== undefined) user.note = note;
+      if (url !== undefined) user.url = url;
+
+      if (password) {
+        user.password = await bcrypt.hash(password, saltRounds);
+      }
+
+      if (extraPassword) {
+        user.extraPassword = await bcrypt.hash(extraPassword, saltRounds);
+      }
+
+      if (loggedInUser.role === "admin") {
+        if (isActive !== undefined) {
+          user.isActive = isActive === "true" || isActive === true;
         }
 
-        user.sawa -= profileUpdateCost;
+        if (isVerified !== undefined) {
+          user.isVerified = isVerified === "true" || isVerified === true;
+        }
+
+        if (role) {
+          user.role = role;
+        }
+      } else {
+        const profileUpdateCostSetting = await Settings.findOne({
+          where: { key: "profile_update_cost", isActive: true }
+        });
+
+        const profileUpdateCost = profileUpdateCostSetting
+          ? parseFloat(profileUpdateCostSetting.value)
+          : 0;
+
+        if (profileUpdateCost > 0) {
+          if ((user.sawa || 0) < profileUpdateCost) {
+            return res.status(400).json({
+              error: "رصيدك غير كافي لتعديل الحساب"
+            });
+          }
+
+          user.sawa -= profileUpdateCost;
+        }
       }
+
+      await user.save();
+
+      return res.status(200).json({
+        message: "تم تعديل بيانات المستخدم بنجاح",
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          location: user.location,
+          note: user.note,
+          url: user.url,
+          role: user.role,
+          isActive: user.isActive,
+          isVerified: user.isVerified,
+          sawa: user.sawa,
+          images: user.images,
+          updatedAt: user.updatedAt,
+        }
+      });
+
+    } catch (err) {
+      console.error("❌ Error updating user:", err);
+      return res.status(500).json({ error: "Internal Server Error" });
     }
-
-    await user.save();
-
-    return res.status(200).json({
-      message: "تم تعديل بيانات المستخدم بنجاح",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        location: user.location,
-        note: user.note,
-        url: user.url,
-        role: user.role,
-        isActive: user.isActive,
-        isVerified: user.isVerified,
-        sawa: user.sawa,
-        updatedAt: user.updatedAt,
-      }
-    });
-  } catch (err) {
-    console.error("❌ Error updating user:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
   }
-});
+);
 
 router.post("/users/extra-password/change", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
@@ -500,20 +515,6 @@ router.post('/admin/reset-password', requireAdmin, upload.none(), async (req, re
   } catch (error) {
     console.error('خطأ:', error);
     return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
-  }
-});
-
-router.get("/fix/add-images-column", async (req, res) => {
-  try {
-    await sequelize.query(`
-      ALTER TABLE Users 
-      ADD COLUMN images JSON NULL
-    `);
-
-    res.json({ message: "✅ تم إضافة عمود images بنجاح" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
   }
 });
 
