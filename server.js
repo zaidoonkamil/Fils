@@ -95,7 +95,21 @@ initDominoSocket(dominoNamespace);
 
 const roomNamespace = io.of("/rooms");
 initializeSocketIO(roomNamespace);
-app.set("roomsIO", roomNamespace);
+
+// Global Error Handler for Debugging
+app.use((err, req, res, next) => {
+    console.error("🔥 Global Error Caught:", err);
+    try {
+        const fs = require("fs");
+        const logMsg = `\n[${new Date().toISOString()}] GLOBAL ERROR: ${err.message}\nStack: ${err.stack}\n`;
+        fs.appendFileSync("global_error_log.txt", logMsg);
+    } catch (e) {}
+    
+    res.status(500).json({
+        error: "حدث خطأ داخلي في السيرفر",
+        message: err.message,
+    });
+});
 
 
 const PORT = process.env.PORT || 1400;
