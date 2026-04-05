@@ -317,7 +317,38 @@ router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
     }
 });
 
-// شراء هدية (تضاف لمخزون المستخدم)
+
+
+// تعديل بيانات الهدية (الاسم، النقاط)
+router.patch("/gift-items/:id", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const giftItemId = req.params.id;
+    const { name, points } = req.body;
+    const item = await GiftItem.findByPk(giftItemId);
+
+    if (!item) {
+      return res.status(404).json({ error: "الهدية غير موجودة" });
+    }
+
+    // تحديث الاسم والنقاط إذا تم تقديمها
+    if (name) item.name = name;
+    if (points !== undefined) item.points = points;
+
+    await item.save();
+
+    res.json({
+      message: "تم تحديث بيانات الهدية بنجاح",
+      item
+    });
+
+  } catch (error) {
+    console.error("❌ خطأ أثناء تعديل بيانات الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء التعديل" });
+  }
+});
+
+
+// حذف الهدية من المتجر
 router.delete("/gift-items/:id", requireAdmin, async (req, res) => {
   const transaction = await GiftItem.sequelize.transaction();
 
