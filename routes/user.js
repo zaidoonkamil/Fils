@@ -8,7 +8,17 @@ const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 dotenv.config();
 const multer = require("multer");
-const upload = multer();
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
+    const ext = file.originalname.split(".").pop();
+    cb(null, file.fieldname + "-" + uniqueSuffix + "." + ext);
+  }
+});
+const upload = multer({ storage: storage });
 const { User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, CounterSale, UserCounter, Counter, AgentRequest} = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
