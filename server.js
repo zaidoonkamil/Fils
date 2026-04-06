@@ -95,6 +95,7 @@ initDominoSocket(dominoNamespace);
 
 const roomNamespace = io.of("/rooms");
 initializeSocketIO(roomNamespace);
+app.set("roomsIO", roomNamespace);
 
 // Global Error Handler for Debugging
 app.use((err, req, res, next) => {
