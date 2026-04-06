@@ -316,4 +316,5 @@ function initializeSocketIO(io) {
 module.exports = {
   initializeSocketIO,
   connectedUsers,
+  roomUsers,
 };

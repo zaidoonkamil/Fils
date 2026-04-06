@@ -5,7 +5,7 @@ const router = express.Router();
 const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
 const { Op, DataTypes, fn, col, literal } = require("sequelize");
-const { connectedUsers } = require("../socket/socketHandler");
+const { connectedUsers, roomUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 const { sendNotificationToUser } = require("../services/notifications");
 
@@ -218,6 +218,26 @@ function emitRoomGiftNotification({
   }
 
   roomsIO.to(`room-${roomId}`).emit("gift-received", payload);
+}
+
+function getActiveRoomRecipients(roomId, senderId) {
+  const parsedRoomId = Number.parseInt(roomId, 10);
+  const roomUsersSet =
+    roomUsers.get(parsedRoomId) ??
+    roomUsers.get(String(roomId)) ??
+    roomUsers.get(roomId);
+
+  if (!roomUsersSet || roomUsersSet.size === 0) {
+    return [];
+  }
+
+  return Array.from(roomUsersSet)
+    .filter((user) => String(user.id) !== String(senderId))
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      socketId: user.socketId,
+    }));
 }
 
 async function convertGiftToPoints({
@@ -928,6 +948,183 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     await t.rollback();
     console.error("❌ خطأ أثناء الإرسال المباشر للهدية:", error);
     return res.status(500).json({ error: "حدث خطأ أثناء الإرسال المباشر للهدية" });
+  }
+});
+
+router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (req, res) => {
+  const t = await User.sequelize.transaction();
+
+  try {
+    const { giftItemId, roomId } = req.body;
+    const senderId = req.user.id;
+
+    if (!senderId || !giftItemId || !roomId) {
+      await t.rollback();
+      return res.status(400).json({ error: "giftItemId و roomId مطلوبة" });
+    }
+
+    const room = await Room.findByPk(roomId, { transaction: t });
+    if (!room) {
+      await t.rollback();
+      return res.status(404).json({ error: "الغرفة غير موجودة" });
+    }
+
+    const recipients = getActiveRoomRecipients(roomId, senderId);
+    if (recipients.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "لا يوجد مستلمون داخل الغرفة حالياً" });
+    }
+
+    const sender = await User.findByPk(senderId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+      attributes: ["id", "name", "sawa"],
+    });
+    if (!sender) {
+      await t.rollback();
+      return res.status(404).json({ error: "المرسل غير موجود" });
+    }
+
+    const item = await GiftItem.findByPk(giftItemId, { transaction: t });
+    if (!item) {
+      await t.rollback();
+      return res.status(404).json({ error: "الهدية غير موجودة" });
+    }
+
+    if (!item.isAvailable) {
+      await t.rollback();
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
+    }
+
+    const giftCost = Number(item.points ?? 0);
+    if (!giftCost || giftCost <= 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "سعر الهدية غير صالح" });
+    }
+
+    const totalCost = giftCost * recipients.length;
+    if (Number(sender.sawa ?? 0) < totalCost) {
+      await t.rollback();
+      return res.status(400).json({
+        error: "رصيد النقاط غير كافٍ لإرسال الهدية للجميع",
+        requiredPoints: totalCost,
+        currentBalance: Number(sender.sawa ?? 0),
+        recipientsCount: recipients.length,
+      });
+    }
+
+    sender.sawa = Number(sender.sawa ?? 0) - totalCost;
+    await sender.save({ transaction: t });
+
+    const payloads = [];
+
+    for (const recipientInfo of recipients) {
+      const receiver = await User.findByPk(recipientInfo.id, {
+        transaction: t,
+        attributes: ["id", "name"],
+      });
+
+      if (!receiver) {
+        continue;
+      }
+
+      const userGift = await UserGift.create({
+        userId: receiver.id,
+        senderId,
+        giftItemId,
+        roomId,
+        roomOwnerId: room.creatorId,
+        status: "active",
+      }, { transaction: t });
+
+      userGift.item = item;
+
+      const conversionResult = await convertGiftToPoints({
+        userGift,
+        receiverId: receiver.id,
+        transaction: t,
+      });
+
+      payloads.push(
+        buildGiftSocketPayload({
+          userGift,
+          sender,
+          receiver,
+          item,
+          conversion: {
+            originalPoints: conversionResult.points,
+            ownerCutRate: conversionResult.ownerCutRate,
+            receiverCutRate: conversionResult.receiverCutRate,
+            adminCutRate: conversionResult.adminCutRate,
+            ownerShare: conversionResult.ownerShare,
+            receiverShare: conversionResult.receiverShare,
+            adminShare: conversionResult.adminShare,
+          },
+          message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
+          senderBalance: sender.sawa,
+        })
+      );
+    }
+
+    if (payloads.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "تعذر تحديد مستلمين صالحين داخل الغرفة" });
+    }
+
+    await t.commit();
+
+    const roomsIO = req.app.get("roomsIO");
+    const senderSocketId = connectedUsers.get(String(senderId));
+
+    for (const payload of payloads) {
+      emitRoomGiftNotification({
+        roomsIO,
+        roomId,
+        payload,
+      });
+    }
+
+    if (roomsIO && senderSocketId) {
+      roomsIO.to(senderSocketId).emit("gift-sent", {
+        message: "تم إرسال الهدية للجميع بنجاح ✅",
+        senderBalance: sender.sawa,
+        roomId,
+        giftItem: serializeGiftItem(item),
+        recipientsCount: payloads.length,
+      });
+    }
+
+    for (const payload of payloads) {
+      try {
+        if (payload.userGift?.receiver?.id) {
+          await sendNotificationToUser(
+            payload.userGift.receiver.id,
+            `${sender.name} ارسل اليك هدية`,
+            "هدية جديدة"
+          );
+        }
+      } catch (notifyError) {
+        console.warn("⚠️ فشل إرسال إشعار هدية للجميع:", notifyError.message);
+      }
+    }
+
+    return res.json({
+      message: "تم إرسال الهدية للجميع بنجاح",
+      deductedPoints: totalCost,
+      senderBalance: sender.sawa,
+      recipientsCount: payloads.length,
+      giftItem: serializeGiftItem(item),
+    });
+  } catch (error) {
+    const handledResponse = buildGiftConversionErrorResponse(error, res);
+    if (handledResponse) {
+      await t.rollback();
+      return handledResponse;
+    }
+
+    await t.rollback();
+    console.error("❌ خطأ أثناء إرسال الهدية للجميع:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية للجميع" });
   }
 });
 
