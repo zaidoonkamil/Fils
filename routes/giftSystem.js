@@ -4,7 +4,7 @@ const path = require("path");
 const router = express.Router();
 const { User, GiftItem, UserGift, Settings, Room } = require("../models");
 const upload = require("../middlewares/uploads");
-const { Op, DataTypes } = require("sequelize");
+const { Op, DataTypes, fn, col, literal } = require("sequelize");
 const { connectedUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 const { sendNotificationToUser } = require("../services/notifications");
@@ -42,6 +42,124 @@ function buildGiftConversionErrorResponse(error, res) {
   }
 
   return null;
+}
+
+function parsePositiveInteger(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    return null;
+  }
+
+  return parsedValue;
+}
+
+function parseStatsDate(value, options = {}) {
+  if (!value) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  if (options.endOfDay) {
+    parsedDate.setHours(23, 59, 59, 999);
+  } else {
+    parsedDate.setHours(0, 0, 0, 0);
+  }
+
+  return parsedDate;
+}
+
+function buildSentGiftStatsFilters(query) {
+  const where = {
+    senderId: { [Op.not]: null },
+  };
+
+  const fromDate = parseStatsDate(query.fromDate);
+  const toDate = parseStatsDate(query.toDate, { endOfDay: true });
+
+  if ((query.fromDate && !fromDate) || (query.toDate && !toDate)) {
+    return { error: "صيغة التاريخ غير صحيحة" };
+  }
+
+  if (fromDate || toDate) {
+    where.createdAt = {};
+    if (fromDate) {
+      where.createdAt[Op.gte] = fromDate;
+    }
+    if (toDate) {
+      where.createdAt[Op.lte] = toDate;
+    }
+  }
+
+  const giftItemId = parsePositiveInteger(query.giftItemId);
+  if (query.giftItemId && !giftItemId) {
+    return { error: "giftItemId غير صالح" };
+  }
+  if (giftItemId) {
+    where.giftItemId = giftItemId;
+  }
+
+  const senderId = parsePositiveInteger(query.senderId);
+  if (query.senderId && !senderId) {
+    return { error: "senderId غير صالح" };
+  }
+  if (senderId) {
+    where.senderId = senderId;
+  }
+
+  const receiverId = parsePositiveInteger(query.receiverId);
+  if (query.receiverId && !receiverId) {
+    return { error: "receiverId غير صالح" };
+  }
+  if (receiverId) {
+    where.userId = receiverId;
+  }
+
+  let roomScope = null;
+  const deliveryType = query.deliveryType ? String(query.deliveryType).trim().toLowerCase() : null;
+  if (deliveryType) {
+    if (!["direct", "room"].includes(deliveryType)) {
+      return { error: "deliveryType يجب أن يكون direct أو room" };
+    }
+
+    if (deliveryType === "direct") {
+      where.roomId = { [Op.is]: null };
+      roomScope = "direct";
+    } else {
+      where.roomId = { [Op.not]: null };
+      roomScope = "room";
+    }
+  }
+
+  const roomId = parsePositiveInteger(query.roomId);
+  if (query.roomId && !roomId) {
+    return { error: "roomId غير صالح" };
+  }
+  if (roomId) {
+    where.roomId = roomId;
+    roomScope = "room";
+  }
+
+  return {
+    where,
+    roomScope,
+    filters: {
+      fromDate: fromDate ? fromDate.toISOString() : null,
+      toDate: toDate ? toDate.toISOString() : null,
+      giftItemId,
+      senderId,
+      receiverId,
+      roomId,
+      deliveryType: deliveryType || "all",
+    },
+  };
 }
 
 function serializeGiftItem(item) {
@@ -313,6 +431,175 @@ router.get("/gift-items", async (req, res) => {
         console.error("❌ خطأ أثناء جلب الهدايا:", error);
         res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
     }
+});
+
+
+router.get("/gift-items/sent-statistics", requireAdmin, async (req, res) => {
+  try {
+    const recentLimit = Math.min(parsePositiveInteger(req.query.limit) || 10, 50);
+    const { where, roomScope, filters, error } = buildSentGiftStatsFilters(req.query);
+
+    if (error) {
+      return res.status(400).json({ error });
+    }
+
+    const totalSentGifts = await UserGift.count({ where });
+    const totalUniqueSenders = await UserGift.count({
+      where,
+      distinct: true,
+      col: "senderId",
+    });
+    const totalUniqueReceivers = await UserGift.count({
+      where,
+      distinct: true,
+      col: "userId",
+    });
+
+    let sentInsideRooms = 0;
+    let sentDirectly = 0;
+
+    if (roomScope === "direct") {
+      sentDirectly = totalSentGifts;
+    } else if (roomScope === "room") {
+      sentInsideRooms = totalSentGifts;
+    } else {
+      sentInsideRooms = await UserGift.count({
+        where: {
+          ...where,
+          roomId: { [Op.not]: null },
+        },
+      });
+      sentDirectly = totalSentGifts - sentInsideRooms;
+    }
+
+    const totalPointsRow = await UserGift.findOne({
+      where,
+      attributes: [
+        [fn("COALESCE", fn("SUM", col("item.points")), 0), "totalPoints"],
+      ],
+      include: [
+        { model: GiftItem, as: "item", attributes: [], required: true },
+      ],
+      raw: true,
+    });
+
+    const topGiftItems = await UserGift.findAll({
+      where,
+      attributes: [
+        "giftItemId",
+        [fn("COUNT", col("UserGift.id")), "sentCount"],
+        [fn("COALESCE", fn("SUM", col("item.points")), 0), "totalPoints"],
+      ],
+      include: [
+        {
+          model: GiftItem,
+          as: "item",
+          attributes: ["id", "name", "image", "video", "points"],
+          required: true,
+        },
+      ],
+      group: ["giftItemId", "item.id", "item.name", "item.image", "item.video", "item.points"],
+      order: [literal("sentCount DESC")],
+      limit: 5,
+      subQuery: false,
+    });
+
+    const topSenders = await UserGift.findAll({
+      where,
+      attributes: [
+        "senderId",
+        [fn("COUNT", col("UserGift.id")), "sentCount"],
+        [fn("COALESCE", fn("SUM", col("item.points")), 0), "totalPoints"],
+      ],
+      include: [
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "name"],
+          required: true,
+        },
+        {
+          model: GiftItem,
+          as: "item",
+          attributes: [],
+          required: true,
+        },
+      ],
+      group: ["senderId", "sender.id", "sender.name"],
+      order: [literal("sentCount DESC")],
+      limit: 5,
+      subQuery: false,
+    });
+
+    const recentSentGifts = await UserGift.findAll({
+      where,
+      include: [
+        {
+          model: GiftItem,
+          as: "item",
+          attributes: ["id", "name", "image", "video", "points"],
+        },
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "name"],
+        },
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name"],
+        },
+        {
+          model: Room,
+          as: "room",
+          attributes: ["id", "name"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: recentLimit,
+    });
+
+    const totalPoints = Number(totalPointsRow?.totalPoints ?? 0);
+
+    return res.json({
+      success: true,
+      filters: {
+        ...filters,
+        limit: recentLimit,
+      },
+      summary: {
+        totalSentGifts,
+        totalPoints,
+        totalUniqueSenders,
+        totalUniqueReceivers,
+        sentInsideRooms,
+        sentDirectly,
+        averagePointsPerGift: totalSentGifts ? Number((totalPoints / totalSentGifts).toFixed(2)) : 0,
+      },
+      topGiftItems: topGiftItems.map((entry) => ({
+        giftItem: serializeGiftItem(entry.item),
+        sentCount: Number(entry.get("sentCount") ?? 0),
+        totalPoints: Number(entry.get("totalPoints") ?? 0),
+      })),
+      topSenders: topSenders.map((entry) => ({
+        sender: entry.sender ? { id: entry.sender.id, name: entry.sender.name } : null,
+        sentCount: Number(entry.get("sentCount") ?? 0),
+        totalPoints: Number(entry.get("totalPoints") ?? 0),
+      })),
+      recentSentGifts: recentSentGifts.map((gift) => ({
+        id: gift.id,
+        status: gift.status,
+        createdAt: gift.createdAt,
+        sender: gift.sender ? { id: gift.sender.id, name: gift.sender.name } : null,
+        receiver: gift.user ? { id: gift.user.id, name: gift.user.name } : null,
+        room: gift.room ? { id: gift.room.id, name: gift.room.name } : null,
+        giftItem: serializeGiftItem(gift.item),
+      })),
+    });
+  } catch (error) {
+    console.error("❌ خطأ أثناء جلب إحصائيات الهدايا المرسلة:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب إحصائيات الهدايا المرسلة" });
+  }
 });
 
 // تعديل حالة الهدية (إيقاف/تفعيل) - بدلاً من التعليق
