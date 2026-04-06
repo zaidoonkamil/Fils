@@ -1,4 +1,4 @@
-const { DataTypes } = require("sequelize");
+﻿const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
 const Room = sequelize.define("Room", {
@@ -48,6 +48,11 @@ const Room = sequelize.define("Room", {
         allowNull: false,
         defaultValue: true,
     },
+    backgroundImage: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null,
+    },
     category: {
         type: DataTypes.STRING,
         allowNull: true,
@@ -58,3 +63,4 @@ const Room = sequelize.define("Room", {
 });
 
 module.exports = Room;
+

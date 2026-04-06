@@ -1,4 +1,4 @@
-require("./models/agent");
+﻿require("./models/agent");
 const Room = require("./models/room");
 const Message = require("./models/message");
 const User = require("./models/user");
@@ -67,9 +67,11 @@ sequelize.sync({
     force: false,
     logging: console.log
 })
-    .then(() => {
-        console.log("✅ Database & User table synced!");
-    }).catch(err => console.error("❌ Error syncing database:", err));
+    .then(async () => {
+        await Room.sync({ alter: true });
+        console.log('Database and Room table synced successfully');
+    }).catch(err => console.error('Error syncing database:', err));
+
 
 
 app.use("/", usersRouter);
@@ -99,7 +101,7 @@ app.set("roomsIO", roomNamespace);
 
 // Global Error Handler for Debugging
 app.use((err, req, res, next) => {
-    console.error("🔥 Global Error Caught:", err);
+    console.error("ðŸ”¥ Global Error Caught:", err);
     try {
         const fs = require("fs");
         const logMsg = `\n[${new Date().toISOString()}] GLOBAL ERROR: ${err.message}\nStack: ${err.stack}\n`;
@@ -107,7 +109,7 @@ app.use((err, req, res, next) => {
     } catch (e) {}
     
     res.status(500).json({
-        error: "حدث خطأ داخلي في السيرفر",
+        error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø¯Ø§Ø®Ù„ÙŠ ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ±",
         message: err.message,
     });
 });
@@ -117,5 +119,5 @@ const PORT = process.env.PORT || 1400;
 const HOST = process.env.HOST || "0.0.0.0";
 
 server.listen(PORT, HOST, () => {
-    console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+    console.log(`ðŸš€ Server running on http://${HOST}:${PORT}`);
 });
