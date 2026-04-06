@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const router = express.Router();
 const Room = require("../models/room");
 const Message = require("../models/message");
@@ -366,15 +366,15 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
         });
 
         if (!room) {
-            return res.status(404).json({ error: "الغرفة غير موجودة" });
+            return res.status(404).json({ error: "Room not found" });
         }
 
         if (String(room.creatorId) !== String(req.user.id)) {
-            return res.status(403).json({ error: "غير مصرح لك بتغيير خلفية هذه الغرفة" });
+            return res.status(403).json({ error: "Only the room owner can change the room background" });
         }
 
         if (!req.file) {
-            return res.status(400).json({ error: "الرجاء اختيار صورة للخلفية" });
+            return res.status(400).json({ error: "Background image is required" });
         }
 
         const backgroundCostSetting = await Settings.findOne({
@@ -387,7 +387,7 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
         const currentBalance = Number(req.user.sawa ?? 0);
         if (currentBalance < backgroundCost) {
             return res.status(400).json({
-                error: "نقاطك غير كافية لتغيير خلفية الغرفة",
+                error: "Insufficient points to change room background",
                 requiredPoints: backgroundCost,
                 availablePoints: currentBalance,
             });
@@ -409,14 +409,14 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
         });
 
         return res.json({
-            message: "تم تحديث خلفية الغرفة بنجاح",
+            message: "Room background updated successfully",
             deductedPoints: backgroundCost,
             remainingSawa,
             room: refreshedRoom,
         });
     } catch (error) {
-        console.error("خطأ في تحديث خلفية الغرفة:", error);
-        return res.status(500).json({ error: "حدث خطأ أثناء تحديث خلفية الغرفة" });
+        console.error("Error updating room background:", error);
+        return res.status(500).json({ error: "An error occurred while updating room background" });
     }
 });
 router.delete("/room/:roomId", async (req, res) => {

@@ -1,4 +1,4 @@
-﻿const Settings = require('../models/settings');
+const Settings = require('../models/settings');
 const sequelize = require('../config/db');
 
 async function initializeSettings() {
@@ -211,12 +211,12 @@ async function initializeSettings() {
       await Settings.create({
         key: 'room_background_change_cost',
         value: '0',
-        description: 'تكلفة تغيير خلفية الغرفة',
+        description: 'Room background change cost',
         isActive: true,
       });
-      console.log('✅ Default room_background_change_cost setting created successfully');
+      console.log('Default room_background_change_cost setting created successfully');
     } else {
-      console.log('ℹ️ room_background_change_cost setting already exists');
+      console.log('room_background_change_cost setting already exists');
     }
     const profileUpdateCostSetting = await Settings.findOne({
       where: { key: 'profile_update_cost' },
