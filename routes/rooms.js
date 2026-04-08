@@ -33,22 +33,6 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 
-
-router.delete("/rooms/delete-all-once", async (req, res) => {
-    try {
-        await Message.destroy({ where: {} });
-        const deletedRooms = await Room.destroy({ where: {} });
-
-        res.json({
-            message: "تم حذف جميع الغرف والرسائل نهائيًا",
-            deletedRooms
-        });
-    } catch (error) {
-        console.error("خطأ في الحذف:", error);
-        res.status(500).json({ error: "خطأ في الحذف" });
-    }
-});
-
 // إضافة نقاط sawa للمستخدم للاختبار
 router.post("/add-sawa", authenticateToken, async (req, res) => {
     try {
