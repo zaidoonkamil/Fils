@@ -1075,24 +1075,40 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
 
     const roomsIO = req.app.get("roomsIO");
     const senderSocketId = connectedUsers.get(String(senderId));
+    const broadcastPayload = {
+      message: "وصلت هدية للجميع وتم تحويلها مباشرة إلى نقاط 🎁",
+      senderBalance: sender.sawa,
+      roomId,
+      createdAt: new Date().toISOString(),
+      recipientsCount: payloads.length,
+      isRoomBroadcastAll: true,
+      sender: {
+        id: sender.id,
+        name: sender.name,
+      },
+      receiver: {
+        id: null,
+        name: "الجميع",
+      },
+      item: serializeGiftItem(item),
+    };
 
-    for (const payload of payloads) {
-      emitRoomGiftNotification({
-        roomsIO,
-        roomId,
-        payload,
-      });
-    }
+    emitRoomGiftNotification({
+      roomsIO,
+      roomId,
+      payload: broadcastPayload,
+    });
 
-    if (roomsIO && senderSocketId) {
-      roomsIO.to(senderSocketId).emit("gift-sent", {
-        message: "تم إرسال الهدية للجميع بنجاح ✅",
-        senderBalance: sender.sawa,
-        roomId,
-        giftItem: serializeGiftItem(item),
-        recipientsCount: payloads.length,
-      });
-    }
+      if (roomsIO && senderSocketId) {
+        roomsIO.to(senderSocketId).emit("gift-sent", {
+          message: "تم إرسال الهدية للجميع بنجاح ✅",
+          senderBalance: sender.sawa,
+          roomId,
+          giftItem: serializeGiftItem(item),
+          recipientsCount: payloads.length,
+          isRoomBroadcastAll: true,
+        });
+      }
 
     for (const payload of payloads) {
       try {
@@ -1108,13 +1124,14 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
       }
     }
 
-    return res.json({
-      message: "تم إرسال الهدية للجميع بنجاح",
-      deductedPoints: totalCost,
-      senderBalance: sender.sawa,
-      recipientsCount: payloads.length,
-      giftItem: serializeGiftItem(item),
-    });
+      return res.json({
+        message: "تم إرسال الهدية للجميع بنجاح",
+        deductedPoints: totalCost,
+        senderBalance: sender.sawa,
+        recipientsCount: payloads.length,
+        giftItem: serializeGiftItem(item),
+        isRoomBroadcastAll: true,
+      });
   } catch (error) {
     const handledResponse = buildGiftConversionErrorResponse(error, res);
     if (handledResponse) {
