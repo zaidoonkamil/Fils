@@ -101,7 +101,7 @@ app.set("roomsIO", roomNamespace);
 
 // Global Error Handler for Debugging
 app.use((err, req, res, next) => {
-    console.error("ðŸ”¥ Global Error Caught:", err);
+    console.error("Global Error Caught:", err);
     try {
         const fs = require("fs");
         const logMsg = `\n[${new Date().toISOString()}] GLOBAL ERROR: ${err.message}\nStack: ${err.stack}\n`;
@@ -109,7 +109,7 @@ app.use((err, req, res, next) => {
     } catch (e) {}
     
     res.status(500).json({
-        error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø¯Ø§Ø®Ù„ÙŠ ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ±",
+        error: "حدث خطأ داخلي في السيرفر",
         message: err.message,
     });
 });
@@ -119,5 +119,5 @@ const PORT = process.env.PORT || 1400;
 const HOST = process.env.HOST || "0.0.0.0";
 
 server.listen(PORT, HOST, () => {
-    console.log(`ðŸš€ Server running on http://${HOST}:${PORT}`);
+    console.log(`Server running on http://${HOST}:${PORT}`);
 });

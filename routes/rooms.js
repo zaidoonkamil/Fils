@@ -12,28 +12,28 @@ const authenticateToken = async (req, res, next) => {
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
-        return res.status(401).json({ error: "Token Ù…Ø·Ù„ÙˆØ¨" });
+        return res.status(401).json({ error: "Token مطلوب" });
     }
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.id || decoded.userId;
         if (!userId) {
-            return res.status(401).json({ error: "Token ØºÙŠØ± ØµØ§Ù„Ø­ - Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø¹Ø±Ù Ù…Ø³ØªØ®Ø¯Ù…" });
+            return res.status(401).json({ error: "Token غير صالح - لا يوجد معرف مستخدم" });
         }
         
         const user = await User.findByPk(userId);
         if (!user) {
-            return res.status(401).json({ error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+            return res.status(401).json({ error: "المستخدم غير موجود" });
         }
         req.user = user;
         next();
     } catch (error) {
-        return res.status(403).json({ error: "Token ØºÙŠØ± ØµØ§Ù„Ø­" });
+        return res.status(403).json({ error: "Token غير صالح" });
     }
 };
 
-// Ø¥Ø¶Ø§ÙØ© Ù†Ù‚Ø§Ø· sawa Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… Ù„Ù„Ø§Ø®ØªØ¨Ø§Ø±
+// إضافة نقاط sawa للمستخدم للاختبار
 router.post("/add-sawa", authenticateToken, async (req, res) => {
     try {
         const { amount = 1000 } = req.body;
@@ -43,34 +43,34 @@ router.post("/add-sawa", authenticateToken, async (req, res) => {
         });
         
         res.json({
-            message: `ØªÙ… Ø¥Ø¶Ø§ÙØ© ${amount} Ù†Ù‚Ø·Ø© sawa`,
+            message: `تم إضافة ${amount} نقطة sawa`,
             newBalance: req.user.sawa + amount
         });
     } catch (error) {
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù†Ù‚Ø§Ø·" });
+        res.status(500).json({ error: "خطأ في إضافة النقاط" });
     }
 });
 
-// Ø¥Ù†Ø´Ø§Ø¡ Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ† Ù…ØªØ¹Ø¯Ø¯ÙŠÙ† Ù„Ù„Ø§Ø®ØªØ¨Ø§Ø±
+// إنشاء مستخدمين متعددين للاختبار
 router.post("/create-test-users", async (req, res) => {
     try {
         const users = [];
         
-        // Ø¥Ù†Ø´Ø§Ø¡ 5 Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ† Ù„Ù„Ø§Ø®ØªØ¨Ø§Ø±
+        // إنشاء 5 مستخدمين للاختبار
         for (let i = 1; i <= 5; i++) {
             const userId = 10000 + i;
             
-            // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ÙˆØ¬ÙˆØ¯ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+            // التحقق من وجود المستخدم
             let user = await User.findByPk(userId);
             
             if (!user) {
-                // Ø¥Ù†Ø´Ø§Ø¡ Ù…Ø³ØªØ®Ø¯Ù… Ø¬Ø¯ÙŠØ¯
+                // إنشاء مستخدم جديد
                 user = await User.create({
                     id: userId,
-                    name: `Ù…Ø³ØªØ®Ø¯Ù… ${i}`,
+                    name: `مستخدم ${i}`,
                     email: `user${i}@test.com`,
                     phone: `123456789${i}`,
-                    location: 'Ø§Ù„Ø±ÙŠØ§Ø¶',
+                    location: 'الرياض',
                     password: '123456',
                     role: 'user',
                     Jewel: 1000,
@@ -81,7 +81,7 @@ router.post("/create-test-users", async (req, res) => {
                     isLoggedIn: false
                 });
             } else {
-                // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù†Ù‚Ø§Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ù…ÙˆØ¬ÙˆØ¯
+                // تحديث النقاط إذا كان المستخدم موجود
                 await user.update({
                     sawa: 2000,
                     Jewel: 1000
@@ -100,17 +100,17 @@ router.post("/create-test-users", async (req, res) => {
         }
         
         res.json({
-            message: "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ† Ø¨Ù†Ø¬Ø§Ø­",
+            message: "تم إنشاء المستخدمين بنجاح",
             users: users
         });
         
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†" });
+        console.error("خطأ في إنشاء المستخدمين:", error);
+        res.status(500).json({ error: "خطأ في إنشاء المستخدمين" });
     }
 });
 
-// Ø¥Ù†Ø´Ø§Ø¡ ØºØ±ÙØ© Ø¬Ø¯ÙŠØ¯Ø©
+// إنشاء غرفة جديدة
 router.post("/create-room", authenticateToken, upload.array("images", 5), async (req, res) => {
     try {
         const { name, description, cost, maxUsers, category } = req.body;
@@ -121,19 +121,19 @@ router.post("/create-room", authenticateToken, upload.array("images", 5), async 
 
         if (existingRoom) {
             return res.status(400).json({
-                error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ù†Ø´Ø§Ø¡ Ø£ÙƒØ«Ø± Ù…Ù† ØºØ±ÙØ© ÙˆØ§Ø­Ø¯Ø© Ù„ÙƒÙ„ Ù…Ø³ØªØ®Ø¯Ù…"
+                error: "لا يمكن إنشاء أكثر من غرفة واحدة لكل مستخدم"
             });
         }
         
         if (!req.files || req.files.length === 0) {
-            return res.status(400).json({ error: "Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø±ÙØ¹ ØµÙˆØ±Ø© ÙˆØ§Ø­Ø¯Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„" });
+            return res.status(400).json({ error: "الرجاء رفع صورة واحدة على الأقل" });
         }
         
         const images = req.files.map(file => file.filename);
         
         if (req.user.sawa < cost) {
             return res.status(400).json({ 
-                error: "Ù†Ù‚Ø§Ø· ØºÙŠØ± ÙƒØ§ÙÙŠØ© Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ØºØ±ÙØ©",
+                error: "نقاط غير كافية لإنشاء الغرفة",
                 required: cost,
                 available: req.user.sawa
             });
@@ -149,31 +149,31 @@ router.post("/create-room", authenticateToken, upload.array("images", 5), async 
             images: images || []
         });
 
-        // Ø®ØµÙ… Ø§Ù„Ù†Ù‚Ø§Ø· Ù…Ù† Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+        // خصم النقاط من المستخدم
         await req.user.update({
             sawa: req.user.sawa - cost
         });
 
         res.status(201).json({
-            message: "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ØºØ±ÙØ© Ø¨Ù†Ø¬Ø§Ø­",
+            message: "تم إنشاء الغرفة بنجاح",
             room,
             remainingSawa: req.user.sawa - cost
         });
 
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ØºØ±ÙØ©:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ØºØ±ÙØ©" });
+        console.error("خطأ في إنشاء الغرفة:", error);
+        res.status(500).json({ error: "خطأ في إنشاء الغرفة" });
     }
 });
 
-// Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† ØºØ±ÙØ© Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù… id Ø£Ùˆ name
+// البحث عن غرفة باستخدام id أو name
 router.get("/search-rooms", authenticateToken, async (req, res) => {
     try {
         const { query } = req.query;
         const { Op } = require("sequelize");
         
         if (!query) {
-            return res.status(400).json({ error: "Ø§Ù„Ø±Ø¬Ø§Ø¡ ØªÙˆÙÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ø¨Ø­Ø«" });
+            return res.status(400).json({ error: "الرجاء توفير كلمة البحث" });
         }
 
         let whereClause = { isActive: true };
@@ -205,12 +205,12 @@ router.get("/search-rooms", authenticateToken, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„ØºØ±Ù:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„ØºØ±Ù", details: error.message });
+        console.error("خطأ في البحث عن الغرف:", error);
+        res.status(500).json({ error: "خطأ في البحث عن الغرف", details: error.message });
     }
 });
 
-// Ø¹Ø±Ø¶ Ø§Ù„ØºØ±Ù Ø§Ù„Ù…ØªÙˆÙØ±Ø©
+// عرض الغرف المتوفرة
 router.get("/rooms", authenticateToken, async (req, res) => {
     try {
         const { category, page = 1, limit = 20 } = req.query;
@@ -226,7 +226,7 @@ router.get("/rooms", authenticateToken, async (req, res) => {
                 model: User,
                 as: 'creator',
                 attributes: ['id', 'name', 'images'],
-                required: false  // LEFT JOIN Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† INNER JOIN
+                required: false  // LEFT JOIN بدلاً من INNER JOIN
             }],
             order: [
                 ['currentUsers', 'DESC'],
@@ -244,17 +244,17 @@ router.get("/rooms", authenticateToken, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„ØºØ±Ù:", error);
-        console.error("ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø®Ø·Ø£:", error.message);
+        console.error("خطأ في جلب الغرف:", error);
+        console.error("تفاصيل الخطأ:", error.message);
         console.error("Stack trace:", error.stack);
         res.status(500).json({ 
-            error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„ØºØ±Ù",
+            error: "خطأ في جلب الغرف",
             details: error.message 
         });
     }
 });
 
-// Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ ØªÙØ§ØµÙŠÙ„ ØºØ±ÙØ© Ù…Ø¹ÙŠÙ†Ø©
+// الحصول على تفاصيل غرفة معينة
 router.get("/my-room", authenticateToken, async (req, res) => {
     try {
         const room = await Room.findOne({
@@ -268,21 +268,21 @@ router.get("/my-room", authenticateToken, async (req, res) => {
         });
 
         if (!room) {
-            return res.status(404).json({ error: "Ù„Ø§ ØªÙˆØ¬Ø¯ ØºØ±ÙØ© Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…" });
+            return res.status(404).json({ error: "لا توجد غرفة لهذا المستخدم" });
         }
 
         if (!room.isActive) {
-            return res.status(400).json({ error: "Ø¢Ø®Ø± ØºØ±ÙØ© Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù†Ø´Ø·Ø©" });
+            return res.status(400).json({ error: "آخر غرفة للمستخدم غير نشطة" });
         }
 
         res.json({ room });
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ ØºØ±ÙØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ ØºØ±ÙØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…" });
+        console.error("خطأ في جلب غرفة المستخدم:", error);
+        res.status(500).json({ error: "خطأ في جلب غرفة المستخدم" });
     }
 });
 
-// Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ ØªÙØ§ØµÙŠÙ„ ØºØ±ÙØ© Ù…Ø¹ÙŠÙ†Ø©
+// الحصول على تفاصيل غرفة معينة
 router.get("/room/:roomId", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -296,22 +296,22 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
         });
 
         if (!room) {
-            return res.status(404).json({ error: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
         if (!room.isActive) {
-            return res.status(400).json({ error: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù†Ø´Ø·Ø©" });
+            return res.status(400).json({ error: "الغرفة غير نشطة" });
         }
 
         res.json({ room });
 
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ ØªÙØ§ØµÙŠÙ„ Ø§Ù„ØºØ±ÙØ©:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ ØªÙØ§ØµÙŠÙ„ Ø§Ù„ØºØ±ÙØ©" });
+        console.error("خطأ في جلب تفاصيل الغرفة:", error);
+        res.status(500).json({ error: "خطأ في جلب تفاصيل الغرفة" });
     }
 });
 
-// Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ Ø±Ø³Ø§Ø¦Ù„ ØºØ±ÙØ© Ù…Ø¹ÙŠÙ†Ø©
+// الحصول على رسائل غرفة معينة
 router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -347,12 +347,12 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„Ø±Ø³Ø§Ø¦Ù„:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„Ø±Ø³Ø§Ø¦Ù„" });
+        console.error("خطأ في جلب الرسائل:", error);
+        res.status(500).json({ error: "خطأ في جلب الرسائل" });
     }
 });
 
-// Ø­Ø°Ù ØºØ±ÙØ© (Ù„Ù„Ù…Ù†Ø´Ø¦ ÙÙ‚Ø·)
+// حذف غرفة (للمنشئ فقط)
 router.post("/room/:roomId/background", authenticateToken, upload.single("background"), async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -426,16 +426,16 @@ router.delete("/room/:roomId", async (req, res) => {
         const room = await Room.findByPk(roomId);
         
         if (!room) {
-            return res.status(404).json({ error: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
         await room.update({ isActive: false });
         
-        res.json({ message: "ØªÙ… Ø­Ø°Ù Ø§Ù„ØºØ±ÙØ© Ø¨Ù†Ø¬Ø§Ø­" });
+        res.json({ message: "تم حذف الغرفة بنجاح" });
 
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø­Ø°Ù Ø§Ù„ØºØ±ÙØ©:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø­Ø°Ù Ø§Ù„ØºØ±ÙØ©" });
+        console.error("خطأ في حذف الغرفة:", error);
+        res.status(500).json({ error: "خطأ في حذف الغرفة" });
     }
 });
 
@@ -451,19 +451,19 @@ router.get("/room-settings", async (req, res) => {
       room_background_change_cost: roomBackgroundChangeCostSetting ? parseInt(roomBackgroundChangeCostSetting.value) : 0,
     });
   } catch (err) {
-    console.error("âŒ Error fetching room settings:", err);
+    console.error("Error fetching room settings:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Ø±Ø§ÙˆØª Ù„ØªØ­Ø¯ÙŠØ« Ø¬Ø¯ÙˆÙ„ Ø§Ù„ØºØ±Ù ÙˆØ¥Ø¶Ø§ÙØ© Ø¹Ø§Ù…ÙˆØ¯ Ø§Ù„ØµÙˆØ±
+// راوت لتحديث جدول الغرف وإضافة عامود الصور
 router.get("/migrate-rooms-images", async (req, res) => {
     try {
         await require("../models/room").sync({ alter: true });
-        res.json({ message: "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø¬Ø¯ÙˆÙ„ Ø§Ù„ØºØ±Ù ÙˆØ¥Ø¶Ø§ÙØ© Ø¹Ø§Ù…ÙˆØ¯ Ø§Ù„ØµÙˆØ± Ø¨Ù†Ø¬Ø§Ø­" });
+        res.json({ message: "تم تحديث جدول الغرف وإضافة عامود الصور بنجاح" });
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª:", error);
-        res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª", details: error.message });
+        console.error("خطأ في تحديث قاعدة البيانات:", error);
+        res.status(500).json({ error: "خطأ في تحديث قاعدة البيانات", details: error.message });
     }
 });
 
