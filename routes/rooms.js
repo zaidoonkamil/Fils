@@ -34,22 +34,17 @@ const authenticateToken = async (req, res, next) => {
 };
 
 
-router.delete("/rooms/delete-all", authenticateToken, async (req, res) => {
+router.delete("/rooms/delete-all-once", authenticateToken, async (req, res) => {
     try {
-        if (req.user.role !== "admin") {
-            return res.status(403).json({ error: "غير مصرح لك" });
-        }
-
         await Message.destroy({ where: {} }); // حذف كل الرسائل
-        const deletedRooms = await Room.destroy({ where: {} }); // حذف الغرف
+        const deletedRooms = await Room.destroy({ where: {} }); // حذف كل الغرف
 
         res.json({
             message: "تم حذف جميع الغرف والرسائل نهائيًا",
             deletedRooms
         });
-
     } catch (error) {
-        console.error(error);
+        console.error("خطأ في الحذف:", error);
         res.status(500).json({ error: "خطأ في الحذف" });
     }
 });
