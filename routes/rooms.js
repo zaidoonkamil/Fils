@@ -34,10 +34,10 @@ const authenticateToken = async (req, res, next) => {
 };
 
 
-router.delete("/rooms/delete-all-once", authenticateToken, async (req, res) => {
+router.delete("/rooms/delete-all-once", async (req, res) => {
     try {
-        await Message.destroy({ where: {} }); // حذف كل الرسائل
-        const deletedRooms = await Room.destroy({ where: {} }); // حذف كل الغرف
+        await Message.destroy({ where: {} });
+        const deletedRooms = await Room.destroy({ where: {} });
 
         res.json({
             message: "تم حذف جميع الغرف والرسائل نهائيًا",
