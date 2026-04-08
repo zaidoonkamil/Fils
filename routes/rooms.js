@@ -34,7 +34,7 @@ const authenticateToken = async (req, res, next) => {
 };
 
 
-router.delete("/rooms/delete-all", async (req, res) => {
+router.delete("/rooms/delete-all", authenticateToken, async (req, res) => {
     try {
         if (req.user.role !== "admin") {
             return res.status(403).json({ error: "غير مصرح لك" });
