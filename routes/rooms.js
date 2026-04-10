@@ -35,6 +35,25 @@ function normalizeMessagePayload(message) {
     return plainMessage;
 }
 
+function canManageRoom(room, user) {
+    if (!room || !user) return false;
+    if (user.role === "admin") return true;
+    return String(room.creatorId) === String(user.id);
+}
+
+function buildPinnedMessage(message) {
+    if (!message) return null;
+    const msg = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
+    msg.user = normalizeUserPayload(msg.user);
+    return {
+        id: msg.id,
+        content: msg.content ?? "",
+        messageType: msg.messageType ?? "text",
+        createdAt: msg.createdAt,
+        user: msg.user ?? null,
+    };
+}
+
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -383,6 +402,107 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
     } catch (error) {
         console.error("خطأ في جلب الرسائل:", error);
         res.status(500).json({ error: "خطأ في جلب الرسائل" });
+    }
+});
+
+// تثبيت رسالة في الغرفة (لصاحب الغرفة أو الأدمن فقط)
+router.post("/room/:roomId/pin-message", authenticateToken, async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { messageId } = req.body;
+
+        const room = await Room.findByPk(roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح" });
+        }
+
+        if (!messageId) {
+            return res.status(400).json({ error: "messageId مطلوب" });
+        }
+
+        const message = await Message.findOne({
+            where: { id: messageId, roomId, isDeleted: false },
+            include: [{
+                model: User,
+                as: 'user',
+                attributes: ['id', 'name', 'images'],
+            }],
+        });
+
+        if (!message) {
+            return res.status(404).json({ error: "الرسالة غير موجودة" });
+        }
+
+        const pinnedMessage = buildPinnedMessage(message);
+        await room.update({
+            pinnedMessageId: message.id,
+            pinnedMessage,
+        });
+
+        const roomsIO = req.app.get("roomsIO");
+        if (roomsIO) {
+            roomsIO.to(`room-${roomId}`).emit("pinned-message", {
+                roomId,
+                pinnedMessage,
+            });
+        }
+
+        return res.json({ message: "تم تثبيت الرسالة", pinnedMessage });
+    } catch (error) {
+        console.error("خطأ في تثبيت الرسالة:", error);
+        return res.status(500).json({ error: "خطأ في تثبيت الرسالة" });
+    }
+});
+
+// إلغاء تثبيت رسالة في الغرفة
+router.post("/room/:roomId/unpin-message", authenticateToken, async (req, res) => {
+    try {
+        const { roomId } = req.params;
+
+        const room = await Room.findByPk(roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح" });
+        }
+
+        await room.update({
+            pinnedMessageId: null,
+            pinnedMessage: null,
+        });
+
+        const roomsIO = req.app.get("roomsIO");
+        if (roomsIO) {
+            roomsIO.to(`room-${roomId}`).emit("unpinned-message", { roomId });
+        }
+
+        return res.json({ message: "تم إلغاء تثبيت الرسالة" });
+    } catch (error) {
+        console.error("خطأ في إلغاء تثبيت الرسالة:", error);
+        return res.status(500).json({ error: "خطأ في إلغاء تثبيت الرسالة" });
+    }
+});
+
+// جلب الرسالة المثبتة للغرفة
+router.get("/room/:roomId/pinned-message", authenticateToken, async (req, res) => {
+    try {
+        const { roomId } = req.params;
+
+        const room = await Room.findByPk(roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        return res.json({ pinnedMessage: room.pinnedMessage ?? null });
+    } catch (error) {
+        console.error("خطأ في جلب الرسالة المثبتة:", error);
+        return res.status(500).json({ error: "خطأ في جلب الرسالة المثبتة" });
     }
 });
 

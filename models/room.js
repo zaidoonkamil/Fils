@@ -58,9 +58,21 @@ const Room = sequelize.define("Room", {
         allowNull: true,
         defaultValue: 'general',
     },
+    pinnedMessageId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'Messages',
+            key: 'id'
+        }
+    },
+    pinnedMessage: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: null,
+    },
 }, {
     timestamps: true,
 });
 
 module.exports = Room;
-
