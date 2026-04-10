@@ -67,8 +67,9 @@ sequelize.sync({
     force: false,
     logging: console.log
 })
-    .then(async () => {
+.then(async () => {
         await Room.sync({ alter: true });
+        await Message.sync({ alter: true });
         console.log('Database and Room table synced successfully');
     }).catch(err => console.error('Error syncing database:', err));
 

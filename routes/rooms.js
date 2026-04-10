@@ -7,6 +7,34 @@ const jwt = require("jsonwebtoken");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
 
+function normalizeUserPayload(user) {
+    if (!user) return null;
+    const plainUser = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
+    if (plainUser.images) {
+        plainUser.image = Array.isArray(plainUser.images) && plainUser.images.length > 0
+            ? plainUser.images[0]
+            : null;
+        delete plainUser.images;
+    }
+    return plainUser;
+}
+
+function normalizeMessagePayload(message) {
+    const plainMessage = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
+    plainMessage.user = normalizeUserPayload(plainMessage.user);
+
+    if (plainMessage.replyTo) {
+        const replyMessage = typeof plainMessage.replyTo.toJSON === "function"
+            ? plainMessage.replyTo.toJSON()
+            : { ...plainMessage.replyTo };
+
+        replyMessage.user = normalizeUserPayload(replyMessage.user);
+        plainMessage.replyTo = replyMessage;
+    }
+
+    return plainMessage;
+}
+
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -322,25 +350,31 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
                 roomId,
                 isDeleted: false
             },
-            include: [{
-                model: User,
-                as: 'user',
-                attributes: ['id', 'name', 'images'],
-            }],
+            include: [
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'name', 'images'],
+                },
+                {
+                    model: Message,
+                    as: 'replyTo',
+                    required: false,
+                    where: { isDeleted: false },
+                    include: [{
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'name', 'images'],
+                    }],
+                }
+            ],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: (parseInt(page) - 1) * parseInt(limit)
         });
 
         res.json({
-            messages: messages.rows.reverse().map(msg => {
-                const m = msg.toJSON();
-                if (m.user && m.user.images) {
-                    m.user.image = m.user.images.length > 0 ? m.user.images[0] : null;
-                    delete m.user.images;
-                }
-                return m;
-            }),
+            messages: messages.rows.reverse().map(normalizeMessagePayload),
             total: messages.count,
             currentPage: parseInt(page),
             totalPages: Math.ceil(messages.count / parseInt(limit))

@@ -42,6 +42,8 @@ Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCAD
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
 Message.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
 Message.belongsTo(Room, { foreignKey: 'roomId', as: 'room', onDelete: 'CASCADE' });
+Message.belongsTo(Message, { foreignKey: 'replyToId', as: 'replyTo', constraints: false });
+Message.hasMany(Message, { foreignKey: 'replyToId', as: 'replies', constraints: false });
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });

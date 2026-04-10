@@ -1,4 +1,4 @@
-const jwt = require("jsonwebtoken");
+﻿const jwt = require("jsonwebtoken");
 const { User, Message, Room } = require("../models");
 
 // roomId -> Set({ id, name, socketId })
@@ -7,6 +7,33 @@ const roomUsers = new Map();
 // userId -> socketId
 const connectedUsers = new Map();
 const kickedUsers = new Map();
+
+function normalizeUserPayload(user) {
+  if (!user) return null;
+  const plainUser = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
+  if (plainUser.images) {
+    plainUser.image = Array.isArray(plainUser.images) && plainUser.images.length > 0
+      ? plainUser.images[0]
+      : null;
+    delete plainUser.images;
+  }
+  return plainUser;
+}
+
+function normalizeMessagePayload(message, fallbackUser) {
+  const plainMessage = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
+  plainMessage.user = normalizeUserPayload(plainMessage.user) ?? fallbackUser ?? null;
+
+  if (plainMessage.replyTo) {
+    const replyMessage = typeof plainMessage.replyTo.toJSON === "function"
+      ? plainMessage.replyTo.toJSON()
+      : { ...plainMessage.replyTo };
+    replyMessage.user = normalizeUserPayload(replyMessage.user);
+    plainMessage.replyTo = replyMessage;
+  }
+
+  return plainMessage;
+}
 
 function initializeSocketIO(io) {
   io.use(async (socket, next) => {
@@ -38,14 +65,14 @@ function initializeSocketIO(io) {
   io.on("connection", (socket) => {
     console.log(`User ${socket.userName} connected (${socket.id})`);
 
-    // ✅ register online user
+    // âœ… register online user
     connectedUsers.set(String(socket.userId), socket.id);
 
     socket.on("join-room", async (roomId) => {
       try {
         const room = await Room.findByPk(roomId);
         if (!room || !room.isActive) {
-          socket.emit("error", { message: "الغرفة غير موجودة أو غير نشطة" });
+          socket.emit("error", { message: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø© Ø£Ùˆ ØºÙŠØ± Ù†Ø´Ø·Ø©" });
           return;
         }
 
@@ -58,7 +85,7 @@ function initializeSocketIO(io) {
 
             socket.emit("kicked-block", {
               roomId,
-              message: `انت مطرود من هذه الغرفة`,
+              message: `Ø§Ù†Øª Ù…Ø·Ø±ÙˆØ¯ Ù…Ù† Ù‡Ø°Ù‡ Ø§Ù„ØºØ±ÙØ©`,
               secondsLeft,
               expireAt,
             });
@@ -88,7 +115,7 @@ function initializeSocketIO(io) {
 
         socket.emit("joined-room", {
           roomId,
-          message: `مرحباً بك في غرفة ${room.name}`,
+          message: `Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ùƒ ÙÙŠ ØºØ±ÙØ© ${room.name}`,
         });
 
         if (!alreadyJoined) {
@@ -96,7 +123,7 @@ function initializeSocketIO(io) {
             userId: socket.userId,
             userName: socket.userName,
             userImage: socket.userImage,
-            message: `${socket.userName} انضم إلى الغرفة`,
+            message: `${socket.userName} Ø§Ù†Ø¶Ù… Ø¥Ù„Ù‰ Ø§Ù„ØºØ±ÙØ©`,
           });
         }
 
@@ -108,18 +135,39 @@ function initializeSocketIO(io) {
         io.to(`room-${roomId}`).emit("room-users", currentUsers);
       } catch (error) {
         console.error("Error joining room:", error);
-        socket.emit("error", { message: "خطأ في الانضمام للغرفة" });
+        socket.emit("error", { message: "Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ù„Ù„ØºØ±ÙØ©" });
       }
     });
 
     socket.on("send-message", async (data) => {
       try {
-        const { roomId, content, messageType = "text" } = data;
+        const { roomId, content, messageType = "text", replyToId } = data;
 
         const room = await Room.findByPk(roomId);
         if (!room || !room.isActive) {
-          socket.emit("error", { message: "الغرفة غير موجودة" });
+          socket.emit("error", { message: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
           return;
+        }
+
+        let replyMessage = null;
+        if (replyToId != null) {
+          replyMessage = await Message.findOne({
+            where: {
+              id: replyToId,
+              roomId,
+              isDeleted: false,
+            },
+            include: [{
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "images"],
+            }],
+          });
+
+          if (!replyMessage) {
+            socket.emit("error", { message: "الرسالة المراد الرد عليها غير موجودة" });
+            return;
+          }
         }
 
         const message = await Message.create({
@@ -127,24 +175,23 @@ function initializeSocketIO(io) {
           userId: socket.userId,
           content,
           messageType,
+          replyToId: replyMessage?.id ?? null,
         });
 
-        const messageData = {
-          id: message.id,
-          content: message.content,
-          messageType: message.messageType,
-          createdAt: message.createdAt,
+        const messageData = normalizeMessagePayload({
+          ...message.toJSON(),
           user: {
             id: socket.userId,
             name: socket.userName,
             image: socket.userImage,
           },
-        };
+          replyTo: replyMessage,
+        });
 
         io.to(`room-${roomId}`).emit("new-message", messageData);
       } catch (error) {
         console.error("Error sending message:", error);
-        socket.emit("error", { message: "خطأ في إرسال الرسالة" });
+        socket.emit("error", { message: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø±Ø³Ø§Ù„Ø©" });
       }
     });
 
@@ -168,7 +215,7 @@ function initializeSocketIO(io) {
           socket.to(`room-${roomId}`).emit("user-left", {
             userId: socket.userId,
             userName: socket.userName,
-            message: `${socket.userName} غادر الغرفة`,
+            message: `${socket.userName} ØºØ§Ø¯Ø± Ø§Ù„ØºØ±ÙØ©`,
           });
 
           const currentUsers = Array.from(usersSet).map((u) => ({
@@ -198,12 +245,12 @@ function initializeSocketIO(io) {
       try {
         const room = await Room.findByPk(roomId);
         if (!room || !room.isActive) {
-          socket.emit("error", { message: "الغرفة غير موجودة" });
+          socket.emit("error", { message: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
           return;
         }
 
         if (String(userId) === String(socket.userId)) {
-          socket.emit("error", { message: "ما تگدر تطرد نفسك" });
+          socket.emit("error", { message: "Ù…Ø§ ØªÚ¯Ø¯Ø± ØªØ·Ø±Ø¯ Ù†ÙØ³Ùƒ" });
           return;
         }
 
@@ -212,14 +259,14 @@ function initializeSocketIO(io) {
         const isCreator = String(room.creatorId) === String(socket.userId);
 
         if (!isAdmin && !isCreator) {
-          socket.emit("error", { message: "غير مصرح" });
+          socket.emit("error", { message: "ØºÙŠØ± Ù…ØµØ±Ø­" });
           return;
         }
 
         const DURATION_SECONDS = 6 * 60 * 60; // 21600
         const expireAt = Date.now() + DURATION_SECONDS * 1000;
 
-        // ✅ خزّن الحظر
+        // âœ… Ø®Ø²Ù‘Ù† Ø§Ù„Ø­Ø¸Ø±
         if (!kickedUsers.has(roomId)) kickedUsers.set(roomId, new Map());
         kickedUsers.get(roomId).set(String(userId), expireAt);
 
@@ -239,7 +286,7 @@ function initializeSocketIO(io) {
           targetSocket.leave(`room-${roomId}`);
           targetSocket.emit("kicked", {
             roomId,
-            message: "تم طردك من الغرفة لمدة 6 ساعات",
+            message: "ØªÙ… Ø·Ø±Ø¯Ùƒ Ù…Ù† Ø§Ù„ØºØ±ÙØ© Ù„Ù…Ø¯Ø© 6 Ø³Ø§Ø¹Ø§Øª",
             expireAt,
           });
         }
@@ -250,7 +297,7 @@ function initializeSocketIO(io) {
 
         socket.to(`room-${roomId}`).emit("user-left", {
           userId: String(userId),
-          message: "تم طرد المستخدم من الغرفة",
+          message: "ØªÙ… Ø·Ø±Ø¯ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ù…Ù† Ø§Ù„ØºØ±ÙØ©",
         });
 
         if (usersSet) {
@@ -265,7 +312,7 @@ function initializeSocketIO(io) {
         }
       } catch (e) {
         console.error("kick-user error:", e);
-        socket.emit("error", { message: "خطأ بالطرد" });
+        socket.emit("error", { message: "Ø®Ø·Ø£ Ø¨Ø§Ù„Ø·Ø±Ø¯" });
       }
     });
 
@@ -274,7 +321,7 @@ function initializeSocketIO(io) {
         socket.on("disconnect", async () => {
           console.log(`User ${socket.userName} disconnected`);
 
-          // ✅ remove from online map
+          // âœ… remove from online map
           connectedUsers.delete(String(socket.userId));
 
           // remove from rooms
@@ -296,7 +343,7 @@ function initializeSocketIO(io) {
               socket.to(`room-${roomId}`).emit("user-left", {
                 userId: socket.userId,
                 userName: socket.userName,
-                message: `${socket.userName} غادر الغرفة`,
+                message: `${socket.userName} ØºØ§Ø¯Ø± Ø§Ù„ØºØ±ÙØ©`,
               });
 
               const currentUsers = Array.from(usersSet).map((u) => ({
@@ -318,3 +365,4 @@ module.exports = {
   connectedUsers,
   roomUsers,
 };
+

@@ -23,6 +23,14 @@ const Message = sequelize.define("Message", {
             key: 'id'
         }
     },
+    replyToId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'Messages',
+            key: 'id'
+        }
+    },
     content: {
         type: DataTypes.TEXT,
         allowNull: false,
