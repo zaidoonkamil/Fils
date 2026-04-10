@@ -573,6 +573,58 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
         return res.status(500).json({ error: "An error occurred while updating room background" });
     }
 });
+
+// تغيير الصورة الرئيسية للغرفة (لصاحب الغرفة أو الأدمن)
+router.post("/room/:roomId/image", authenticateToken, upload.single("image"), async (req, res) => {
+    try {
+        const { roomId } = req.params;
+
+        const room = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images'],
+            }]
+        });
+
+        if (!room) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح" });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ error: "الصورة مطلوبة" });
+        }
+
+        const existingImages = Array.isArray(room.images) ? [...room.images] : [];
+        if (existingImages.length === 0) {
+            existingImages.push(req.file.filename);
+        } else {
+            existingImages[0] = req.file.filename;
+        }
+
+        await room.update({ images: existingImages });
+
+        const refreshedRoom = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images'],
+            }]
+        });
+
+        return res.json({
+            message: "تم تحديث صورة الغرفة بنجاح",
+            room: refreshedRoom,
+        });
+    } catch (error) {
+        console.error("خطأ في تحديث صورة الغرفة:", error);
+        return res.status(500).json({ error: "خطأ في تحديث صورة الغرفة" });
+    }
+});
 router.delete("/room/:roomId", async (req, res) => {
     try {
         const { roomId } = req.params;
