@@ -401,6 +401,7 @@ router.post("/otp/generate", upload.none(), async (req, res) => {
     if (!email) {
       return res.status(400).json({ error: "يجب إدخال البريد الإلكتروني" });
     }
+    await OtpCode.destroy({ where: { email, isUsed: false } });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -463,8 +464,15 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
     user.isVerified = true;
     await user.save();
 
+    const resetToken = jwt.sign(
+      { email, purpose: "reset_password" },
+      process.env.JWT_SECRET || 'your-secret-key-123456789',
+      { expiresIn: '10m' }
+    );
+
     return res.status(200).json({ 
       message: "تم التحقق من OTP بنجاح",
+      resetToken,
       user: {
         id: user.id,
         name: user.name,
@@ -538,31 +546,47 @@ router.patch("/admin/users/:id/name", requireAdmin, upload.none(), async (req, r
   }
 });
 
-/*
-router.post('/reset-password', upload.none(), async (req, res) => {
+router.post("/reset-password", upload.none(), async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
+    const { resetToken, newPassword } = req.body;
 
-    if (!email || !newPassword) {
-      return res.status(400).json({ message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور الجديدة' });
+    if (!resetToken || !newPassword) {
+      return res.status(400).json({ error: "يرجى إدخال البريد الإلكتروني وكلمة المرور الجديدة" });
     }
 
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "كلمة المرور يجب ألا تقل عن 6 أحرف" });
+    }
+
+    let tokenPayload;
+    try {
+      tokenPayload = jwt.verify(resetToken, process.env.JWT_SECRET || 'your-secret-key-123456789');
+    } catch (err) {
+      return res.status(400).json({ error: "رمز التحقق غير صالح أو منتهي" });
+    }
+
+    if (!tokenPayload || tokenPayload.purpose !== "reset_password" || !tokenPayload.email) {
+      return res.status(400).json({ error: "رمز التحقق غير صالح أو منتهي" });
+    }
+
+    const email = tokenPayload.email;
     const user = await User.findOne({ where: { email } });
     if (!user) {
-      return res.status(404).json({ message: 'المستخدم غير موجود' });
+      return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
     user.password = hashedPassword;
     await user.save();
 
-    return res.json({ message: 'تم تحديث كلمة المرور بنجاح ✅' });
+    await OtpCode.destroy({ where: { email } });
+
+    return res.json({ message: "تم تحديث كلمة المرور بنجاح ✅" });
   } catch (error) {
-    console.error('خطأ:', error);
-    return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
+    console.error("Reset password error:", error);
+    return res.status(500).json({ error: "حدث خطأ في السيرفر" });
   }
 });
-*/
 
 router.delete("/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
