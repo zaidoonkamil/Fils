@@ -609,14 +609,23 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
-    // 1) جلب كل رسائل المستخدم
-    // 2) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
+    // 1) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
+    const qi = sequelize.getQueryInterface();
+    const tableInfo = Message.getTableName();
+    const tableName = typeof tableInfo === "object" ? tableInfo.tableName : tableInfo;
+    const qTable = qi.quoteTable(tableInfo);
+    const qId = qi.quoteIdentifier("id");
+    const userIdField = Message.rawAttributes.userId?.field || "userId";
+    const replyToIdField = Message.rawAttributes.replyToId?.field || "replyToId";
+    const qUserId = qi.quoteIdentifier(userIdField);
+    const qReplyToId = qi.quoteIdentifier(replyToIdField);
+
     await sequelize.query(
-      `UPDATE Messages 
-       SET replyToId = NULL
-       WHERE replyToId IN (
-         SELECT id FROM (
-           SELECT id FROM Messages WHERE userId = :userId
+      `UPDATE ${qTable}
+       SET ${qReplyToId} = NULL
+       WHERE ${qReplyToId} IN (
+         SELECT ${qId} FROM (
+           SELECT ${qId} FROM ${qTable} WHERE ${qUserId} = :userId
          ) AS m
        )`,
       {
