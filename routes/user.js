@@ -598,6 +598,48 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
   const t = await sequelize.transaction();
 
   try {
+    const qi = sequelize.getQueryInterface();
+    const qg = qi.queryGenerator;
+    const describedTables = new Map();
+    const getTableInfo = (model) => {
+      const info = model.getTableName();
+      return {
+        raw: info,
+        name: typeof info === "object" ? info.tableName : info,
+      };
+    };
+    const getTableColumns = async (model) => {
+      const { name } = getTableInfo(model);
+      if (!describedTables.has(name)) {
+        describedTables.set(name, await qi.describeTable(name, { transaction: t }));
+      }
+      return describedTables.get(name);
+    };
+    const resolveColumnName = async (model, candidates) => {
+      const attributes = model.getAttributes ? model.getAttributes() : model.rawAttributes || {};
+
+      for (const candidate of candidates) {
+        if (attributes[candidate]) {
+          return attributes[candidate].field || candidate;
+        }
+      }
+
+      for (const attribute of Object.values(attributes)) {
+        if (attribute?.field && candidates.includes(attribute.field)) {
+          return attribute.field;
+        }
+      }
+
+      const columns = await getTableColumns(model);
+      for (const candidate of candidates) {
+        if (columns[candidate]) {
+          return candidate;
+        }
+      }
+
+      return null;
+    };
+
     const user = await User.findByPk(id, {
       include: [{ model: UserDevice, as: "devices" }],
       transaction: t,
@@ -610,17 +652,17 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
     }
 
     // 1) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
-    const qi = sequelize.getQueryInterface();
-    const qg = qi.queryGenerator;
-    const tableInfo = Message.getTableName();
-    const tableName = typeof tableInfo === "object" ? tableInfo.tableName : tableInfo;
-    const columns = await qi.describeTable(tableName, { transaction: t });
-    const userIdCol = columns.userId ? "userId" : (columns.user_id ? "user_id" : "userId");
-    const replyToIdCol = columns.replyToId ? "replyToId" : (columns.reply_to_id ? "reply_to_id" : "replyToId");
-    const idCol = columns.id ? "id" : "id";
+    const messageTableInfo = getTableInfo(Message);
+    const messageUserIdCol = await resolveColumnName(Message, ["userId", "user_id"]);
+    const replyToIdCol = await resolveColumnName(Message, ["replyToId", "reply_to_id"]);
+    const idCol = await resolveColumnName(Message, ["id"]);
 
-    const qTable = qg.quoteTable(tableInfo);
-    const qUserId = qg.quoteIdentifier(userIdCol);
+    if (!messageUserIdCol || !replyToIdCol || !idCol) {
+      throw new Error("تعذر تحديد أعمدة جدول الرسائل المطلوبة لعملية الحذف");
+    }
+
+    const qTable = qg.quoteTable(messageTableInfo.raw);
+    const qUserId = qg.quoteIdentifier(messageUserIdCol);
     const qReplyToId = qg.quoteIdentifier(replyToIdCol);
     const qId = qg.quoteIdentifier(idCol);
 
@@ -635,45 +677,61 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
       }
     );
 
-    // 3) حذف رسائل المستخدم نفسه
+    // 3) حذف رسائل المستخدم نفسه (حسب اسم العمود الحقيقي)
     await Message.destroy({
-      where: { userId: id },
+      where: { [messageUserIdCol]: id },
       transaction: t,
     });
 
     // 4) حذف الأجهزة المرتبطة
+    const userDeviceUserIdCol = await resolveColumnName(UserDevice, ["userId", "user_id"]);
     await UserDevice.destroy({
-      where: { userId: id },
+      where: { [userDeviceUserIdCol || "user_id"]: id },
       transaction: t,
     });
 
     // 5) حذف طلبات الوكالة المرتبطة
+    const agentRequestUserIdCol = await resolveColumnName(AgentRequest, ["userId", "user_id"]);
     await AgentRequest.destroy({
-      where: { userId: id },
+      where: { [agentRequestUserIdCol || "userId"]: id },
       transaction: t,
     });
 
     // 6) حذف الإحالات المرتبطة بالمستخدم سواء كان مُحيل أو مُحال
+    const referrerIdCol = await resolveColumnName(Referrals, ["referrerId", "referrer_id"]);
+    const referredUserIdCol = await resolveColumnName(Referrals, ["referredUserId", "referred_user_id"]);
     await Referrals.destroy({
       where: {
         [Op.or]: [
-          { referrerId: id },
-          { referredUserId: id },
+          { [referrerIdCol || "referrerId"]: id },
+          { [referredUserIdCol || "referredUserId"]: id },
         ],
       },
       transaction: t,
     });
 
     // 7) حذف العدادات المرتبطة بالمستخدم
+    const userCounterUserIdCol = await resolveColumnName(UserCounter, ["userId", "user_id"]);
+    const counterSaleUserIdCol = await resolveColumnName(CounterSale, ["userId", "user_id"]);
+    if (counterSaleUserIdCol) {
+      await CounterSale.destroy({
+        where: { [counterSaleUserIdCol]: id },
+        transaction: t,
+      });
+    }
+
     await UserCounter.destroy({
-      where: { userId: id },
+      where: { [userCounterUserIdCol || "userId"]: id },
       transaction: t,
     });
 
-    await Counter.destroy({
-      where: { userId: id },
-      transaction: t,
-    });
+    const counterUserIdCol = await resolveColumnName(Counter, ["userId", "user_id"]);
+    if (counterUserIdCol) {
+      await Counter.destroy({
+        where: { [counterUserIdCol]: id },
+        transaction: t,
+      });
+    }
 
     // 8) حذف أكواد OTP الخاصة ببريد المستخدم إذا موجود
     if (user.email) {
