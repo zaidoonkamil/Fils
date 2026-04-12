@@ -611,23 +611,24 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
 
     // 1) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
     const qi = sequelize.getQueryInterface();
+    const qg = qi.queryGenerator;
     const tableInfo = Message.getTableName();
     const tableName = typeof tableInfo === "object" ? tableInfo.tableName : tableInfo;
-    const qTable = qi.quoteTable(tableInfo);
-    const qId = qi.quoteIdentifier("id");
-    const userIdField = Message.rawAttributes.userId?.field || "userId";
-    const replyToIdField = Message.rawAttributes.replyToId?.field || "replyToId";
-    const qUserId = qi.quoteIdentifier(userIdField);
-    const qReplyToId = qi.quoteIdentifier(replyToIdField);
+    const columns = await qi.describeTable(tableName, { transaction: t });
+    const userIdCol = columns.userId ? "userId" : (columns.user_id ? "user_id" : "userId");
+    const replyToIdCol = columns.replyToId ? "replyToId" : (columns.reply_to_id ? "reply_to_id" : "replyToId");
+    const idCol = columns.id ? "id" : "id";
+
+    const qTable = qg.quoteTable(tableInfo);
+    const qUserId = qg.quoteIdentifier(userIdCol);
+    const qReplyToId = qg.quoteIdentifier(replyToIdCol);
+    const qId = qg.quoteIdentifier(idCol);
 
     await sequelize.query(
-      `UPDATE ${qTable}
-       SET ${qReplyToId} = NULL
-       WHERE ${qReplyToId} IN (
-         SELECT ${qId} FROM (
-           SELECT ${qId} FROM ${qTable} WHERE ${qUserId} = :userId
-         ) AS m
-       )`,
+      `UPDATE ${qTable} AS m
+       JOIN ${qTable} AS u ON m.${qReplyToId} = u.${qId}
+       SET m.${qReplyToId} = NULL
+       WHERE u.${qUserId} = :userId`,
       {
         replacements: { userId: id },
         transaction: t,
