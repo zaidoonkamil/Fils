@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const bcrypt = require("bcrypt");
 const fs = require("fs");
 const path = require("path");
@@ -430,6 +430,7 @@ router.post("/otp/generate", upload.none(), async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 /*
 router.post("/otp/verify", upload.none(), async (req, res) => {
   try {
@@ -490,6 +491,7 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
   }
 });
 */
+
 router.post('/admin/reset-password', requireAdmin, upload.none(), async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -608,34 +610,26 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
     }
 
     // 1) جلب كل رسائل المستخدم
-    const userMessages = await Message.findAll({
+    // 2) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
+    await sequelize.query(
+      `UPDATE Messages 
+       SET replyToId = NULL
+       WHERE replyToId IN (
+         SELECT id FROM (
+           SELECT id FROM Messages WHERE userId = :userId
+         ) AS m
+       )`,
+      {
+        replacements: { userId: id },
+        transaction: t,
+      }
+    );
+
+    // 3) حذف رسائل المستخدم نفسه
+    await Message.destroy({
       where: { userId: id },
-      attributes: ["id"],
       transaction: t,
     });
-
-    const messageIds = userMessages.map((msg) => msg.id);
-
-    // 2) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
-    if (messageIds.length > 0) {
-      await Message.update(
-        { replyToId: null },
-        {
-          where: {
-            replyToId: {
-              [Op.in]: messageIds,
-            },
-          },
-          transaction: t,
-        }
-      );
-
-      // 3) حذف رسائل المستخدم نفسه
-      await Message.destroy({
-        where: { userId: id },
-        transaction: t,
-      });
-    }
 
     // 4) حذف الأجهزة المرتبطة
     await UserDevice.destroy({
