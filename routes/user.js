@@ -20,7 +20,10 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage: storage });
-const { User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, CounterSale, UserCounter, Counter, AgentRequest} = require('../models');
+const { 
+  User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, 
+  CounterSale, UserCounter, Counter, AgentRequest, Message
+} = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
 const sequelize = require("../config/db"); 
@@ -590,22 +593,114 @@ router.post("/reset-password", upload.none(), async (req, res) => {
 
 router.delete("/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
+  const t = await sequelize.transaction();
 
   try {
     const user = await User.findByPk(id, {
-      include: { model: UserDevice, as: "devices" },
+      include: [{ model: UserDevice, as: "devices" }],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
     });
 
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
-    await user.destroy(); 
+    // 1) جلب كل رسائل المستخدم
+    const userMessages = await Message.findAll({
+      where: { userId: id },
+      attributes: ["id"],
+      transaction: t,
+    });
 
-    res.status(200).json({ message: "تم حذف المستخدم وأجهزته بنجاح" });
+    const messageIds = userMessages.map((msg) => msg.id);
+
+    // 2) فك الارتباط من أي رسالة ترد على رسائل هذا المستخدم
+    if (messageIds.length > 0) {
+      await Message.update(
+        { replyToId: null },
+        {
+          where: {
+            replyToId: {
+              [Op.in]: messageIds,
+            },
+          },
+          transaction: t,
+        }
+      );
+
+      // 3) حذف رسائل المستخدم نفسه
+      await Message.destroy({
+        where: { userId: id },
+        transaction: t,
+      });
+    }
+
+    // 4) حذف الأجهزة المرتبطة
+    await UserDevice.destroy({
+      where: { userId: id },
+      transaction: t,
+    });
+
+    // 5) حذف طلبات الوكالة المرتبطة
+    await AgentRequest.destroy({
+      where: { userId: id },
+      transaction: t,
+    });
+
+    // 6) حذف الإحالات المرتبطة بالمستخدم سواء كان مُحيل أو مُحال
+    await Referrals.destroy({
+      where: {
+        [Op.or]: [
+          { referrerId: id },
+          { referredUserId: id },
+        ],
+      },
+      transaction: t,
+    });
+
+    // 7) حذف العدادات المرتبطة بالمستخدم
+    await UserCounter.destroy({
+      where: { userId: id },
+      transaction: t,
+    });
+
+    await Counter.destroy({
+      where: { userId: id },
+      transaction: t,
+    });
+
+    // 8) حذف أكواد OTP الخاصة ببريد المستخدم إذا موجود
+    if (user.email) {
+      await OtpCode.destroy({
+        where: { email: user.email },
+        transaction: t,
+      });
+    }
+
+    // 9) حذف المستخدم نفسه
+    await User.destroy({
+      where: { id },
+      transaction: t,
+    });
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: "تم حذف المستخدم وكل البيانات المرتبطة به بنجاح ✅",
+      deletedUserId: Number(id),
+    });
+
   } catch (err) {
+    await t.rollback();
     console.error("❌ خطأ أثناء الحذف:", err);
-    res.status(500).json({ error: "حدث خطأ أثناء عملية الحذف" });
+
+    return res.status(500).json({
+      error: "حدث خطأ أثناء عملية الحذف",
+      details: err.message,
+      name: err.name,
+    });
   }
 });
 
