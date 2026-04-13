@@ -20,6 +20,16 @@ const Counter = sequelize.define("Counter", {
         type: DataTypes.INTEGER,
         allowNull: true,
     },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null,
+    },
+    image: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: null,
+    },
     price: {
         type: DataTypes.DOUBLE,
         allowNull: false,

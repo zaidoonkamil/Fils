@@ -1,6 +1,7 @@
 require("./models/agent");
 const Room = require("./models/room");
 const Message = require("./models/message");
+const Counter = require("./models/counter");
 const User = require("./models/user");
 const express = require("express");
 const http = require("http");
@@ -68,9 +69,8 @@ sequelize.sync({
     logging: console.log
 })
 .then(async () => {
-        await Room.sync({ alter: true });
-        await Message.sync({ alter: true });
-        console.log('Database and Room table synced successfully');
+        await Counter.sync({ alter: true });
+        console.log('Database and Counter table synced successfully');
     }).catch(err => console.error('Error syncing database:', err));
 
 

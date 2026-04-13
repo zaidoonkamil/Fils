@@ -402,8 +402,12 @@ router.post("/buy-counter", authenticateTokenUser, upload.none(), async (req, re
             counterId: counter.id
         });
 
+        const counterLabel = counter.name && String(counter.name).trim().length > 0
+          ? counter.name
+          : "Counter";
+
         res.status(200).json({
-            message: `${counter.name} purchased successfully!`,
+            message: `${counterLabel} purchased successfully!`,
             user: {
                 id: user.id,
                 newSawaBalance: user.sawa

@@ -1,15 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const multer = require("multer");
-const upload = multer();
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    const ext = file.originalname.split(".").pop();
+    const uniqueSuffix = Date.now().toString() + Math.floor(Math.random() * 1000);
+    cb(null, uniqueSuffix + "." + ext);
+  }
+});
+const upload = multer({ storage });
 const { User, UserCounter, Counter, Settings, CounterSale} = require("../models");
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
 
-router.post("/counters", requireAdmin, upload.none(), async (req, res) => {
-  const { type, points, price, isVisible, durationDays } = req.body;
+router.post("/counters", requireAdmin, upload.single("image"), async (req, res) => {
+  const { type, points, price, isVisible, durationDays, name, image } = req.body;
 
   if (!["points", "gems"].includes(type)) {
     return res.status(400).json({ error: "type يجب أن يكون 'points' أو 'gems'" });
@@ -32,12 +42,18 @@ router.post("/counters", requireAdmin, upload.none(), async (req, res) => {
   }
 
   try {
+    const safeName = typeof name === "string" ? name.trim() : "";
+    const safeImage = req.file?.filename
+      || (typeof image === "string" ? image.trim() : "");
+    const imageJson = safeImage.length > 0 ? [safeImage] : null;
     const counter = await Counter.create({
       type,
       points: parsedPoints,
       price: parsedPrice,
       durationDays: parsedDurationDays,
       isVisible: isVisible === "false" ? false : true,
+      name: safeName.length > 0 ? safeName : null,
+      image: imageJson,
     });
 
     return res.status(201).json({
@@ -64,9 +80,12 @@ router.get("/counters", async (req, res) => {
 
     const result = counters.map((c) => {
       const counter = c.toJSON();
+      const imageList = Array.isArray(counter.image) ? counter.image : null;
+      const firstImage = imageList && imageList.length > 0 ? imageList[0] : null;
       return {
         ...counter,
         durationDays: counter.durationDays ?? defaultDuration,
+        image: firstImage ?? counter.image,
       };
     });
 
