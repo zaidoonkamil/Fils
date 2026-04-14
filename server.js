@@ -26,6 +26,7 @@ const chat = require("./routes/chatRoutes");
 const { initializeSocketIO } = require("./socket/socketHandler.js");
 const { initDominoSocket } = require("./socket/dominoHandler");
 const ensureSchema = require("./scripts/ensureSchema");
+const runPreSyncCleanup = require("./scripts/preSyncCleanup");
 const cors = require("cors");
 require("./cron");
 require("dotenv").config();
@@ -67,15 +68,21 @@ app.use(express.static("public", {
     }
 }));
 
-sequelize.sync({
-    force: false,
-    logging: console.log
-})
-.then(async () => {
+(async () => {
+    try {
+        await sequelize.authenticate();
+        await runPreSyncCleanup();
+        await sequelize.sync({
+            force: false,
+            logging: console.log
+        });
         await ensureSchema();
         await Counter.sync({ alter: true });
         console.log('Database and Counter table synced successfully');
-    }).catch(err => console.error('Error syncing database:', err));
+    } catch (err) {
+        console.error('Error syncing database:', err);
+    }
+})();
 
 
 
