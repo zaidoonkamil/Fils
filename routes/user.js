@@ -73,9 +73,12 @@ async function linkDeviceToUser(deviceId, userId, transaction) {
   );
 }
 
-function getOrCreateInstallId(value) {
-  if (value && typeof value === "string" && value.trim()) {
-    return value.trim();
+function getOrCreateInstallId(installId, playerId) {
+  if (installId && typeof installId === "string" && installId.trim()) {
+    return installId.trim();
+  }
+  if (playerId && typeof playerId === "string" && playerId.trim()) {
+    return `onesignal:${playerId.trim()}`;
   }
   return crypto.randomBytes(16).toString("hex");
 }
@@ -940,13 +943,13 @@ router.get("/users/:id/referrals", async (req, res) => {
 });
 
 router.post("/users", upload.none(), async (req, res) => {
-  const { id, name, email, location, password, note, url, refId, install_id } = req.body;
+  const { id, name, email, location, password, note, url, refId, install_id, player_id } = req.body;
   const phone = req.body.phone;
 
   const t = await sequelize.transaction();
 
   try {
-    const resolvedInstallId = getOrCreateInstallId(install_id);
+    const resolvedInstallId = getOrCreateInstallId(install_id, player_id);
     const device = await findOrCreateDeviceFingerprint(resolvedInstallId, t);
     if (device.is_banned) {
       await t.rollback();
@@ -1088,7 +1091,7 @@ router.post("/users/always-verified", requireAdmin, upload.none(), async (req, r
 });
 
 router.post("/login", upload.none(), async (req, res) => {
-  const { email, password, install_id } = req.body;
+  const { email, password, install_id, player_id } = req.body;
   let resolvedInstallId = null;
   try {
 
@@ -1119,7 +1122,18 @@ router.post("/login", upload.none(), async (req, res) => {
     }
 
     if (user.role !== "admin") {
-      resolvedInstallId = getOrCreateInstallId(install_id);
+      let fallbackPlayerId = player_id;
+      if (!fallbackPlayerId) {
+        const storedDevice = await UserDevice.findOne({
+          where: { user_id: user.id },
+          attributes: ["player_id"],
+        });
+        if (storedDevice && storedDevice.player_id) {
+          fallbackPlayerId = storedDevice.player_id;
+        }
+      }
+
+      resolvedInstallId = getOrCreateInstallId(install_id, fallbackPlayerId);
       const device = await findOrCreateDeviceFingerprint(resolvedInstallId);
       if (device.is_banned) {
         if (user.isActive) {
