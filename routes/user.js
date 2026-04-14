@@ -22,7 +22,8 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 const { 
   User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, 
-  CounterSale, UserCounter, Counter, AgentRequest, Message
+  CounterSale, UserCounter, Counter, AgentRequest, Message,
+  DeviceFingerprint, DeviceFingerprintUser
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -30,6 +31,46 @@ const sequelize = require("../config/db");
 const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
 const { requireAdmin, authenticateTokenUser } = require("../middlewares/auth");
+
+async function findOrCreateDeviceFingerprint(installId, transaction) {
+  const options = { where: { install_id: installId } };
+  if (transaction) {
+    options.transaction = transaction;
+    options.lock = transaction.LOCK.UPDATE;
+  }
+
+  let device = await DeviceFingerprint.findOne(options);
+  if (!device) {
+    device = await DeviceFingerprint.create(
+      { install_id: installId, last_seen_at: new Date() },
+      transaction ? { transaction } : undefined
+    );
+  } else {
+    device.last_seen_at = new Date();
+    await device.save(transaction ? { transaction } : undefined);
+  }
+  return device;
+}
+
+async function linkDeviceToUser(deviceId, userId, transaction) {
+  const options = { where: { device_id: deviceId, user_id: userId } };
+  if (transaction) {
+    options.transaction = transaction;
+    options.lock = transaction.LOCK.UPDATE;
+  }
+
+  const existing = await DeviceFingerprintUser.findOne(options);
+  if (existing) {
+    existing.last_seen_at = new Date();
+    await existing.save(transaction ? { transaction } : undefined);
+    return existing;
+  }
+
+  return await DeviceFingerprintUser.create(
+    { device_id: deviceId, user_id: userId, last_seen_at: new Date() },
+    transaction ? { transaction } : undefined
+  );
+}
 
 
 router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, res) => {
@@ -891,12 +932,23 @@ router.get("/users/:id/referrals", async (req, res) => {
 });
 
 router.post("/users", upload.none(), async (req, res) => {
-  const { id, name, email, location, password, note, url, refId } = req.body;
+  const { id, name, email, location, password, note, url, refId, install_id } = req.body;
   const phone = req.body.phone;
 
   const t = await sequelize.transaction();
 
   try {
+    if (!install_id) {
+      await t.rollback();
+      return res.status(400).json({ error: "معرف الجهاز مطلوب" });
+    }
+
+    const device = await findOrCreateDeviceFingerprint(install_id, t);
+    if (device.is_banned) {
+      await t.rollback();
+      return res.status(403).json({ error: "هذا الجهاز محظور" });
+    }
+
     const existingUser = await User.findOne({ where: { email }, transaction: t });
     if (existingUser) {
       await t.rollback();
@@ -937,6 +989,8 @@ router.post("/users", upload.none(), async (req, res) => {
       url: url || null,
       role: "user"
     }, { transaction: t });
+
+    await linkDeviceToUser(device.id, user.id, t);
 
     await Referrals.create({
       referrerId: referrer.id,
@@ -1029,16 +1083,24 @@ router.post("/users/always-verified", requireAdmin, upload.none(), async (req, r
 });
 
 router.post("/login", upload.none(), async (req, res) => {
-  const { email , password } = req.body;
+  const { email, password, install_id } = req.body;
   try {
 
     if (!email) {
       return res.status(400).json({ error: "يرجى إدخال البريد الإلكتروني" });
     }
 
+    if (!password) {
+      return res.status(400).json({ error: "يرجى إدخال كلمة المرور" });
+    }
+
     const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(400).json({ error: "البريد الإلكتروني غير صحيح" });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ error: "الحساب محظور" });
     }
 
     if (user.role !== 'admin' && user.isLoggedIn) {
@@ -1048,6 +1110,23 @@ router.post("/login", upload.none(), async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
+    }
+
+    if (user.role !== "admin") {
+      if (!install_id) {
+        return res.status(400).json({ error: "معرف الجهاز مطلوب" });
+      }
+
+      const device = await findOrCreateDeviceFingerprint(install_id);
+      if (device.is_banned) {
+        if (user.isActive) {
+          user.isActive = false;
+          await user.save();
+        }
+        return res.status(403).json({ error: "هذا الجهاز محظور" });
+      }
+
+      await linkDeviceToUser(device.id, user.id);
     }
 
     const token = generateToken(user);
@@ -1144,6 +1223,128 @@ router.patch("/users/:id/status", requireAdmin, async (req, res) => {
   } catch (err) {
     console.error("❌ خطأ أثناء تحديث الحالة:", err);
     res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
+router.post("/admin/device-ban", requireAdmin, upload.none(), async (req, res) => {
+  const { userId, install_id, reason } = req.body;
+
+  try {
+    if (!userId && !install_id) {
+      return res.status(400).json({ error: "يرجى إدخال userId أو install_id" });
+    }
+
+    const deviceIds = new Set();
+    const installIds = [];
+
+    if (install_id) {
+      const device = await DeviceFingerprint.findOne({ where: { install_id } });
+      if (!device) {
+        return res.status(404).json({ error: "معرف الجهاز غير موجود" });
+      }
+      deviceIds.add(device.id);
+      installIds.push(device.install_id);
+    }
+
+    if (userId) {
+      const user = await User.findByPk(userId);
+      if (!user) {
+        return res.status(404).json({ error: "المستخدم غير موجود" });
+      }
+
+      const links = await DeviceFingerprintUser.findAll({
+        where: { user_id: userId },
+        attributes: ["device_id"],
+      });
+
+      links.forEach(link => deviceIds.add(link.device_id));
+
+      user.isActive = false;
+      await user.save();
+    }
+
+    if (deviceIds.size === 0) {
+      return res.status(404).json({ error: "لا يوجد معرف جهاز مرتبط" });
+    }
+
+    await DeviceFingerprint.update(
+      {
+        is_banned: true,
+        banned_by: req.user.id,
+        banned_reason: reason || null,
+      },
+      { where: { id: { [Op.in]: Array.from(deviceIds) } } }
+    );
+
+    const linkedUsers = await DeviceFingerprintUser.findAll({
+      where: { device_id: { [Op.in]: Array.from(deviceIds) } },
+      attributes: ["user_id"],
+    });
+
+    if (linkedUsers.length > 0) {
+      await User.update(
+        { isActive: false },
+        { where: { id: { [Op.in]: linkedUsers.map(item => item.user_id) } } }
+      );
+    }
+
+    return res.json({
+      message: "تم حظر الجهاز بنجاح",
+      deviceCount: deviceIds.size,
+    });
+  } catch (err) {
+    console.error("❌ خطأ أثناء حظر الجهاز:", err);
+    return res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
+router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res) => {
+  const { userId, install_id } = req.body;
+
+  try {
+    if (!userId && !install_id) {
+      return res.status(400).json({ error: "يرجى إدخال userId أو install_id" });
+    }
+
+    const deviceIds = new Set();
+
+    if (install_id) {
+      const device = await DeviceFingerprint.findOne({ where: { install_id } });
+      if (!device) {
+        return res.status(404).json({ error: "معرف الجهاز غير موجود" });
+      }
+      deviceIds.add(device.id);
+    }
+
+    if (userId) {
+      const links = await DeviceFingerprintUser.findAll({
+        where: { user_id: userId },
+        attributes: ["device_id"],
+      });
+
+      links.forEach(link => deviceIds.add(link.device_id));
+    }
+
+    if (deviceIds.size === 0) {
+      return res.status(404).json({ error: "لا يوجد معرف جهاز مرتبط" });
+    }
+
+    await DeviceFingerprint.update(
+      {
+        is_banned: false,
+        banned_by: null,
+        banned_reason: null,
+      },
+      { where: { id: { [Op.in]: Array.from(deviceIds) } } }
+    );
+
+    return res.json({
+      message: "تم إلغاء حظر الجهاز بنجاح",
+      deviceCount: deviceIds.size,
+    });
+  } catch (err) {
+    console.error("❌ خطأ أثناء إلغاء الحظر:", err);
+    return res.status(500).json({ error: "خطأ داخلي في الخادم" });
   }
 });
 

@@ -9,6 +9,8 @@ const TransferHistory = require("./transferHistory");
 const CounterSale = require("./counterSale");
 const WithdrawalRequest = require("./withdrawalRequest");
 const UserDevice = require("./user_device");
+const DeviceFingerprint = require("./device_fingerprint");
+const DeviceFingerprintUser = require("./device_fingerprint_user");
 const GameRoom = require("./GameRoom");
 const GameRoomUser = require("./GameRoomUser");
 const GameResult = require("./GameResult");
@@ -70,6 +72,12 @@ User.hasMany(WithdrawalRequest, { foreignKey: 'userId', as: 'withdrawalRequests'
 
 User.hasMany(UserDevice, { foreignKey: 'user_id', as: 'devices', onDelete: 'CASCADE' });
 UserDevice.belongsTo(User, { foreignKey: 'user_id', as: 'user', onDelete: 'CASCADE' });
+
+DeviceFingerprint.hasMany(DeviceFingerprintUser, { foreignKey: "device_id", as: "deviceUsers", onDelete: "CASCADE" });
+DeviceFingerprintUser.belongsTo(DeviceFingerprint, { foreignKey: "device_id", as: "device", onDelete: "CASCADE" });
+
+User.hasMany(DeviceFingerprintUser, { foreignKey: "user_id", as: "deviceLinks", onDelete: "CASCADE" });
+DeviceFingerprintUser.belongsTo(User, { foreignKey: "user_id", as: "user", onDelete: "CASCADE" });
 
 ChatMessage.belongsTo(User, { as: "sender", foreignKey: "senderId", onDelete: 'CASCADE' });
 ChatMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId", onDelete: 'CASCADE' });
@@ -133,6 +141,8 @@ module.exports = {
   CounterSale,
   WithdrawalRequest,
   UserDevice,
+  DeviceFingerprint,
+  DeviceFingerprintUser,
   NotificationLog,
   GameRoom,
   GameRoomUser,

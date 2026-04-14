@@ -3,6 +3,8 @@ const Room = require("./models/room");
 const Message = require("./models/message");
 const Counter = require("./models/counter");
 const User = require("./models/user");
+require("./models/device_fingerprint");
+require("./models/device_fingerprint_user");
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
