@@ -7,6 +7,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 dotenv.config();
+const crypto = require("crypto");
 const multer = require("multer");
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -70,6 +71,13 @@ async function linkDeviceToUser(deviceId, userId, transaction) {
     { device_id: deviceId, user_id: userId, last_seen_at: new Date() },
     transaction ? { transaction } : undefined
   );
+}
+
+function getOrCreateInstallId(value) {
+  if (value && typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return crypto.randomBytes(16).toString("hex");
 }
 
 
@@ -938,12 +946,8 @@ router.post("/users", upload.none(), async (req, res) => {
   const t = await sequelize.transaction();
 
   try {
-    if (!install_id) {
-      await t.rollback();
-      return res.status(400).json({ error: "معرف الجهاز مطلوب" });
-    }
-
-    const device = await findOrCreateDeviceFingerprint(install_id, t);
+    const resolvedInstallId = getOrCreateInstallId(install_id);
+    const device = await findOrCreateDeviceFingerprint(resolvedInstallId, t);
     if (device.is_banned) {
       await t.rollback();
       return res.status(403).json({ error: "هذا الجهاز محظور" });
@@ -1020,6 +1024,7 @@ router.post("/users", upload.none(), async (req, res) => {
       url: user.url,
       isVerified: user.isVerified,
       isLoggedIn: user.isLoggedIn,
+      install_id: resolvedInstallId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     });
@@ -1084,6 +1089,7 @@ router.post("/users/always-verified", requireAdmin, upload.none(), async (req, r
 
 router.post("/login", upload.none(), async (req, res) => {
   const { email, password, install_id } = req.body;
+  let resolvedInstallId = null;
   try {
 
     if (!email) {
@@ -1113,11 +1119,8 @@ router.post("/login", upload.none(), async (req, res) => {
     }
 
     if (user.role !== "admin") {
-      if (!install_id) {
-        return res.status(400).json({ error: "معرف الجهاز مطلوب" });
-      }
-
-      const device = await findOrCreateDeviceFingerprint(install_id);
+      resolvedInstallId = getOrCreateInstallId(install_id);
+      const device = await findOrCreateDeviceFingerprint(resolvedInstallId);
       if (device.is_banned) {
         if (user.isActive) {
           user.isActive = false;
@@ -1146,7 +1149,8 @@ router.post("/login", upload.none(), async (req, res) => {
         Jewel: user.Jewel,
         dolar: user.dolar
       },
-      token
+      token,
+      install_id: user.role === "admin" ? null : resolvedInstallId
     });
 
   } catch (err) {
