@@ -499,7 +499,7 @@ router.post("/otp/generate", upload.none(), async (req, res) => {
   }
 });
 
-/*
+
 router.post("/otp/verify", upload.none(), async (req, res) => {
   try {
     const { email, code } = req.body;
@@ -559,7 +559,8 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
   }
 });
 
-*/
+
+
 router.post('/admin/reset-password', requireAdmin, upload.none(), async (req, res) => {
   try {
     const { email, newPassword } = req.body;
