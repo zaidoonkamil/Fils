@@ -1264,7 +1264,10 @@ router.post("/admin/device-ban", requireAdmin, upload.none(), async (req, res) =
     }
 
     if (deviceIds.size === 0) {
-      return res.status(404).json({ error: "لا يوجد معرف جهاز مرتبط" });
+      return res.json({
+        message: "تم حظر الحساب (لا يوجد جهاز مرتبط)",
+        deviceCount: 0,
+      });
     }
 
     await DeviceFingerprint.update(
@@ -1317,6 +1320,13 @@ router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res)
     }
 
     if (userId) {
+      const user = await User.findByPk(userId);
+      if (!user) {
+        return res.status(404).json({ error: "المستخدم غير موجود" });
+      }
+      user.isActive = true;
+      await user.save();
+
       const links = await DeviceFingerprintUser.findAll({
         where: { user_id: userId },
         attributes: ["device_id"],
@@ -1326,7 +1336,10 @@ router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res)
     }
 
     if (deviceIds.size === 0) {
-      return res.status(404).json({ error: "لا يوجد معرف جهاز مرتبط" });
+      return res.json({
+        message: "تم إلغاء حظر الحساب (لا يوجد جهاز مرتبط)",
+        deviceCount: 0,
+      });
     }
 
     await DeviceFingerprint.update(
