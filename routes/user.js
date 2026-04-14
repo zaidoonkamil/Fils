@@ -80,6 +80,40 @@ function getOneSignalInstallId(playerId) {
   return null;
 }
 
+function normalizePlayerId(playerId) {
+  if (playerId && typeof playerId === "string" && playerId.trim()) {
+    return playerId.trim();
+  }
+  return null;
+}
+
+async function syncUserDevice(userId, playerId, transaction) {
+  const normalizedPlayerId = normalizePlayerId(playerId);
+  if (!normalizedPlayerId) {
+    return null;
+  }
+
+  const queryOptions = { where: { player_id: normalizedPlayerId } };
+  if (transaction) {
+    queryOptions.transaction = transaction;
+    queryOptions.lock = transaction.LOCK.UPDATE;
+  }
+
+  const existingDevice = await UserDevice.findOne(queryOptions);
+  if (existingDevice) {
+    if (existingDevice.user_id !== userId) {
+      existingDevice.user_id = userId;
+      await existingDevice.save(transaction ? { transaction } : undefined);
+    }
+    return existingDevice;
+  }
+
+  return await UserDevice.create(
+    { user_id: userId, player_id: normalizedPlayerId },
+    transaction ? { transaction } : undefined
+  );
+}
+
 async function isUserLinkedToBannedDevice(userId) {
   const bannedLink = await DeviceFingerprintUser.findOne({
     where: { user_id: userId },
@@ -965,15 +999,13 @@ router.post("/users", upload.none(), async (req, res) => {
 
   try {
     const resolvedInstallId = getOneSignalInstallId(player_id);
-    if (!resolvedInstallId) {
-      await t.rollback();
-      return res.status(400).json({ error: "معرف OneSignal مطلوب" });
-    }
-
-    const device = await findOrCreateDeviceFingerprint(resolvedInstallId, t);
-    if (device.is_banned) {
-      await t.rollback();
-      return res.status(403).json({ error: "هذا الجهاز محظور" });
+    let device = null;
+    if (resolvedInstallId) {
+      device = await findOrCreateDeviceFingerprint(resolvedInstallId, t);
+      if (device.is_banned) {
+        await t.rollback();
+        return res.status(403).json({ error: "هذا الجهاز محظور" });
+      }
     }
 
     const existingUser = await User.findOne({ where: { email }, transaction: t });
@@ -1019,7 +1051,11 @@ router.post("/users", upload.none(), async (req, res) => {
       role: "user"
     }, { transaction: t });
 
-    await linkDeviceToUser(device.id, user.id, t);
+    if (device) {
+      await linkDeviceToUser(device.id, user.id, t);
+    }
+
+    await syncUserDevice(user.id, player_id, t);
 
     await Referrals.create({
       referrerId: referrer.id,
@@ -1152,7 +1188,7 @@ router.post("/login", upload.none(), async (req, res) => {
     }
 
     if (user.role !== "admin") {
-      let fallbackPlayerId = player_id;
+      let fallbackPlayerId = normalizePlayerId(player_id);
       if (!fallbackPlayerId) {
         const storedDevice = await UserDevice.findOne({
           where: { user_id: user.id },
@@ -1164,19 +1200,19 @@ router.post("/login", upload.none(), async (req, res) => {
       }
 
       resolvedInstallId = getOneSignalInstallId(fallbackPlayerId);
-      if (!resolvedInstallId) {
-        return res.status(400).json({ error: "معرف OneSignal مطلوب" });
-      }
-      const device = await findOrCreateDeviceFingerprint(resolvedInstallId);
-      if (device.is_banned) {
-        if (user.isActive) {
-          user.isActive = false;
-          await user.save();
+      if (resolvedInstallId) {
+        const device = await findOrCreateDeviceFingerprint(resolvedInstallId);
+        if (device.is_banned) {
+          if (user.isActive) {
+            user.isActive = false;
+            await user.save();
+          }
+          return res.status(403).json({ error: "هذا الجهاز محظور" });
         }
-        return res.status(403).json({ error: "هذا الجهاز محظور" });
-      }
 
-      await linkDeviceToUser(device.id, user.id);
+        await linkDeviceToUser(device.id, user.id);
+        await syncUserDevice(user.id, fallbackPlayerId);
+      }
     }
 
     const token = generateToken(user);
