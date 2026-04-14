@@ -1338,6 +1338,18 @@ router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res)
       { where: { id: { [Op.in]: Array.from(deviceIds) } } }
     );
 
+    const linkedUsers = await DeviceFingerprintUser.findAll({
+      where: { device_id: { [Op.in]: Array.from(deviceIds) } },
+      attributes: ["user_id"],
+    });
+
+    if (linkedUsers.length > 0) {
+      await User.update(
+        { isActive: true },
+        { where: { id: { [Op.in]: linkedUsers.map(item => item.user_id) } } }
+      );
+    }
+
     return res.json({
       message: "تم إلغاء حظر الجهاز بنجاح",
       deviceCount: deviceIds.size,
