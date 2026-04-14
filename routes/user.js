@@ -7,7 +7,6 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 dotenv.config();
-const crypto = require("crypto");
 const multer = require("multer");
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -73,14 +72,11 @@ async function linkDeviceToUser(deviceId, userId, transaction) {
   );
 }
 
-function getOrCreateInstallId(installId, playerId) {
-  if (installId && typeof installId === "string" && installId.trim()) {
-    return installId.trim();
-  }
+function getOneSignalInstallId(playerId) {
   if (playerId && typeof playerId === "string" && playerId.trim()) {
     return `onesignal:${playerId.trim()}`;
   }
-  return crypto.randomBytes(16).toString("hex");
+  return null;
 }
 
 async function isUserLinkedToBannedDevice(userId) {
@@ -961,13 +957,18 @@ router.get("/users/:id/referrals", async (req, res) => {
 });
 
 router.post("/users", upload.none(), async (req, res) => {
-  const { id, name, email, location, password, note, url, refId, install_id, player_id } = req.body;
+  const { id, name, email, location, password, note, url, refId, player_id } = req.body;
   const phone = req.body.phone;
 
   const t = await sequelize.transaction();
 
   try {
-    const resolvedInstallId = getOrCreateInstallId(install_id, player_id);
+    const resolvedInstallId = getOneSignalInstallId(player_id);
+    if (!resolvedInstallId) {
+      await t.rollback();
+      return res.status(400).json({ error: "معرف OneSignal مطلوب" });
+    }
+
     const device = await findOrCreateDeviceFingerprint(resolvedInstallId, t);
     if (device.is_banned) {
       await t.rollback();
@@ -1045,7 +1046,6 @@ router.post("/users", upload.none(), async (req, res) => {
       url: user.url,
       isVerified: user.isVerified,
       isLoggedIn: user.isLoggedIn,
-      install_id: resolvedInstallId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     });
@@ -1109,7 +1109,7 @@ router.post("/users/always-verified", requireAdmin, upload.none(), async (req, r
 });
 
 router.post("/login", upload.none(), async (req, res) => {
-  const { email, password, install_id, player_id } = req.body;
+  const { email, password, player_id } = req.body;
   let resolvedInstallId = null;
   try {
 
@@ -1160,7 +1160,10 @@ router.post("/login", upload.none(), async (req, res) => {
         }
       }
 
-      resolvedInstallId = getOrCreateInstallId(install_id, fallbackPlayerId);
+      resolvedInstallId = getOneSignalInstallId(fallbackPlayerId);
+      if (!resolvedInstallId) {
+        return res.status(400).json({ error: "معرف OneSignal مطلوب" });
+      }
       const device = await findOrCreateDeviceFingerprint(resolvedInstallId);
       if (device.is_banned) {
         if (user.isActive) {
@@ -1190,8 +1193,7 @@ router.post("/login", upload.none(), async (req, res) => {
         Jewel: user.Jewel,
         dolar: user.dolar
       },
-      token,
-      install_id: user.role === "admin" ? null : resolvedInstallId
+      token
     });
 
   } catch (err) {
@@ -1307,23 +1309,21 @@ router.patch("/users/:id/status", requireAdmin, async (req, res) => {
 });
 
 router.post("/admin/device-ban", requireAdmin, upload.none(), async (req, res) => {
-  const { userId, install_id, reason } = req.body;
+  const { userId, player_id, reason } = req.body;
 
   try {
-    if (!userId && !install_id) {
-      return res.status(400).json({ error: "يرجى إدخال userId أو install_id" });
+    if (!userId && !player_id) {
+      return res.status(400).json({ error: "يرجى إدخال userId أو player_id" });
     }
 
     const deviceIds = new Set();
-    const installIds = [];
-
-    if (install_id) {
-      const device = await DeviceFingerprint.findOne({ where: { install_id } });
+    if (player_id) {
+      const installId = getOneSignalInstallId(player_id);
+      const device = await DeviceFingerprint.findOne({ where: { install_id: installId } });
       if (!device) {
         return res.status(404).json({ error: "معرف الجهاز غير موجود" });
       }
       deviceIds.add(device.id);
-      installIds.push(device.install_id);
     }
 
     if (userId) {
@@ -1382,17 +1382,18 @@ router.post("/admin/device-ban", requireAdmin, upload.none(), async (req, res) =
 });
 
 router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res) => {
-  const { userId, install_id } = req.body;
+  const { userId, player_id } = req.body;
 
   try {
-    if (!userId && !install_id) {
-      return res.status(400).json({ error: "يرجى إدخال userId أو install_id" });
+    if (!userId && !player_id) {
+      return res.status(400).json({ error: "يرجى إدخال userId أو player_id" });
     }
 
     const deviceIds = new Set();
 
-    if (install_id) {
-      const device = await DeviceFingerprint.findOne({ where: { install_id } });
+    if (player_id) {
+      const installId = getOneSignalInstallId(player_id);
+      const device = await DeviceFingerprint.findOne({ where: { install_id: installId } });
       if (!device) {
         return res.status(404).json({ error: "معرف الجهاز غير موجود" });
       }
