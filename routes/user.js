@@ -1255,6 +1255,41 @@ router.patch("/users/:id/status", requireAdmin, async (req, res) => {
     user.isActive = isActive;
     await user.save();
 
+    // اذا تم الحظر/فك الحظر من لوحة الادمن نطبّقه على الجهاز المرتبط ايضا
+    if (isActive === false) {
+      const links = await DeviceFingerprintUser.findAll({
+        where: { user_id: id },
+        attributes: ["device_id"],
+      });
+      const deviceIds = links.map((l) => l.device_id);
+      if (deviceIds.length > 0) {
+        await DeviceFingerprint.update(
+          {
+            is_banned: true,
+            banned_by: req.user.id,
+            banned_reason: "حظر من لوحة الادمن",
+          },
+          { where: { id: { [Op.in]: deviceIds } } }
+        );
+      }
+    } else if (isActive === true) {
+      const links = await DeviceFingerprintUser.findAll({
+        where: { user_id: id },
+        attributes: ["device_id"],
+      });
+      const deviceIds = links.map((l) => l.device_id);
+      if (deviceIds.length > 0) {
+        await DeviceFingerprint.update(
+          {
+            is_banned: false,
+            banned_by: null,
+            banned_reason: null,
+          },
+          { where: { id: { [Op.in]: deviceIds } } }
+        );
+      }
+    }
+
     res.json({
       message: `تم تحديث حالة المستخدم إلى ${isActive ? "مفعل ✅" : "محظور 🚫"}`,
       user: {
