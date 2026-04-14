@@ -83,6 +83,22 @@ function getOrCreateInstallId(installId, playerId) {
   return crypto.randomBytes(16).toString("hex");
 }
 
+async function isUserLinkedToBannedDevice(userId) {
+  const bannedLink = await DeviceFingerprintUser.findOne({
+    where: { user_id: userId },
+    include: [
+      {
+        model: DeviceFingerprint,
+        as: "device",
+        where: { is_banned: true },
+        required: true,
+      },
+    ],
+  });
+
+  return !!bannedLink;
+}
+
 
 router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
@@ -1114,6 +1130,15 @@ router.post("/login", upload.none(), async (req, res) => {
 
     if (user.role !== 'admin' && user.isLoggedIn) {
       return res.status(403).json({ error: "لا يمكن تسجيل الدخول من أكثر من جهاز في نفس الوقت" });
+    }
+
+    if (user.role !== "admin") {
+      const linkedBanned = await isUserLinkedToBannedDevice(user.id);
+      if (linkedBanned) {
+        user.isActive = false;
+        await user.save();
+        return res.status(403).json({ error: "هذا الجهاز محظور" });
+      }
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);

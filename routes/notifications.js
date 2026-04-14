@@ -4,7 +4,7 @@ const router = express.Router();
 const { sendNotification } = require('../services/notifications');
 const multer = require("multer");
 const upload = multer();
-const { User, UserDevice, NotificationLog} = require('../models'); 
+const { User, UserDevice, NotificationLog, DeviceFingerprint, DeviceFingerprintUser } = require('../models'); 
 const axios = require('axios');
 const { Op } = require("sequelize");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
@@ -18,6 +18,11 @@ router.post("/register-device", async (req, res) => {
     }
 
     try {
+        const user = await User.findByPk(user_id);
+        if (!user) {
+            return res.status(404).json({ error: "المستخدم غير موجود" });
+        }
+
         let device = await UserDevice.findOne({ where: { player_id } });
 
         if (device) {
@@ -25,6 +30,38 @@ router.post("/register-device", async (req, res) => {
             await device.save();
         } else {
             await UserDevice.create({ user_id, player_id });
+        }
+
+        const installId = `onesignal:${player_id}`;
+        let fingerprint = await DeviceFingerprint.findOne({ where: { install_id: installId } });
+        if (!fingerprint) {
+            fingerprint = await DeviceFingerprint.create({
+                install_id: installId,
+                last_seen_at: new Date(),
+            });
+        } else {
+            fingerprint.last_seen_at = new Date();
+            await fingerprint.save();
+        }
+
+        let link = await DeviceFingerprintUser.findOne({
+            where: { device_id: fingerprint.id, user_id },
+        });
+        if (!link) {
+            await DeviceFingerprintUser.create({
+                device_id: fingerprint.id,
+                user_id,
+                last_seen_at: new Date(),
+            });
+        } else {
+            link.last_seen_at = new Date();
+            await link.save();
+        }
+
+        if (fingerprint.is_banned) {
+            user.isActive = false;
+            await user.save();
+            return res.status(403).json({ error: "هذا الجهاز محظور" });
         }
 
         res.json({ success: true, message: "تم تسجيل الجهاز بنجاح" });
@@ -198,3 +235,4 @@ router.get("/notifications-log-admin/:userId", requireAdmin, async (req, res) =>
 });
 
 module.exports = router;
+
