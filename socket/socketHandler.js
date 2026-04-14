@@ -1,5 +1,6 @@
 ﻿const jwt = require("jsonwebtoken");
 const { User, Message, Room } = require("../models");
+const { maskArabicProfanity } = require("../services/profanityFilter");
 
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
@@ -193,10 +194,13 @@ function initializeSocketIO(io) {
           }
         }
 
+        const filteredContent =
+          typeof content === "string" ? maskArabicProfanity(content) : content;
+
         const message = await Message.create({
           roomId,
           userId: socket.userId,
-          content,
+          content: filteredContent,
           messageType,
           replyToId: replyMessage?.id ?? null,
         });

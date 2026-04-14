@@ -31,6 +31,7 @@ const sequelize = require("../config/db");
 const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
 const { requireAdmin, authenticateTokenUser } = require("../middlewares/auth");
+const { maskArabicProfanity } = require("../services/profanityFilter");
 
 async function findOrCreateDeviceFingerprint(installId, transaction) {
   const options = { where: { install_id: installId } };
@@ -1003,9 +1004,11 @@ router.post("/users", upload.none(), async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+    const sanitizedName = maskArabicProfanity(name);
+
     const user = await User.create({
       id: id || undefined,
-      name,
+      name: sanitizedName,
       email,
       isVerified: false,
       phone,
