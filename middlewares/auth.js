@@ -57,6 +57,10 @@ const requireAdmin = async (req, res, next) => {
         return res.status(401).json({ error: "User not found" });
       }
 
+      if (user.isActive === false) {
+        return res.status(403).json({ error: "تم حظر حسابك" });
+      }
+
       if (user.role !== "admin") {
         return res.status(403).json({ error: "Admins only" });
       }
@@ -102,7 +106,7 @@ const authenticateTokenUser = async (req, res, next) => {
       }
 
       if (user.isActive === false) {
-        return res.status(403).json({ error: "User is blocked" });
+        return res.status(403).json({ error: "تم حظر حسابك" });
       }
 
       req.user = {

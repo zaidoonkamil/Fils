@@ -3,13 +3,19 @@ const dominoService = require('../services/dominoService');
 const dominoForfeit = require('../services/dominoForfeit');
 
 const { Op } = require('sequelize');
-const { DominoQueue, DominoMatch } = require('../models');
+const { DominoQueue, DominoMatch, User } = require('../models');
 
 function initDominoSocket(dominoNamespace) {
-  dominoNamespace.on('connection', (socket) => {
+  dominoNamespace.on('connection', async (socket) => {
     const userId = Number(socket.handshake.query.userId);
 
     if (!userId) {
+      socket.disconnect(true);
+      return;
+    }
+
+    const user = await User.findByPk(userId, { attributes: ["id", "isActive"] });
+    if (!user || user.isActive === false) {
       socket.disconnect(true);
       return;
     }

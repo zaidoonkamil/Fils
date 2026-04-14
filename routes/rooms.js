@@ -73,6 +73,9 @@ const authenticateToken = async (req, res, next) => {
         if (!user) {
             return res.status(401).json({ error: "المستخدم غير موجود" });
         }
+        if (user.isActive === false) {
+            return res.status(403).json({ error: "تم حظر حسابك" });
+        }
         req.user = user;
         next();
     } catch (error) {

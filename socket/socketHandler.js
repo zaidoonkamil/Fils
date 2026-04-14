@@ -49,8 +49,11 @@ function initializeSocketIO(io) {
       const userId = decoded.id || decoded.userId;
       if (!userId) return next(new Error("Invalid token - no user ID"));
 
-      const user = await User.findByPk(userId, { attributes: ["id", "name", "images"] });
+      const user = await User.findByPk(userId, { attributes: ["id", "name", "images", "isActive"] });
       if (!user) return next(new Error("User not found"));
+      if (user.isActive === false) {
+        return next(new Error("تم حظر حسابك"));
+      }
 
       socket.userId = user.id;
       socket.userName = user.name;
