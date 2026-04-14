@@ -25,6 +25,7 @@ const giftSystemRouter = require("./routes/giftSystem");
 const chat = require("./routes/chatRoutes");
 const { initializeSocketIO } = require("./socket/socketHandler.js");
 const { initDominoSocket } = require("./socket/dominoHandler");
+const ensureSchema = require("./scripts/ensureSchema");
 const cors = require("cors");
 require("./cron");
 require("dotenv").config();
@@ -71,6 +72,7 @@ sequelize.sync({
     logging: console.log
 })
 .then(async () => {
+        await ensureSchema();
         await Counter.sync({ alter: true });
         console.log('Database and Counter table synced successfully');
     }).catch(err => console.error('Error syncing database:', err));
