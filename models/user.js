@@ -88,7 +88,7 @@ const User = sequelize.define("User", {
     },
 
 }, {
-    initialAutoIncrement: 10000,
+    initialAutoIncrement: 547000,
     timestamps: true,
 });
 

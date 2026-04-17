@@ -108,7 +108,7 @@ router.post("/create-test-users", async (req, res) => {
         
         // إنشاء 5 مستخدمين للاختبار
         for (let i = 1; i <= 5; i++) {
-            const userId = 10000 + i;
+            const userId = 547000 + i;
             
             // التحقق من وجود المستخدم
             let user = await User.findByPk(userId);
