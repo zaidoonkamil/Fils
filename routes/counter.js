@@ -14,6 +14,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 const { User, UserCounter, Counter, Settings, CounterSale} = require("../models");
 const { Op } = require("sequelize");
+const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
@@ -62,7 +63,9 @@ router.post("/counters", requireAdmin, upload.single("image"), async (req, res) 
     });
   } catch (err) {
     console.error("❌ Error creating counter:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({
+      error: err?.message || "Internal Server Error",
+    });
   }
 });
 
@@ -477,14 +480,44 @@ router.post("/counters/buy", authenticateTokenUser, upload.none(), async (req, r
 
 router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
   try {
-    await sequelize.query(
-      "ALTER TABLE Counters ADD COLUMN durationDays INT NULL"
-    );
-    res.json({ message: "✅ تم إضافة العمود durationDays إلى Counters بنجاح" });
-  } catch (err) {
-    if (err.original?.code === "ER_DUP_FIELDNAME") {
-      return res.json({ message: "⚠️ العمود موجود مسبقاً" });
+    const queryInterface = sequelize.getQueryInterface();
+    const tableDefinition = await queryInterface.describeTable("Counters");
+    const addedColumns = [];
+
+    if (!tableDefinition.durationDays) {
+      await queryInterface.addColumn("Counters", "durationDays", {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      });
+      addedColumns.push("durationDays");
     }
+
+    if (!tableDefinition.name) {
+      await queryInterface.addColumn("Counters", "name", {
+        type: DataTypes.STRING,
+        allowNull: true,
+      });
+      addedColumns.push("name");
+    }
+
+    if (!tableDefinition.image) {
+      await queryInterface.addColumn("Counters", "image", {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: null,
+      });
+      addedColumns.push("image");
+    }
+
+    if (addedColumns.length === 0) {
+      return res.json({ message: "⚠️ جميع أعمدة Counters موجودة مسبقًا" });
+    }
+
+    res.json({
+      message: `✅ تم إصلاح جدول Counters وإضافة الأعمدة: ${addedColumns.join(", ")}`,
+      addedColumns,
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
