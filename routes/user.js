@@ -22,7 +22,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 const { 
   User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, 
-  CounterSale, UserCounter, Counter, AgentRequest, Message,
+  CounterSale, UserCounter, Counter, AgentRequest, Message, Room,
   DeviceFingerprint, DeviceFingerprintUser
 } = require('../models');
 const { Op } = require("sequelize");
@@ -775,6 +775,31 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
         transaction: t,
       }
     );
+
+    // 2) فك تثبيت أي رسالة داخل الغرف إذا كانت تعود لهذا المستخدم
+    const roomPinnedMessageIdCol = await resolveColumnName(Room, ["pinnedMessageId", "pinned_message_id"]);
+    const roomPinnedMessageCol = await resolveColumnName(Room, ["pinnedMessage", "pinned_message"]);
+
+    if (roomPinnedMessageIdCol) {
+      const roomTableInfo = getTableInfo(Room);
+      const qRoomTable = qg.quoteTable(roomTableInfo.raw);
+      const qPinnedMessageId = qg.quoteIdentifier(roomPinnedMessageIdCol);
+      const qPinnedMessage = roomPinnedMessageCol
+        ? qg.quoteIdentifier(roomPinnedMessageCol)
+        : null;
+
+      await sequelize.query(
+        `UPDATE ${qRoomTable}
+         SET ${qPinnedMessageId} = NULL${qPinnedMessage ? `, ${qPinnedMessage} = NULL` : ""}
+         WHERE ${qPinnedMessageId} IN (
+           SELECT ${qId} FROM ${qTable} WHERE ${qUserId} = :userId
+         )`,
+        {
+          replacements: { userId: id },
+          transaction: t,
+        }
+      );
+    }
 
     // 3) حذف رسائل المستخدم نفسه (حسب اسم العمود الحقيقي)
     await Message.destroy({
