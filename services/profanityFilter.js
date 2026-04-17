@@ -95,15 +95,21 @@ const ARABIC_BAD_WORDS = [
 
 const DIACRITICS = /[\u064B-\u065F\u0670]/g;
 const TATWEEL = /\u0640/g;
+const WORD_CHAR_CLASS = "\\p{L}\\p{N}";
 
 function buildLooseArabicRegex(word) {
   const normalized = word.replace(DIACRITICS, "").replace(TATWEEL, "");
-  const sep = "[\\s\\u064B-\\u065F\\u0670\\u0640]*";
+  const compactLength = normalized.replace(/\s+/g, "").length;
+  const isShortWord = compactLength <= 3;
+  const sep = isShortWord
+    ? "[\\u064B-\\u065F\\u0670\\u0640]*"
+    : "[\\s\\u064B-\\u065F\\u0670\\u0640]*";
   const letters = Array.from(normalized).map((ch) => {
     if (/\s/.test(ch)) return "\\s+";
     return ch.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   });
-  return new RegExp(letters.join(sep), "g");
+  const body = letters.join(sep);
+  return new RegExp(`(^|[^${WORD_CHAR_CLASS}])(${body})(?=$|[^${WORD_CHAR_CLASS}])`, "gu");
 }
 
 function maskArabicProfanity(text) {
@@ -111,7 +117,9 @@ function maskArabicProfanity(text) {
   let result = text;
   for (const bad of ARABIC_BAD_WORDS) {
     const regex = buildLooseArabicRegex(bad);
-    result = result.replace(regex, (match) => "*".repeat(match.length));
+    result = result.replace(regex, (match, prefix, badWord) => {
+      return `${prefix}${"*".repeat(badWord.length)}`;
+    });
   }
   return result;
 }
