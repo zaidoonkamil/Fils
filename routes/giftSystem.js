@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const fs = require("fs/promises");
 const path = require("path");
 const router = express.Router();
@@ -34,11 +34,11 @@ async function deleteGiftMediaFile(filePath) {
 
 function buildGiftConversionErrorResponse(error, res) {
   if (error.message === "INVALID_GIFT_POINTS") {
-    return res.status(400).json({ error: "Ù†Ù‚Ø§Ø· Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± ØµØ§Ù„Ø­Ø©" });
+    return res.status(400).json({ error: "نقاط الهدية غير صالحة" });
   }
 
   if (error.message === "RECEIVER_NOT_FOUND") {
-    return res.status(404).json({ error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+    return res.status(404).json({ error: "المستخدم غير موجود" });
   }
 
   return null;
@@ -85,7 +85,7 @@ function buildSentGiftStatsFilters(query) {
   const toDate = parseStatsDate(query.toDate, { endOfDay: true });
 
   if ((query.fromDate && !fromDate) || (query.toDate && !toDate)) {
-    return { error: "ØµÙŠØºØ© Ø§Ù„ØªØ§Ø±ÙŠØ® ØºÙŠØ± ØµØ­ÙŠØ­Ø©" };
+    return { error: "صيغة التاريخ غير صحيحة" };
   }
 
   if (fromDate || toDate) {
@@ -100,7 +100,7 @@ function buildSentGiftStatsFilters(query) {
 
   const giftItemId = parsePositiveInteger(query.giftItemId);
   if (query.giftItemId && !giftItemId) {
-    return { error: "giftItemId ØºÙŠØ± ØµØ§Ù„Ø­" };
+    return { error: "giftItemId غير صالح" };
   }
   if (giftItemId) {
     where.giftItemId = giftItemId;
@@ -108,7 +108,7 @@ function buildSentGiftStatsFilters(query) {
 
   const senderId = parsePositiveInteger(query.senderId);
   if (query.senderId && !senderId) {
-    return { error: "senderId ØºÙŠØ± ØµØ§Ù„Ø­" };
+    return { error: "senderId غير صالح" };
   }
   if (senderId) {
     where.senderId = senderId;
@@ -116,7 +116,7 @@ function buildSentGiftStatsFilters(query) {
 
   const receiverId = parsePositiveInteger(query.receiverId);
   if (query.receiverId && !receiverId) {
-    return { error: "receiverId ØºÙŠØ± ØµØ§Ù„Ø­" };
+    return { error: "receiverId غير صالح" };
   }
   if (receiverId) {
     where.userId = receiverId;
@@ -126,7 +126,7 @@ function buildSentGiftStatsFilters(query) {
   const deliveryType = query.deliveryType ? String(query.deliveryType).trim().toLowerCase() : null;
   if (deliveryType) {
     if (!["direct", "room"].includes(deliveryType)) {
-      return { error: "deliveryType ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† direct Ø£Ùˆ room" };
+      return { error: "deliveryType يجب أن يكون direct أو room" };
     }
 
     if (deliveryType === "direct") {
@@ -140,7 +140,7 @@ function buildSentGiftStatsFilters(query) {
 
   const roomId = parsePositiveInteger(query.roomId);
   if (query.roomId && !roomId) {
-    return { error: "roomId ØºÙŠØ± ØµØ§Ù„Ø­" };
+    return { error: "roomId غير صالح" };
   }
   if (roomId) {
     where.roomId = roomId;
@@ -355,7 +355,7 @@ async function convertGiftToPoints({
   };
 }
 
-// Ø¥Ø¶Ø§ÙØ© Ù‡Ø¯ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø© Ù„Ù„Ù…ØªØ¬Ø± (Ù„Ù„Ù…Ø´Ø±ÙÙŠÙ† Ø£Ùˆ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©)
+// إضافة هدية جديدة للمتجر (للمشرفين أو الإدارة)
 router.post("/gift-items", requireAdmin, upload.fields([
   { name: "image", maxCount: 1 },
   { name: "video", maxCount: 1 },
@@ -366,7 +366,7 @@ router.post("/gift-items", requireAdmin, upload.fields([
     const video = req.files?.video?.[0]?.path || null;
 
     if (!name || !points || !image || !video) {
-      return res.status(400).json({ error: "Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø­Ù‚ÙˆÙ„ Ù…Ø·Ù„ÙˆØ¨Ø©: Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ù†Ù‚Ø§Ø·ØŒ Ø§Ù„ØµÙˆØ±Ø©ØŒ ÙˆØ§Ù„ÙÙŠØ¯ÙŠÙˆ" });
+      return res.status(400).json({ error: "جميع الحقول مطلوبة: الاسم، النقاط، الصورة، والفيديو" });
     }
 
     const queryInterface = GiftItem.sequelize.getQueryInterface();
@@ -389,14 +389,14 @@ router.post("/gift-items", requireAdmin, upload.fields([
 
     const newItem = await GiftItem.create(giftItemPayload);
 
-    res.json({ message: "ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù‡Ø¯ÙŠØ© Ù„Ù„Ù…ØªØ¬Ø±", item: newItem });
+    res.json({ message: "تمت إضافة الهدية للمتجر", item: newItem });
   } catch (error) {
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
-    res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù‡Ø¯ÙŠØ©" });
+    console.error("❌ خطأ أثناء إضافة الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء إضافة الهدية" });
   }
 });
 
-// Ø¹Ø±Ø¶ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§ Ø§Ù„Ù…ØªØ§Ø­Ø© ÙÙŠ Ø§Ù„Ù…ØªØ¬Ø± (Ø§Ø®ØªÙŠØ§Ø±ÙŠ: ÙŠÙ…ÙƒÙ† ØªØµÙÙŠØ© Ø§Ù„Ù…ØªØ§Ø­ ÙÙ‚Ø· Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†)
+// عرض جميع الهدايا المتاحة في المتجر (اختياري: يمكن تصفية المتاح فقط للمستخدمين)
 router.post("/gift-items/ensure-video-column", requireAdmin, async (req, res) => {
   try {
     const queryInterface = GiftItem.sequelize.getQueryInterface();
@@ -405,7 +405,7 @@ router.post("/gift-items/ensure-video-column", requireAdmin, async (req, res) =>
 
     if (tableDefinition.video) {
       return res.json({
-        message: "Ø­Ù‚Ù„ video Ù…ÙˆØ¬ÙˆØ¯ Ø¨Ø§Ù„ÙØ¹Ù„",
+        message: "حقل video موجود بالفعل",
         added: false,
       });
     }
@@ -417,12 +417,12 @@ router.post("/gift-items/ensure-video-column", requireAdmin, async (req, res) =>
     });
 
     return res.json({
-      message: "ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© Ø­Ù‚Ù„ video Ø¨Ù†Ø¬Ø§Ø­",
+      message: "تمت إضافة حقل video بنجاح",
       added: true,
     });
   } catch (error) {
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø¶Ø§ÙØ© Ø­Ù‚Ù„ video:", error);
-    return res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø­Ù‚Ù„ video" });
+    console.error("❌ خطأ أثناء إضافة حقل video:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء إضافة الحقل video" });
   }
 });
 
@@ -451,18 +451,18 @@ router.post("/gift-items/fix-schema", requireAdmin, async (req, res) => {
     }
 
     return res.json({
-      message: changes.length ? "ØªÙ… Ø¥ØµÙ„Ø§Ø­ Ø¨Ù†ÙŠØ© Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§" : "Ø¨Ù†ÙŠØ© Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§ Ø³Ù„ÙŠÙ…Ø© Ø¨Ø§Ù„ÙØ¹Ù„",
+      message: changes.length ? "تم إصلاح بنية جدول الهدايا" : "بنية جدول الهدايا سليمة بالفعل",
       changes,
     });
   } catch (error) {
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥ØµÙ„Ø§Ø­ Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§:", error);
-    return res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥ØµÙ„Ø§Ø­ Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§" });
+    console.error("❌ خطأ أثناء إصلاح جدول الهدايا:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء إصلاح جدول الهدايا" });
   }
 });
 
 router.get("/gift-items", async (req, res) => {
     try {
-        const { includeUnavailable } = req.query; // Ù„Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ø£Ø¯Ù…Ù† Ø¨Ø±Ø¤ÙŠØ© Ø§Ù„ÙƒÙ„
+        const { includeUnavailable } = req.query; // للسماح للأدمن برؤية الكل
 
         const whereClause = {};
         if (includeUnavailable !== "true") {
@@ -472,8 +472,8 @@ router.get("/gift-items", async (req, res) => {
         const items = await GiftItem.findAll({ where: whereClause });
         res.json(items);
     } catch (error) {
-        console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§:", error);
-        res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§" });
+        console.error("❌ خطأ أثناء جلب الهدايا:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
     }
 });
 
@@ -641,39 +641,39 @@ router.get("/gift-items/sent-statistics", requireAdmin, async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø¥Ø­ØµØ§Ø¦ÙŠØ§Øª Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§ Ø§Ù„Ù…Ø±Ø³Ù„Ø©:", error);
-    return res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø¥Ø­ØµØ§Ø¦ÙŠØ§Øª Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§ Ø§Ù„Ù…Ø±Ø³Ù„Ø©" });
+    console.error("❌ خطأ أثناء جلب إحصائيات الهدايا المرسلة:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب إحصائيات الهدايا المرسلة" });
   }
 });
 
-// ØªØ¹Ø¯ÙŠÙ„ Ø­Ø§Ù„Ø© Ø§Ù„Ù‡Ø¯ÙŠØ© (Ø¥ÙŠÙ‚Ø§Ù/ØªÙØ¹ÙŠÙ„) - Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø§Ù„ØªØ¹Ù„ÙŠÙ‚
+// تعديل حالة الهدية (إيقاف/تفعيل) - بدلاً من التعليق
 router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
     try {
         const giftItemId = req.params.id;
         const item = await GiftItem.findByPk(giftItemId);
 
         if (!item) {
-            return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+            return res.status(404).json({ error: "الهدية غير موجودة" });
         }
 
-        // Ø¹ÙƒØ³ Ø§Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©
+        // عكس الحالة الحالية
         item.isAvailable = !item.isAvailable;
         await item.save();
 
         res.json({
-            message: item.isAvailable ? "ØªÙ… ØªÙØ¹ÙŠÙ„ Ø§Ù„Ù‡Ø¯ÙŠØ©" : "ØªÙ… Ø¥ÙŠÙ‚Ø§Ù Ø¹Ø±Ø¶ Ø§Ù„Ù‡Ø¯ÙŠØ©",
+            message: item.isAvailable ? "تم تفعيل الهدية" : "تم إيقاف عرض الهدية",
             item
         });
 
     } catch (error) {
-        console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØ¹Ø¯ÙŠÙ„ Ø­Ø§Ù„Ø© Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
-        res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„" });
+        console.error("❌ خطأ أثناء تعديل حالة الهدية:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء التعديل" });
     }
 });
 
 
 
-// ØªØ¹Ø¯ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù‡Ø¯ÙŠØ© (Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ù†Ù‚Ø§Ø·)
+// تعديل بيانات الهدية (الاسم، النقاط)
 router.patch("/gift-items/:id", requireAdmin, upload.none(), async (req, res) => {
   try {
     const giftItemId = req.params.id;
@@ -681,28 +681,28 @@ router.patch("/gift-items/:id", requireAdmin, upload.none(), async (req, res) =>
     const item = await GiftItem.findByPk(giftItemId);
 
     if (!item) {
-      return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
-    // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø§Ø³Ù… ÙˆØ§Ù„Ù†Ù‚Ø§Ø· Ø¥Ø°Ø§ ØªÙ… ØªÙ‚Ø¯ÙŠÙ…Ù‡Ø§
+    // تحديث الاسم والنقاط إذا تم تقديمها
     if (name) item.name = name;
     if (points !== undefined) item.points = points;
 
     await item.save();
 
     res.json({
-      message: "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù‡Ø¯ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­",
+      message: "تم تحديث بيانات الهدية بنجاح",
       item
     });
 
   } catch (error) {
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØ¹Ø¯ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
-    res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„" });
+    console.error("❌ خطأ أثناء تعديل بيانات الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء التعديل" });
   }
 });
 
 
-// Ø­Ø°Ù Ø§Ù„Ù‡Ø¯ÙŠØ© Ù…Ù† Ø§Ù„Ù…ØªØ¬Ø±
+// حذف الهدية من المتجر
 router.delete("/gift-items/:id", requireAdmin, async (req, res) => {
   const transaction = await GiftItem.sequelize.transaction();
 
@@ -712,7 +712,7 @@ router.delete("/gift-items/:id", requireAdmin, async (req, res) => {
 
     if (!item) {
       await transaction.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
     const filesToDelete = [item.image, item.video].filter(Boolean);
@@ -730,13 +730,13 @@ router.delete("/gift-items/:id", requireAdmin, async (req, res) => {
     }
 
     return res.json({
-      message: "ØªÙ… Ø­Ø°Ù Ø§Ù„Ù‡Ø¯ÙŠØ© ÙˆÙ…Ø­ØªÙˆØ§Ù‡Ø§ Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ±",
+      message: "تم حذف الهدية ومحتواها من السيرفر",
       deletedGiftId: item.id,
     });
   } catch (error) {
     await transaction.rollback();
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø­Ø°Ù Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
-    return res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø­Ø°Ù Ø§Ù„Ù‡Ø¯ÙŠØ©" });
+    console.error("❌ خطأ أثناء حذف الهدية:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء حذف الهدية" });
   }
 });
 
@@ -751,12 +751,12 @@ router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async
 
     if (!user || !item) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø£Ùˆ Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "المستخدم أو الهدية غير موجودة" });
     }
 
     if (!item.isAvailable) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠØ§Ù‹" });
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
     }
 
     const commissionSetting = await Settings.findOne({
@@ -772,7 +772,7 @@ router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async
 
     if (Number(user.sawa ?? 0) < totalCost) {
       await t.rollback();
-      return res.status(400).json({ error: "Ø±ØµÙŠØ¯ Ø§Ù„Ù†Ù‚Ø§Ø· ØºÙŠØ± ÙƒØ§ÙÙŠ (ÙŠØ´Ù…Ù„ Ø¹Ù…ÙˆÙ„Ø© Ø§Ù„Ø´Ø±Ø§Ø¡)" });
+      return res.status(400).json({ error: "رصيد النقاط غير كافي (يشمل عمولة الشراء)" });
     }
 
     user.sawa = Number(user.sawa ?? 0) - totalCost;
@@ -786,7 +786,7 @@ router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async
     await t.commit();
 
     return res.json({
-      message: "ØªÙ… Ø´Ø±Ø§Ø¡ Ø§Ù„Ù‡Ø¯ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­",
+      message: "تم شراء الهدية بنجاح",
       userGift,
       price,
       commissionRate,
@@ -796,8 +796,8 @@ router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async
     });
   } catch (error) {
     await t.rollback();
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø´Ø±Ø§Ø¡ Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
-    res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø´Ø±Ø§Ø¡ Ø§Ù„Ù‡Ø¯ÙŠØ©" });
+    console.error("❌ خطأ أثناء شراء الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء شراء الهدية" });
   }
 });
 
@@ -810,12 +810,12 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
 
     if (!senderId || !receiverId || !giftItemId) {
       await t.rollback();
-      return res.status(400).json({ error: "receiverId Ùˆ giftItemId Ù…Ø·Ù„ÙˆØ¨Ø©" });
+      return res.status(400).json({ error: "receiverId و giftItemId مطلوبة" });
     }
 
     if (String(senderId) === String(receiverId)) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ø±Ø³Ø§Ù„ Ù‡Ø¯ÙŠØ© Ù„Ù†ÙØ³Ùƒ" });
+      return res.status(400).json({ error: "لا يمكن إرسال هدية لنفسك" });
     }
 
     const sender = await User.findByPk(senderId, {
@@ -825,7 +825,7 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     });
     if (!sender) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù…Ø±Ø³Ù„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+      return res.status(404).json({ error: "المرسل غير موجود" });
     }
 
     const receiver = await User.findByPk(receiverId, {
@@ -834,30 +834,30 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     });
     if (!receiver) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù…Ø³ØªÙ„Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+      return res.status(404).json({ error: "المستلم غير موجود" });
     }
 
     const item = await GiftItem.findByPk(giftItemId, { transaction: t });
     if (!item) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
     if (!item.isAvailable) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠØ§Ù‹" });
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
     }
 
     const giftCost = Number(item.points ?? 0);
     if (!giftCost || giftCost <= 0) {
       await t.rollback();
-      return res.status(400).json({ error: "Ø³Ø¹Ø± Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± ØµØ§Ù„Ø­" });
+      return res.status(400).json({ error: "سعر الهدية غير صالح" });
     }
 
     if (Number(sender.sawa ?? 0) < giftCost) {
       await t.rollback();
       return res.status(400).json({
-        error: "Ø±ØµÙŠØ¯ Ø§Ù„Ù†Ù‚Ø§Ø· ØºÙŠØ± ÙƒØ§ÙÙ Ù„Ø¥Ø±Ø³Ø§Ù„ Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ©",
+        error: "رصيد النقاط غير كافٍ لإرسال هذه الهدية",
         requiredPoints: giftCost,
         currentBalance: Number(sender.sawa ?? 0),
       });
@@ -868,7 +868,7 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
       const room = await Room.findByPk(roomId, { transaction: t });
       if (!room) {
         await t.rollback();
-        return res.status(404).json({ error: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+        return res.status(404).json({ error: "الغرفة غير موجودة" });
       }
       roomOwnerId = room.creatorId;
     }
@@ -949,15 +949,15 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     try {
       await sendNotificationToUser(
         receiverId,
-        `${sender.name} Ø§Ø±Ø³Ù„ Ø§Ù„ÙŠÙƒ Ù‡Ø¯ÙŠØ©`,
-        "Ù‡Ø¯ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©"
+        `${sender.name} ارسل اليك هدية`,
+        "هدية جديدة"
       );
     } catch (notifyError) {
-      console.warn("âš ï¸ ÙØ´Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø¥Ø´Ø¹Ø§Ø± Ø§Ù„Ù‡Ø¯ÙŠØ©:", notifyError.message);
+      console.warn("⚠️ فشل إرسال إشعار الهدية:", notifyError.message);
     }
 
     return res.json({
-      message: "ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ù…Ø¨Ø§Ø´Ø±Ø© Ø¨Ù†Ø¬Ø§Ø­",
+      message: "تم إرسال الهدية مباشرة بنجاح",
       deductedPoints: giftCost,
       senderBalance: sender.sawa,
       ...payload,
@@ -970,8 +970,8 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
     }
 
     await t.rollback();
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ù„Ù„Ù‡Ø¯ÙŠØ©:", error);
-    return res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ù„Ù„Ù‡Ø¯ÙŠØ©" });
+    console.error("❌ خطأ أثناء الإرسال المباشر للهدية:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء الإرسال المباشر للهدية" });
   }
 });
 
@@ -984,19 +984,19 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
 
     if (!senderId || !giftItemId || !roomId) {
       await t.rollback();
-      return res.status(400).json({ error: "giftItemId Ùˆ roomId Ù…Ø·Ù„ÙˆØ¨Ø©" });
+      return res.status(400).json({ error: "giftItemId و roomId مطلوبة" });
     }
 
     const room = await Room.findByPk(roomId, { transaction: t });
     if (!room) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الغرفة غير موجودة" });
     }
 
     const recipients = getActiveRoomRecipients(roomId, senderId);
     if (recipients.length === 0) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø³ØªÙ„Ù…ÙˆÙ† Ø¯Ø§Ø®Ù„ Ø§Ù„ØºØ±ÙØ© Ø­Ø§Ù„ÙŠØ§Ù‹" });
+      return res.status(400).json({ error: "لا يوجد مستلمون داخل الغرفة حالياً" });
     }
 
     const sender = await User.findByPk(senderId, {
@@ -1006,31 +1006,31 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
     });
     if (!sender) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù…Ø±Ø³Ù„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+      return res.status(404).json({ error: "المرسل غير موجود" });
     }
 
     const item = await GiftItem.findByPk(giftItemId, { transaction: t });
     if (!item) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
     if (!item.isAvailable) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠØ§Ù‹" });
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
     }
 
     const giftCost = Number(item.points ?? 0);
     if (!giftCost || giftCost <= 0) {
       await t.rollback();
-      return res.status(400).json({ error: "Ø³Ø¹Ø± Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± ØµØ§Ù„Ø­" });
+      return res.status(400).json({ error: "سعر الهدية غير صالح" });
     }
 
     const totalCost = giftCost * recipients.length;
     if (Number(sender.sawa ?? 0) < totalCost) {
       await t.rollback();
       return res.status(400).json({
-        error: "Ø±ØµÙŠØ¯ Ø§Ù„Ù†Ù‚Ø§Ø· ØºÙŠØ± ÙƒØ§ÙÙ Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹",
+        error: "رصيد النقاط غير كافٍ لإرسال الهدية للجميع",
         requiredPoints: totalCost,
         currentBalance: Number(sender.sawa ?? 0),
         recipientsCount: recipients.length,
@@ -1084,7 +1084,7 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
             receiverShare: conversionResult.receiverShare,
             adminShare: conversionResult.adminShare,
           },
-          message: "ÙˆØµÙ„ØªÙƒ Ù‡Ø¯ÙŠØ© ÙˆØªÙ… ØªØ­ÙˆÙŠÙ„Ù‡Ø§ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¥Ù„Ù‰ Ù†Ù‚Ø§Ø· ðŸŽ",
+          message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
           senderBalance: sender.sawa,
         })
       );
@@ -1092,7 +1092,7 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
 
     if (payloads.length === 0) {
       await t.rollback();
-      return res.status(400).json({ error: "ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ¯ Ù…Ø³ØªÙ„Ù…ÙŠÙ† ØµØ§Ù„Ø­ÙŠÙ† Ø¯Ø§Ø®Ù„ Ø§Ù„ØºØ±ÙØ©" });
+      return res.status(400).json({ error: "تعذر تحديد مستلمين صالحين داخل الغرفة" });
     }
 
     await t.commit();
@@ -1100,7 +1100,7 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
     const roomsIO = req.app.get("roomsIO");
     const senderSocketId = connectedUsers.get(String(senderId));
     const broadcastPayload = {
-      message: "ÙˆØµÙ„Øª Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹ ÙˆØªÙ… ØªØ­ÙˆÙŠÙ„Ù‡Ø§ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¥Ù„Ù‰ Ù†Ù‚Ø§Ø· ðŸŽ",
+      message: "وصلت هدية للجميع وتم تحويلها مباشرة إلى نقاط 🎁",
       senderBalance: sender.sawa,
       roomId,
       createdAt: new Date().toISOString(),
@@ -1112,7 +1112,7 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
       },
       receiver: {
         id: null,
-        name: "Ø§Ù„Ø¬Ù…ÙŠØ¹",
+        name: "الجميع",
       },
       item: serializeGiftItem(item),
     };
@@ -1125,7 +1125,7 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
 
       if (roomsIO && senderSocketId) {
         roomsIO.to(senderSocketId).emit("gift-sent", {
-          message: "ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹ Ø¨Ù†Ø¬Ø§Ø­ âœ…",
+          message: "تم إرسال الهدية للجميع بنجاح ✅",
           senderBalance: sender.sawa,
           roomId,
           giftItem: serializeGiftItem(item),
@@ -1139,17 +1139,17 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
         if (payload.userGift?.receiver?.id) {
           await sendNotificationToUser(
             payload.userGift.receiver.id,
-            `${sender.name} Ø§Ø±Ø³Ù„ Ø§Ù„ÙŠÙƒ Ù‡Ø¯ÙŠØ©`,
-            "Ù‡Ø¯ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©"
+            `${sender.name} ارسل اليك هدية`,
+            "هدية جديدة"
           );
         }
       } catch (notifyError) {
-        console.warn("âš ï¸ ÙØ´Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø¥Ø´Ø¹Ø§Ø± Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹:", notifyError.message);
+        console.warn("⚠️ فشل إرسال إشعار هدية للجميع:", notifyError.message);
       }
     }
 
       return res.json({
-        message: "ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹ Ø¨Ù†Ø¬Ø§Ø­",
+        message: "تم إرسال الهدية للجميع بنجاح",
         deductedPoints: totalCost,
         senderBalance: sender.sawa,
         recipientsCount: payloads.length,
@@ -1164,8 +1164,8 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
     }
 
     await t.rollback();
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹:", error);
-    return res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ù„Ù„Ø¬Ù…ÙŠØ¹" });
+    console.error("❌ خطأ أثناء إرسال الهدية للجميع:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية للجميع" });
   }
 });
 
@@ -1178,19 +1178,19 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
 
     if (!roomId) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù…Ø·Ù„ÙˆØ¨ Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ø¯Ø§Ø®Ù„ ØºØ±ÙØ©" });
+      return res.status(400).json({ error: "مطلوب لإرسال الهدية داخل غرفة" });
     }
 
     if (!senderId || !receiverId || !giftItemId) {
       await t.rollback();
       return res
         .status(400)
-        .json({ error: "receiverId, giftItemId Ù…Ø·Ù„ÙˆØ¨Ø©" });
+        .json({ error: "receiverId, giftItemId مطلوبة" });
     }
 
     if (String(senderId) === String(receiverId)) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ø±Ø³Ø§Ù„ Ù‡Ø¯ÙŠØ© Ù„Ù†ÙØ³Ùƒ" });
+      return res.status(400).json({ error: "لا يمكن إرسال هدية لنفسك" });
     }
 
     const sender = await User.findByPk(senderId, {
@@ -1199,7 +1199,7 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     });
     if (!sender) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù…Ø±Ø³Ù„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+      return res.status(404).json({ error: "المرسل غير موجود" });
     }
 
     const receiver = await User.findByPk(receiverId, {
@@ -1208,18 +1208,18 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     });
     if (!receiver) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù…Ø³ØªÙ„Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+      return res.status(404).json({ error: "المستلم غير موجود" });
     }
 
     const item = await GiftItem.findByPk(giftItemId, { transaction: t });
     if (!item) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
     if (!item.isAvailable) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠØ§Ù‹" });
+      return res.status(400).json({ error: "هذه الهدية غير متاحة حالياً" });
     }
 
     let roomOwnerId = null;
@@ -1228,7 +1228,7 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
       const room = await Room.findByPk(roomId, { transaction: t });
       if (!room) {
         await t.rollback();
-        return res.status(404).json({ error: "Ø§Ù„ØºØ±ÙØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+        return res.status(404).json({ error: "الغرفة غير موجودة" });
       }
       roomOwnerId = room.creatorId;
     }
@@ -1246,7 +1246,7 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
 
     if (!userGift) {
       await t.rollback();
-      return res.status(400).json({ error: "Ù„Ø§ ØªÙ…Ù„Ùƒ Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ© ÙÙŠ Ù…Ø®Ø²ÙˆÙ†Ùƒ" });
+      return res.status(400).json({ error: "لا تملك هذه الهدية في مخزونك" });
     }
 
     userGift.userId = receiverId;
@@ -1319,15 +1319,15 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
     try {
       await sendNotificationToUser(
         receiverId,
-        `${sender.name} Ø§Ø±Ø³Ù„ Ø§Ù„ÙŠÙƒ Ù‡Ø¯ÙŠØ©`,
-        "Ù‡Ø¯ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©"
+        `${sender.name} ارسل اليك هدية`,
+        "هدية جديدة"
       );
     } catch (notifyError) {
-      console.warn("âš ï¸ ÙØ´Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø¥Ø´Ø¹Ø§Ø± Ø§Ù„Ù‡Ø¯ÙŠØ©:", notifyError.message);
+      console.warn("⚠️ فشل إرسال إشعار الهدية:", notifyError.message);
     }
 
     return res.json({
-      message: "ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ© ÙˆØªØ­ÙˆÙŠÙ„Ù‡Ø§ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¥Ù„Ù‰ Ù†Ù‚Ø§Ø·",
+      message: "تم إرسال الهدية وتحويلها مباشرة إلى نقاط",
       ...payload,
     });
   } catch (error) {
@@ -1337,13 +1337,13 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
       return handledResponse;
     }
 
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
+    console.error("❌ خطأ أثناء إرسال الهدية:", error);
     await t.rollback();
-    res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù‡Ø¯ÙŠØ©" });
+    res.status(500).json({ error: "حدث خطأ أثناء إرسال الهدية" });
   }
 });
 
-// Ø¹Ø±Ø¶ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§ Ø§Ù„ØªÙŠ ÙŠÙ…Ù„ÙƒÙ‡Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+// عرض الهدايا التي يملكها المستخدم
 router.get("/my-gifts/:userId", authenticateTokenUser,async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1370,12 +1370,12 @@ router.get("/my-gifts/:userId", authenticateTokenUser,async (req, res) => {
 
     res.json(gifts);
   } catch (error) {
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§:", error);
-    res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„Ù‡Ø¯Ø§ÙŠØ§" });
+    console.error("❌ خطأ أثناء جلب الهدايا:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
   }
 });
 
-// ØªØ­ÙˆÙŠÙ„ Ù‡Ø¯ÙŠØ© ÙŠÙ…Ù„ÙƒÙ‡Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø¥Ù„Ù‰ Ù†Ù‚Ø§Ø·
+// تحويل هدية يملكها المستخدم إلى نقاط
 router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), async (req, res) => {
   const t = await User.sequelize.transaction();
   try {
@@ -1384,7 +1384,7 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
 
     if (!userId) {
       await t.rollback();
-      return res.status(400).json({ error: "userId Ù…Ø·Ù„ÙˆØ¨" });
+      return res.status(400).json({ error: "userId مطلوب" });
     }
 
     const userGift = await UserGift.findOne({
@@ -1396,12 +1396,12 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
 
     if (!userGift) {
       await t.rollback();
-      return res.status(404).json({ error: "Ø§Ù„Ù‡Ø¯ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©" });
+      return res.status(404).json({ error: "الهدية غير موجودة" });
     }
 
     if (String(userGift.userId) !== String(userId)) {
       await t.rollback();
-      return res.status(403).json({ error: "Ù„Ø§ ØªÙ…Ù„Ùƒ Ù‡Ø°Ù‡ Ø§Ù„Ù‡Ø¯ÙŠØ©" });
+      return res.status(403).json({ error: "لا تملك هذه الهدية" });
     }
 
     const conversionResult = await convertGiftToPoints({
@@ -1415,7 +1415,7 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
     const updatedOwner = userGift.roomOwnerId ? await User.findByPk(userGift.roomOwnerId) : null;
 
     return res.json({
-      message: "ØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù‡Ø¯ÙŠØ© Ø¥Ù„Ù‰ Ù†Ù‚Ø§Ø· âœ…",
+      message: "تم تحويل الهدية إلى نقاط ✅",
       originalPoints: conversionResult.points,
       isReceivedGift: conversionResult.isReceivedGift,
       ownerCutRate: conversionResult.ownerCutRate,
@@ -1436,8 +1436,8 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
       return handledResponse;
     }
 
-    console.error("âŒ Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù‡Ø¯ÙŠØ©:", error);
-    res.status(500).json({ error: "Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù‡Ø¯ÙŠØ©" });
+    console.error("❌ خطأ أثناء تحويل الهدية:", error);
+    res.status(500).json({ error: "حدث خطأ أثناء تحويل الهدية" });
   }
 });
 
