@@ -86,7 +86,7 @@ router.get("/counters", async (req, res) => {
   try {
     const counters = await Counter.findAll({
       where: { isActive: true, isVisible: true },
-      order: [["id", "ASC"]],
+      order: [["id", "DESC"]],
     });
 
     const durationSetting = await Settings.findOne({
@@ -107,7 +107,7 @@ router.get("/admin/counters", requireAdmin, async (req, res) => {
   try {
     const counters = await Counter.findAll({
       where: { isActive: true },
-      order: [["id", "ASC"]],
+      order: [["id", "DESC"]],
     });
 
     const durationSetting = await Settings.findOne({
