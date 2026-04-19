@@ -18,6 +18,19 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
+function serializeCounters(counters, defaultDuration) {
+  return counters.map((c) => {
+    const counter = c.toJSON();
+    const imageList = Array.isArray(counter.image) ? counter.image : null;
+    const firstImage = imageList && imageList.length > 0 ? imageList[0] : null;
+    return {
+      ...counter,
+      durationDays: counter.durationDays ?? defaultDuration,
+      image: firstImage ?? counter.image,
+    };
+  });
+}
+
 
 router.post("/counters", requireAdmin, upload.single("image"), async (req, res) => {
   const { type, points, price, isVisible, durationDays, name, image } = req.body;
@@ -81,20 +94,31 @@ router.get("/counters", async (req, res) => {
     });
     const defaultDuration = durationSetting ? parseInt(durationSetting.value, 10) : 365;
 
-    const result = counters.map((c) => {
-      const counter = c.toJSON();
-      const imageList = Array.isArray(counter.image) ? counter.image : null;
-      const firstImage = imageList && imageList.length > 0 ? imageList[0] : null;
-      return {
-        ...counter,
-        durationDays: counter.durationDays ?? defaultDuration,
-        image: firstImage ?? counter.image,
-      };
-    });
+    const result = serializeCounters(counters, defaultDuration);
 
     return res.status(200).json(result);
   } catch (err) {
     console.error("❌ Error fetching counters:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/counters", requireAdmin, async (req, res) => {
+  try {
+    const counters = await Counter.findAll({
+      where: { isActive: true },
+      order: [["id", "ASC"]],
+    });
+
+    const durationSetting = await Settings.findOne({
+      where: { key: "counter_duration_days", isActive: true },
+    });
+    const defaultDuration = durationSetting ? parseInt(durationSetting.value, 10) : 365;
+    const result = serializeCounters(counters, defaultDuration);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("âŒ Error fetching admin counters:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
