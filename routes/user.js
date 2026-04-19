@@ -275,6 +275,78 @@ const generateToken = (user) => {
     );
 };
 
+router.post("/users/:id/profile-edit-access", authenticateTokenUser, upload.none(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const loggedInUser = req.user;
+
+    if (loggedInUser.role !== "admin" && String(loggedInUser.id) !== String(id)) {
+      await transaction.rollback();
+      return res.status(403).json({ error: "غير مسموح لك طلب تعديل بيانات مستخدم آخر" });
+    }
+
+    const user = await User.findByPk(id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    // Admins can access profile edit without being charged.
+    if (loggedInUser.role === "admin") {
+      await transaction.commit();
+      return res.status(200).json({
+        message: "تم منح صلاحية التعديل بنجاح",
+        deductedPoints: 0,
+        remainingSawa: Number(user.sawa ?? 0),
+      });
+    }
+
+    const profileUpdateCostSetting = await Settings.findOne({
+      where: { key: "profile_update_cost", isActive: true },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    const profileUpdateCost = profileUpdateCostSetting
+      ? parseInt(String(profileUpdateCostSetting.value).trim(), 10) || 0
+      : 0;
+
+    const currentBalance = Number(user.sawa ?? 0);
+    if (currentBalance < profileUpdateCost) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: "رصيدك غير كافٍ لتعديل الحساب",
+        requiredPoints: profileUpdateCost,
+        availablePoints: currentBalance,
+      });
+    }
+
+    const remainingSawa = currentBalance - profileUpdateCost;
+    if (profileUpdateCost > 0) {
+      user.sawa = remainingSawa;
+      await user.save({ transaction });
+    }
+
+    await transaction.commit();
+
+    return res.status(200).json({
+      message: "تم خصم تكلفة تعديل الحساب بنجاح",
+      deductedPoints: profileUpdateCost,
+      remainingSawa,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("❌ Error charging profile edit access:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.put("/users/:id", authenticateTokenUser, upload.array("images", 5), async (req, res) => {
   try {
     console.log("==== PUT /users/" + req.params.id + " ====");
