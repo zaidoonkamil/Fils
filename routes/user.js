@@ -117,6 +117,10 @@ function buildInternalVerificationFlags(user) {
   };
 }
 
+function getLegacyExtraPasswordToken(user) {
+  return user && user.extraPassword ? "__configured__" : "";
+}
+
 function sanitizeInternalVerificationRecord(record) {
   if (!record) return null;
 
@@ -1771,6 +1775,7 @@ router.post("/login", upload.none(), async (req, res) => {
         location: user.location,
         Jewel: user.Jewel,
         dolar: user.dolar,
+        extraPassword: getLegacyExtraPasswordToken(user),
         ...buildInternalVerificationFlags(user),
       },
       token
@@ -2133,6 +2138,7 @@ router.get("/profile", authenticateTokenUser, async (req, res) => {
     const userData = user.toJSON();
     delete userData.password;
     delete userData.extraPassword;
+    userData.extraPassword = getLegacyExtraPasswordToken(user);
 
     userData.UserCounters = (userData.UserCounters || []).map((counter) => {
       if (counter.endDate) {
@@ -2237,6 +2243,7 @@ router.get("/users/:id", async (req, res) => {
     const userData = user.toJSON();
     delete userData.password;
     delete userData.extraPassword;
+    userData.extraPassword = getLegacyExtraPasswordToken(user);
 
     userData.UserCounters = userData.UserCounters.map(counter => {
       if (counter.endDate) {
