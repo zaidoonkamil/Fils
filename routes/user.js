@@ -635,7 +635,7 @@ router.get("/users/internal-verification/status", authenticateTokenUser, async (
         ? sanitizeInternalVerificationRecord(user.internalVerification)
         : null,
       defaults: {
-        fullName: user.name,
+        fullName: "",
         phone: user.phone,
         email: user.email,
         location: user.location,
