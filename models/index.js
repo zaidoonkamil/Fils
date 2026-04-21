@@ -32,6 +32,7 @@ const GiftItem = require("./GiftItem");
 const DominoMatch = require("./DominoMatch");
 const DominoQueue = require("./DominoQueue");
 const UserGift = require("./UserGift");
+const UserInternalVerification = require("./UserInternalVerification");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -86,6 +87,9 @@ User.hasMany(ChatMessage, { as: "receivedMessages", foreignKey: "receiverId", on
 
 User.hasOne(AgentRequest, { foreignKey: 'userId', onDelete: 'CASCADE' });
 AgentRequest.belongsTo(User, { foreignKey: 'userId', onDelete: 'CASCADE' });
+
+User.hasOne(UserInternalVerification, { foreignKey: "userId", as: "internalVerification", onDelete: "CASCADE" });
+UserInternalVerification.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
 
 // علاقات المتجر الرقمي
 StoreCategory.hasMany(DigitalProduct, { foreignKey: 'categoryId', as: 'products', onDelete: 'CASCADE' });
@@ -161,5 +165,6 @@ module.exports = {
   GiftItem,
   DominoMatch,
   DominoQueue,
-  UserGift
+  UserGift,
+  UserInternalVerification
 };

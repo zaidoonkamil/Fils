@@ -1,5 +1,6 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
+const User = require("../models/user");
 
 async function tableExists(queryInterface, tableName) {
   const tables = await queryInterface.showAllTables();
@@ -27,8 +28,16 @@ async function ensureTable(queryInterface, tableName, defineColumns) {
   }
 }
 
+function resolveTableName(model) {
+  const tableName = model.getTableName();
+  if (typeof tableName === "string") return tableName;
+  if (tableName && tableName.tableName) return tableName.tableName;
+  return String(tableName);
+}
+
 async function ensureSchema() {
   const queryInterface = sequelize.getQueryInterface();
+  const usersTable = resolveTableName(User);
 
   await ensureTable(queryInterface, "device_fingerprints", {
     id: {
@@ -115,6 +124,91 @@ async function ensureSchema() {
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: null,
+    },
+  });
+
+  await ensureTable(queryInterface, usersTable, {
+    isInternalVerified: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    internalVerifiedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+  });
+
+  await ensureTable(queryInterface, "user_internal_verifications", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      unique: true,
+    },
+    fullName: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    motherName: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    birthDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+    },
+    governorate: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    district: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    acceptedResponsibility: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    verifiedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    lastExtraPasswordResetAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    extraPasswordResetCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
     },
   });
 }

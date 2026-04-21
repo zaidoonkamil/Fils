@@ -1,5 +1,6 @@
 ﻿const express = require('express');
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const saltRounds = 10;
@@ -23,7 +24,7 @@ const upload = multer({ storage: storage });
 const { 
   User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, 
   CounterSale, UserCounter, Counter, AgentRequest, Message, Room,
-  DeviceFingerprint, DeviceFingerprintUser
+  DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -85,6 +86,74 @@ function normalizePlayerId(playerId) {
     return playerId.trim();
   }
   return null;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function normalizePhone(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeDateOnly(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function buildInternalVerificationFlags(user) {
+  return {
+    hasExtraPassword: Boolean(user.extraPassword),
+    isInternalVerified: Boolean(user.isInternalVerified),
+    internalVerifiedAt: user.internalVerifiedAt || null,
+    needsExtraPasswordSetup: !user.extraPassword,
+    needsInternalVerification: !user.isInternalVerified,
+  };
+}
+
+function sanitizeInternalVerificationRecord(record) {
+  if (!record) return null;
+
+  return {
+    fullName: record.fullName,
+    motherName: record.motherName,
+    birthDate: record.birthDate,
+    governorate: record.governorate,
+    district: record.district,
+    phone: record.phone,
+    email: record.email,
+    acceptedResponsibility: record.acceptedResponsibility,
+    verifiedAt: record.verifiedAt,
+    lastExtraPasswordResetAt: record.lastExtraPasswordResetAt,
+    extraPasswordResetCount: record.extraPasswordResetCount,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function buildMaskedEmail(email) {
+  const normalizedEmail = String(email || "").trim();
+  const [localPart = "", domain = ""] = normalizedEmail.split("@");
+
+  if (!localPart || !domain) {
+    return normalizedEmail;
+  }
+
+  if (localPart.length <= 2) {
+    return `${localPart[0] || "*"}***@${domain}`;
+  }
+
+  return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
+function generateTemporaryExtraPassword() {
+  return crypto.randomInt(100000, 999999).toString();
 }
 
 async function syncUserDevice(userId, playerId, transaction) {
@@ -544,6 +613,331 @@ router.post("/users/:id/extra-password/verify", authenticateTokenUser, upload.no
   }
 });
 
+router.get("/users/internal-verification/status", authenticateTokenUser, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: UserInternalVerification,
+          as: "internalVerification",
+        },
+      ],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      flags: buildInternalVerificationFlags(user),
+      verification: user.isInternalVerified
+        ? sanitizeInternalVerificationRecord(user.internalVerification)
+        : null,
+      defaults: {
+        fullName: user.name,
+        phone: user.phone,
+        email: user.email,
+        location: user.location,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error fetching internal verification status:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/users/internal-verification", authenticateTokenUser, upload.none(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      fullName,
+      motherName,
+      birthDate,
+      governorate,
+      district,
+      phone,
+      extraPassword,
+      confirmExtraPassword,
+      email,
+      accountPassword,
+      acceptedResponsibility,
+    } = req.body;
+
+    if (
+      !fullName ||
+      !motherName ||
+      !birthDate ||
+      !governorate ||
+      !district ||
+      !phone ||
+      !extraPassword ||
+      !confirmExtraPassword ||
+      !email ||
+      !accountPassword
+    ) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "جميع حقول التوثيق مطلوبة" });
+    }
+
+    const accepted =
+      acceptedResponsibility === true ||
+      acceptedResponsibility === "true" ||
+      acceptedResponsibility === "1" ||
+      acceptedResponsibility === 1;
+
+    if (!accepted) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "يجب الموافقة على مسؤولية صحة المعلومات" });
+    }
+
+    if (String(extraPassword) !== String(confirmExtraPassword)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "تأكيد كلمة الأمان الإضافية غير مطابق" });
+    }
+
+    const normalizedBirthDate = normalizeDateOnly(birthDate);
+    if (!normalizedBirthDate) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "تاريخ الميلاد غير صالح" });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+      include: [
+        {
+          model: UserInternalVerification,
+          as: "internalVerification",
+        },
+      ],
+    });
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(accountPassword, user.password);
+    if (!isPasswordValid) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "كلمة سر الحساب غير صحيحة" });
+    }
+
+    const normalizedUserEmail = normalizeText(user.email);
+    const normalizedSubmittedEmail = normalizeText(email);
+    if (normalizedSubmittedEmail !== normalizedUserEmail) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "البريد الإلكتروني يجب أن يطابق بريد الحساب الحالي" });
+    }
+
+    const normalizedUserPhone = normalizePhone(user.phone);
+    const normalizedSubmittedPhone = normalizePhone(phone);
+    if (normalizedSubmittedPhone !== normalizedUserPhone) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "رقم الهاتف يجب أن يطابق رقم الحساب الحالي" });
+    }
+
+    if (user.extraPassword) {
+      const matchesExistingExtraPassword = await bcrypt.compare(extraPassword, user.extraPassword);
+      if (!matchesExistingExtraPassword) {
+        await transaction.rollback();
+        return res.status(400).json({ error: "كلمة الأمان الإضافية الحالية غير صحيحة" });
+      }
+    } else {
+      user.extraPassword = await bcrypt.hash(extraPassword, saltRounds);
+    }
+
+    const verificationPayload = {
+      fullName: String(fullName).trim(),
+      motherName: String(motherName).trim(),
+      birthDate: normalizedBirthDate,
+      governorate: String(governorate).trim(),
+      district: String(district).trim(),
+      phone: String(phone).trim(),
+      email: String(email).trim().toLowerCase(),
+      acceptedResponsibility: true,
+      verifiedAt: new Date(),
+    };
+
+    if (user.internalVerification) {
+      await user.internalVerification.update(verificationPayload, { transaction });
+    } else {
+      await UserInternalVerification.create(
+        {
+          userId: user.id,
+          ...verificationPayload,
+        },
+        { transaction }
+      );
+    }
+
+    user.isInternalVerified = true;
+    user.internalVerifiedAt = new Date();
+    await user.save({ transaction });
+
+    const freshVerification = await UserInternalVerification.findOne({
+      where: { userId: user.id },
+      transaction,
+    });
+
+    await transaction.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "تم توثيق الحساب الداخلي بنجاح",
+      flags: buildInternalVerificationFlags(user),
+      verification: sanitizeInternalVerificationRecord(freshVerification),
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("❌ Error creating internal verification:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/users/internal-verification/access", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    const { extraPassword } = req.body;
+
+    if (!extraPassword) {
+      return res.status(400).json({ error: "يرجى إدخال كلمة الأمان الإضافية" });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: UserInternalVerification,
+          as: "internalVerification",
+        },
+      ],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (!user.extraPassword) {
+      return res.status(400).json({ error: "لم يتم تعيين كلمة الأمان الإضافية بعد" });
+    }
+
+    if (!user.isInternalVerified || !user.internalVerification) {
+      return res.status(404).json({ error: "لا توجد بيانات توثيق داخلي لهذا المستخدم" });
+    }
+
+    const isValid = await bcrypt.compare(extraPassword, user.extraPassword);
+    if (!isValid) {
+      return res.status(403).json({ error: "كلمة الأمان الإضافية غير صحيحة" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      verification: sanitizeInternalVerificationRecord(user.internalVerification),
+      flags: buildInternalVerificationFlags(user),
+    });
+  } catch (err) {
+    console.error("❌ Error accessing internal verification:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/users/internal-verification/recover-extra-password", authenticateTokenUser, upload.none(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      fullName,
+      motherName,
+      birthDate,
+      governorate,
+      district,
+      phone,
+      email,
+      accountPassword,
+    } = req.body;
+
+    if (!fullName || !motherName || !birthDate || !governorate || !district || !phone || !email || !accountPassword) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "جميع حقول الاسترجاع مطلوبة" });
+    }
+
+    const normalizedBirthDate = normalizeDateOnly(birthDate);
+    if (!normalizedBirthDate) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "تاريخ الميلاد غير صالح" });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+      include: [
+        {
+          model: UserInternalVerification,
+          as: "internalVerification",
+        },
+      ],
+    });
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (!user.internalVerification || !user.isInternalVerified) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "لا توجد بيانات توثيق داخلي مطابقة لهذا الحساب" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(accountPassword, user.password);
+    if (!isPasswordValid) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "كلمة سر الحساب غير صحيحة" });
+    }
+
+    const verification = user.internalVerification;
+    const isMatch =
+      normalizeText(fullName) === normalizeText(verification.fullName) &&
+      normalizeText(motherName) === normalizeText(verification.motherName) &&
+      normalizedBirthDate === normalizeDateOnly(verification.birthDate) &&
+      normalizeText(governorate) === normalizeText(verification.governorate) &&
+      normalizeText(district) === normalizeText(verification.district) &&
+      normalizePhone(phone) === normalizePhone(verification.phone) &&
+      normalizeText(email) === normalizeText(verification.email);
+
+    if (!isMatch) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "المعلومات المدخلة لا تطابق بيانات التوثيق الداخلي" });
+    }
+
+    const newExtraPassword = generateTemporaryExtraPassword();
+    user.extraPassword = await bcrypt.hash(newExtraPassword, saltRounds);
+    await user.save({ transaction });
+
+    verification.lastExtraPasswordResetAt = new Date();
+    verification.extraPasswordResetCount = Number(verification.extraPasswordResetCount || 0) + 1;
+    await verification.save({ transaction });
+
+    await transaction.commit();
+
+    await sendMailWithFallback({
+      to: verification.email,
+      subject: "استرجاع كلمة الأمان الإضافية",
+      text: `تم إنشاء كلمة أمان إضافية جديدة لحسابك: ${newExtraPassword} . يمكنك استخدامها فورًا داخل التطبيق.`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "تم إرسال كلمة أمان إضافية جديدة إلى بريدك الإلكتروني",
+      sentTo: buildMaskedEmail(verification.email),
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("❌ Error recovering extra password:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post('/admin/users/:id/reset-extra-password', requireAdmin, upload.none(), async (req, res) => {
   try {
     const { id } = req.params;
@@ -565,6 +959,57 @@ router.post('/admin/users/:id/reset-extra-password', requireAdmin, upload.none()
   } catch (error) {
     console.error('خطأ في إعادة تعيين الرمز الإضافي:', error);
     return res.status(500).json({ message: 'حدث خطأ في السيرفر' });
+  }
+});
+
+router.post("/admin/users/reset-all-extra-passwords", requireAdmin, upload.none(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const users = await User.findAll({
+      where: {
+        role: { [Op.ne]: "admin" },
+      },
+      attributes: ["id"],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    const userIds = users.map((user) => user.id);
+
+    const [updatedUsersCount] = await User.update(
+      {
+        extraPassword: null,
+        isInternalVerified: false,
+        internalVerifiedAt: null,
+      },
+      {
+        where: {
+          id: { [Op.in]: userIds.length > 0 ? userIds : [0] },
+        },
+        transaction,
+      }
+    );
+
+    const deletedVerificationsCount = await UserInternalVerification.destroy({
+      where: {
+        userId: { [Op.in]: userIds.length > 0 ? userIds : [0] },
+      },
+      transaction,
+    });
+
+    await transaction.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "تم تصفير كلمات الأمان الإضافية وحذف بيانات التوثيق الداخلي للمستخدمين",
+      updatedUsersCount,
+      deletedVerificationsCount,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("❌ Error resetting all extra passwords:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -1325,7 +1770,8 @@ router.post("/login", upload.none(), async (req, res) => {
         isLoggedIn: user.isLoggedIn,
         location: user.location,
         Jewel: user.Jewel,
-        dolar: user.dolar
+        dolar: user.dolar,
+        ...buildInternalVerificationFlags(user),
       },
       token
     });
@@ -1685,6 +2131,8 @@ router.get("/profile", authenticateTokenUser, async (req, res) => {
     }
 
     const userData = user.toJSON();
+    delete userData.password;
+    delete userData.extraPassword;
 
     userData.UserCounters = (userData.UserCounters || []).map((counter) => {
       if (counter.endDate) {
@@ -1730,6 +2178,7 @@ router.get("/profile", authenticateTokenUser, async (req, res) => {
 
     userData.totalPoints = totalPoints;
     userData.totalGems = totalGems;
+    userData.internalVerification = buildInternalVerificationFlags(user);
 
     return res.status(200).json(userData);
   } catch (err) {
@@ -1786,6 +2235,8 @@ router.get("/users/:id", async (req, res) => {
     }
 
     const userData = user.toJSON();
+    delete userData.password;
+    delete userData.extraPassword;
 
     userData.UserCounters = userData.UserCounters.map(counter => {
       if (counter.endDate) {
@@ -1830,6 +2281,7 @@ router.get("/users/:id", async (req, res) => {
 
     userData.totalPoints = totalPoints;
     userData.totalGems = totalGems;
+    userData.internalVerification = buildInternalVerificationFlags(user);
 
     res.status(200).json(userData);
 

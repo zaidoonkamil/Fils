@@ -38,6 +38,16 @@ const User = sequelize.define("User", {
         type: DataTypes.STRING,
         allowNull: true,
     },
+    isInternalVerified: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    },
+    internalVerifiedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+    },
     role: {
         type: DataTypes.ENUM("user", "admin", "agent"), 
         allowNull: false,

@@ -76,7 +76,7 @@ app.use(express.static("public", {
             force: false,
             logging: console.log
         });
-       // await ensureSchema();
+        await ensureSchema();
      //   await Counter.sync({ alter: true });
         console.log('Database and Counter table synced successfully');
     } catch (err) {
