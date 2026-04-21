@@ -6,6 +6,14 @@ const { StoreCategory, DigitalProduct, ProductPurchase, User, DigitalProductCode
 const { sendNotificationToUser } = require("../services/notifications");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
+const digitalProductCodeAttributes = ["id", "code", "used"];
+if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedBy")) {
+  digitalProductCodeAttributes.push("usedBy");
+}
+if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedAt")) {
+  digitalProductCodeAttributes.push("usedAt");
+}
+
 // ==================== أقسام المتجر ====================
 
 // إضافة قسم جديد (Admin فقط)
@@ -287,9 +295,9 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
       },
       include: [
         {
-          model: require("../models").DigitalProductCode,
+          model: DigitalProductCode,
           as: "codes",
-          attributes: ["id", "code", "used", "usedBy", "usedAt"],
+          attributes: digitalProductCodeAttributes,
           required: false,
         },
       ],
@@ -299,9 +307,11 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
     const filteredProducts = [];
 
     for (const product of products) {
-      const unusedCodesCount = await require("../models").DigitalProductCode.count({
-        where: { productId: product.id, used: false }
-      });
+      const unusedCodesCount = Array.isArray(product.codes)
+        ? product.codes.filter((code) => !code.used).length
+        : await DigitalProductCode.count({
+            where: { productId: product.id, used: false }
+          });
 
       if (unusedCodesCount > 0) {
         product.stock = unusedCodesCount;
@@ -381,8 +391,12 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
       await user.save({ transaction: t });
 
       codeRow.used = true;
-      codeRow.usedBy = userId;
-      codeRow.usedAt = new Date();
+      if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedBy")) {
+        codeRow.usedBy = userId;
+      }
+      if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedAt")) {
+        codeRow.usedAt = new Date();
+      }
       await codeRow.save({ transaction: t });
 
       const remaining = await DigitalProductCode.count({
