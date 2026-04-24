@@ -331,6 +331,59 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
   }
 });
 
+// جلب المنتجات المخفية من المتجر (الأكواد نفدت أو لا توجد أكواد متاحة)
+router.get("/store/admin/hidden-products", requireAdmin, async (req, res) => {
+  try {
+    const products = await DigitalProduct.findAll({
+      include: [
+        {
+          model: StoreCategory,
+          as: "category",
+          attributes: ["id", "name", "image"],
+        },
+        {
+          model: DigitalProductCode,
+          as: "codes",
+          attributes: ["id", "used"],
+          required: false,
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const hiddenProducts = products
+      .map((product) => {
+        const codes = Array.isArray(product.codes) ? product.codes : [];
+        const totalCodes = codes.length;
+        const unusedCodes = codes.filter((code) => !code.used).length;
+        const usedCodes = totalCodes - unusedCodes;
+
+        if (unusedCodes > 0) {
+          return null;
+        }
+
+        return {
+          ...product.toJSON(),
+          stock: 0,
+          hiddenReason: totalCodes === 0 ? "no_codes_added" : "all_codes_used",
+          totalCodes,
+          unusedCodes,
+          usedCodes,
+        };
+      })
+      .filter(Boolean);
+
+    res.status(200).json({
+      success: true,
+      totalHiddenProducts: hiddenProducts.length,
+      hiddenProducts,
+    });
+  } catch (error) {
+    console.error("❌ خطأ في جلب المنتجات المخفية:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
 // حذف منتج (Admin فقط)
 router.delete("/store/products/:id", requireAdmin, async (req, res) => {
   try {
