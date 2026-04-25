@@ -6,11 +6,12 @@ const User = require("../models/user");
 const jwt = require("jsonwebtoken");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
-const { attachActiveRoomFrames } = require("../services/roomLeaderboard");
+const { attachActiveRoomFrames, attachActiveUserFrames } = require("../services/roomLeaderboard");
 
-function normalizeUserPayload(user) {
+async function normalizeUserPayload(user) {
     if (!user) return null;
-    const plainUser = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
+    const [plainUser] = await attachActiveUserFrames([user]);
+    if (!plainUser) return null;
     if (plainUser.images) {
         plainUser.image = Array.isArray(plainUser.images) && plainUser.images.length > 0
             ? plainUser.images[0]
@@ -20,16 +21,16 @@ function normalizeUserPayload(user) {
     return plainUser;
 }
 
-function normalizeMessagePayload(message) {
+async function normalizeMessagePayload(message) {
     const plainMessage = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
-    plainMessage.user = normalizeUserPayload(plainMessage.user);
+    plainMessage.user = await normalizeUserPayload(plainMessage.user);
 
     if (plainMessage.replyTo) {
         const replyMessage = typeof plainMessage.replyTo.toJSON === "function"
             ? plainMessage.replyTo.toJSON()
             : { ...plainMessage.replyTo };
 
-        replyMessage.user = normalizeUserPayload(replyMessage.user);
+        replyMessage.user = await normalizeUserPayload(replyMessage.user);
         plainMessage.replyTo = replyMessage;
     }
 
@@ -42,10 +43,10 @@ function canManageRoom(room, user) {
     return String(room.creatorId) === String(user.id);
 }
 
-function buildPinnedMessage(message) {
+async function buildPinnedMessage(message) {
     if (!message) return null;
     const msg = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
-    msg.user = normalizeUserPayload(msg.user);
+    msg.user = await normalizeUserPayload(msg.user);
     return {
         id: msg.id,
         content: msg.content ?? "",
@@ -402,8 +403,12 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
             offset: (parseInt(page) - 1) * parseInt(limit)
         });
 
+        const serializedMessages = await Promise.all(
+            messages.rows.reverse().map((message) => normalizeMessagePayload(message))
+        );
+
         res.json({
-            messages: messages.rows.reverse().map(normalizeMessagePayload),
+            messages: serializedMessages,
             total: messages.count,
             currentPage: parseInt(page),
             totalPages: Math.ceil(messages.count / parseInt(limit))
@@ -447,7 +452,7 @@ router.post("/room/:roomId/pin-message", authenticateToken, async (req, res) => 
             return res.status(404).json({ error: "الرسالة غير موجودة" });
         }
 
-        const pinnedMessage = buildPinnedMessage(message);
+        const pinnedMessage = await buildPinnedMessage(message);
         await room.update({
             pinnedMessageId: message.id,
             pinnedMessage,

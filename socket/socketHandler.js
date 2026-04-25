@@ -1,6 +1,7 @@
 ﻿const jwt = require("jsonwebtoken");
 const { User, Message, Room } = require("../models");
 const { maskArabicProfanity } = require("../services/profanityFilter");
+const { attachActiveUserFrames } = require("../services/roomLeaderboard");
 
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
@@ -9,9 +10,10 @@ const roomUsers = new Map();
 const connectedUsers = new Map();
 const kickedUsers = new Map();
 
-function normalizeUserPayload(user) {
+async function normalizeUserPayload(user) {
   if (!user) return null;
-  const plainUser = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
+  const [plainUser] = await attachActiveUserFrames([user]);
+  if (!plainUser) return null;
   if (plainUser.images) {
     plainUser.image = Array.isArray(plainUser.images) && plainUser.images.length > 0
       ? plainUser.images[0]
@@ -21,15 +23,15 @@ function normalizeUserPayload(user) {
   return plainUser;
 }
 
-function normalizeMessagePayload(message, fallbackUser) {
+async function normalizeMessagePayload(message, fallbackUser) {
   const plainMessage = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
-  plainMessage.user = normalizeUserPayload(plainMessage.user) ?? fallbackUser ?? null;
+  plainMessage.user = (await normalizeUserPayload(plainMessage.user)) ?? fallbackUser ?? null;
 
   if (plainMessage.replyTo) {
     const replyMessage = typeof plainMessage.replyTo.toJSON === "function"
       ? plainMessage.replyTo.toJSON()
       : { ...plainMessage.replyTo };
-    replyMessage.user = normalizeUserPayload(replyMessage.user);
+    replyMessage.user = await normalizeUserPayload(replyMessage.user);
     plainMessage.replyTo = replyMessage;
   }
 
@@ -56,9 +58,12 @@ function initializeSocketIO(io) {
         return next(new Error("تم حظر حسابك"));
       }
 
+      const normalizedUser = await normalizeUserPayload(user);
+
       socket.userId = user.id;
       socket.userName = user.name;
-      socket.userImage = (user.images && user.images.length > 0) ? user.images[0] : null;
+      socket.userImage = normalizedUser?.image ?? null;
+      socket.userFrame = normalizedUser?.activeFrame ?? null;
 
       next();
     } catch (error) {
@@ -112,6 +117,7 @@ function initializeSocketIO(io) {
             id: socket.userId,
             name: socket.userName,
             image: socket.userImage,
+            activeFrame: socket.userFrame,
             socketId: socket.id,
           });
           await room.update({ currentUsers: usersSet.size });
@@ -127,6 +133,7 @@ function initializeSocketIO(io) {
             userId: socket.userId,
             userName: socket.userName,
             userImage: socket.userImage,
+            activeFrame: socket.userFrame,
           message: `${socket.userName} انضم إلى الغرفة`,
           });
         }
@@ -135,6 +142,7 @@ function initializeSocketIO(io) {
           id: u.id,
           name: u.name,
           image: u.image,
+          activeFrame: u.activeFrame ?? null,
         }));
         io.to(`room-${roomId}`).emit("room-users", currentUsers);
       } catch (error) {
@@ -205,12 +213,13 @@ function initializeSocketIO(io) {
           replyToId: replyMessage?.id ?? null,
         });
 
-        const messageData = normalizeMessagePayload({
+        const messageData = await normalizeMessagePayload({
           ...message.toJSON(),
           user: {
             id: socket.userId,
             name: socket.userName,
             image: socket.userImage,
+            activeFrame: socket.userFrame,
           },
           replyTo: replyMessage,
         });
@@ -249,6 +258,7 @@ function initializeSocketIO(io) {
             id: u.id,
             name: u.name,
             image: u.image,
+            activeFrame: u.activeFrame ?? null,
           }));
           io.to(`room-${roomId}`).emit("room-users", currentUsers);
 
@@ -376,6 +386,7 @@ function initializeSocketIO(io) {
                 id: u.id,
                 name: u.name,
                 image: u.image,
+                activeFrame: u.activeFrame ?? null,
               }));
               io.to(`room-${roomId}`).emit("room-users", currentUsers);
             }

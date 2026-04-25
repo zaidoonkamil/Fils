@@ -1,7 +1,7 @@
 const { Op, fn, col, literal } = require("sequelize");
 const { UserGift, GiftItem, User, Room, Settings } = require("../models");
 
-const LEADERBOARD_DURATION_HOURS = 72;
+const LEADERBOARD_DURATION_HOURS = 24;
 const LEADERBOARD_DURATION_MS = LEADERBOARD_DURATION_HOURS * 60 * 60 * 1000;
 const CYCLE_ANCHOR_KEY = "room_support_leaderboard_cycle_anchor";
 
@@ -327,6 +327,35 @@ async function getGlobalSupportLeaderboard(options = {}) {
   };
 }
 
+async function getActiveSupporterFrameMap(options = {}) {
+  const leaderboard = await getGlobalSupportLeaderboard({
+    now: options.now,
+    limit: 10,
+  });
+
+  return new Map(
+    leaderboard.activeFrameWinners
+      .filter((entry) => entry.activeFrame)
+      .map((entry) => [String(entry.userId), entry.activeFrame])
+  );
+}
+
+async function attachActiveUserFrames(users, options = {}) {
+  if (!Array.isArray(users) || users.length === 0) {
+    return [];
+  }
+
+  const frameMap = await getActiveSupporterFrameMap(options);
+
+  return users.map((user) => {
+    const plainUser = typeof user?.toJSON === "function" ? user.toJSON() : { ...(user || {}) };
+    return {
+      ...plainUser,
+      activeFrame: frameMap.get(String(plainUser.id)) ?? null,
+    };
+  });
+}
+
 async function getRoomsSupportLeaderboard(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const anchorAt = await ensureCycleAnchor();
@@ -379,6 +408,8 @@ async function attachActiveRoomFrames(rooms, options = {}) {
 
 module.exports = {
   LEADERBOARD_DURATION_HOURS,
+  attachActiveUserFrames,
+  getActiveSupporterFrameMap,
   getGlobalSupportLeaderboard,
   getRoomSupportLeaderboard,
   getRoomsSupportLeaderboard,
