@@ -124,12 +124,19 @@ function buildDateWhere(start, end) {
 }
 
 async function queryTopSupporters({ roomId, start, end, limit = 10 }) {
+  const where = {
+    senderId: { [Op.not]: null },
+    createdAt: buildDateWhere(start, end),
+  };
+
+  if (Number.isInteger(roomId) && roomId > 0) {
+    where.roomId = roomId;
+  } else {
+    where.roomId = { [Op.not]: null };
+  }
+
   const entries = await UserGift.findAll({
-    where: {
-      roomId,
-      senderId: { [Op.not]: null },
-      createdAt: buildDateWhere(start, end),
-    },
+    where,
     attributes: [
       "senderId",
       [fn("COUNT", col("UserGift.id")), "giftsCount"],
@@ -289,6 +296,37 @@ async function getRoomSupportLeaderboard(roomId, options = {}) {
   };
 }
 
+async function getGlobalSupportLeaderboard(options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date();
+  const anchorAt = await ensureCycleAnchor();
+  const cycle = buildCycleMeta(anchorAt, now);
+
+  const currentStart = new Date(cycle.currentCycle.startsAt);
+  const currentEnd = new Date(cycle.currentCycle.endsAt);
+
+  const currentTopSupporters = await queryTopSupporters({
+    start: currentStart,
+    end: currentEnd,
+    limit: options.limit ?? 10,
+  });
+
+  const previousTopSupporters = cycle.previousCycle
+    ? await queryTopSupporters({
+        start: new Date(cycle.previousCycle.startsAt),
+        end: new Date(cycle.previousCycle.endsAt),
+        limit: 3,
+      })
+    : [];
+
+  const frameMap = decorateEntriesWithFrames(previousTopSupporters, USER_FRAME_PRESETS, "userId");
+
+  return {
+    cycle,
+    topSupporters: applyEntryRanks(currentTopSupporters, frameMap, "userId"),
+    activeFrameWinners: applyEntryRanks(previousTopSupporters, frameMap, "userId"),
+  };
+}
+
 async function getRoomsSupportLeaderboard(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const anchorAt = await ensureCycleAnchor();
@@ -341,6 +379,7 @@ async function attachActiveRoomFrames(rooms, options = {}) {
 
 module.exports = {
   LEADERBOARD_DURATION_HOURS,
+  getGlobalSupportLeaderboard,
   getRoomSupportLeaderboard,
   getRoomsSupportLeaderboard,
   attachActiveRoomFrames,

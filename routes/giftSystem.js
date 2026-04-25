@@ -9,6 +9,7 @@ const { connectedUsers, roomUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 const { sendNotificationToUser } = require("../services/notifications");
 const {
+  getGlobalSupportLeaderboard,
   getRoomSupportLeaderboard,
   getRoomsSupportLeaderboard,
 } = require("../services/roomLeaderboard");
@@ -234,11 +235,11 @@ async function emitRoomLeaderboardUpdate({
 
   try {
     const [roomLeaderboard, roomsLeaderboard] = await Promise.all([
-      getRoomSupportLeaderboard(Number(roomId), { limit: 10 }),
+      getGlobalSupportLeaderboard({ limit: 10 }),
       getRoomsSupportLeaderboard({ limit: 10 }),
     ]);
 
-    roomsIO.to(`room-${roomId}`).emit("room-top-supporters-updated", {
+    roomsIO.emit("room-top-supporters-updated", {
       roomId: Number(roomId),
       leaderboard: roomLeaderboard,
       roomsLeaderboard,
@@ -691,7 +692,7 @@ router.get("/room/:roomId/top-supporters", authenticateTokenUser, async (req, re
       return res.status(404).json({ error: "الغرفة غير موجودة" });
     }
 
-    const leaderboard = await getRoomSupportLeaderboard(roomId, { limit: 10 });
+    const leaderboard = await getGlobalSupportLeaderboard({ limit: 10 });
 
     return res.json({
       success: true,
