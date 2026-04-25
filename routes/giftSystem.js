@@ -8,6 +8,10 @@ const { Op, DataTypes, fn, col, literal } = require("sequelize");
 const { connectedUsers, roomUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 const { sendNotificationToUser } = require("../services/notifications");
+const {
+  getRoomSupportLeaderboard,
+  getRoomsSupportLeaderboard,
+} = require("../services/roomLeaderboard");
 
 const uploadsDir = path.resolve(process.cwd(), "uploads");
 
@@ -218,6 +222,31 @@ function emitRoomGiftNotification({
   }
 
   roomsIO.to(`room-${roomId}`).emit("gift-received", payload);
+}
+
+async function emitRoomLeaderboardUpdate({
+  roomsIO,
+  roomId,
+}) {
+  if (!roomsIO || !roomId) {
+    return;
+  }
+
+  try {
+    const [roomLeaderboard, roomsLeaderboard] = await Promise.all([
+      getRoomSupportLeaderboard(Number(roomId), { limit: 10 }),
+      getRoomsSupportLeaderboard({ limit: 10 }),
+    ]);
+
+    roomsIO.to(`room-${roomId}`).emit("room-top-supporters-updated", {
+      roomId: Number(roomId),
+      leaderboard: roomLeaderboard,
+      roomsLeaderboard,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn("Failed to emit room leaderboard update:", error.message);
+  }
 }
 
 
@@ -647,6 +676,53 @@ router.get("/gift-items/sent-statistics", requireAdmin, async (req, res) => {
 });
 
 // تعديل حالة الهدية (إيقاف/تفعيل) - بدلاً من التعليق
+router.get("/room/:roomId/top-supporters", authenticateTokenUser, async (req, res) => {
+  try {
+    const roomId = Number.parseInt(req.params.roomId, 10);
+    if (!Number.isInteger(roomId) || roomId <= 0) {
+      return res.status(400).json({ error: "roomId غير صالح" });
+    }
+
+    const room = await Room.findByPk(roomId, {
+      attributes: ["id", "name", "images", "currentUsers", "category", "isActive"],
+    });
+
+    if (!room || room.isActive === false) {
+      return res.status(404).json({ error: "الغرفة غير موجودة" });
+    }
+
+    const leaderboard = await getRoomSupportLeaderboard(roomId, { limit: 10 });
+
+    return res.json({
+      success: true,
+      room: {
+        id: room.id,
+        name: room.name,
+        image: Array.isArray(room.images) && room.images.length > 0 ? room.images[0] : "",
+        currentUsers: Number(room.currentUsers ?? 0),
+        category: room.category ?? "",
+      },
+      ...leaderboard,
+    });
+  } catch (error) {
+    console.error("Error fetching room supporters leaderboard:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب توب الداعمين" });
+  }
+});
+
+router.get("/rooms/top-supporters", authenticateTokenUser, async (req, res) => {
+  try {
+    const leaderboard = await getRoomsSupportLeaderboard({ limit: 10 });
+    return res.json({
+      success: true,
+      ...leaderboard,
+    });
+  } catch (error) {
+    console.error("Error fetching rooms leaderboard:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب توب الرومات" });
+  }
+});
+
 router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
     try {
         const giftItemId = req.params.id;
@@ -958,6 +1034,13 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
 
     return res.json({
       message: "تم إرسال الهدية مباشرة بنجاح",
+      ...(roomId
+        ? (await emitRoomLeaderboardUpdate({
+            roomsIO,
+            roomId,
+          }),
+          {})
+        : {}),
       deductedPoints: giftCost,
       senderBalance: sender.sawa,
       ...payload,
@@ -1150,6 +1233,11 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
 
       return res.json({
         message: "تم إرسال الهدية للجميع بنجاح",
+        ...(await emitRoomLeaderboardUpdate({
+          roomsIO,
+          roomId,
+        }),
+        {}),
         deductedPoints: totalCost,
         senderBalance: sender.sawa,
         recipientsCount: payloads.length,
@@ -1328,6 +1416,13 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
 
     return res.json({
       message: "تم إرسال الهدية وتحويلها مباشرة إلى نقاط",
+      ...(roomId
+        ? (await emitRoomLeaderboardUpdate({
+            roomsIO,
+            roomId,
+          }),
+          {})
+        : {}),
       ...payload,
     });
   } catch (error) {

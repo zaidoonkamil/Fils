@@ -6,6 +6,7 @@ const User = require("../models/user");
 const jwt = require("jsonwebtoken");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
+const { attachActiveRoomFrames } = require("../services/roomLeaderboard");
 
 function normalizeUserPayload(user) {
     if (!user) return null;
@@ -249,8 +250,10 @@ router.get("/search-rooms", authenticateToken, async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
+        const serializedRooms = await attachActiveRoomFrames(rooms);
+
         res.json({
-            rooms: rooms,
+            rooms: serializedRooms,
             total: rooms.length
         });
 
@@ -286,8 +289,10 @@ router.get("/rooms", authenticateToken, async (req, res) => {
             offset: (parseInt(page) - 1) * parseInt(limit)
         });
 
+        const serializedRooms = await attachActiveRoomFrames(rooms.rows);
+
         res.json({
-            rooms: rooms.rows,
+            rooms: serializedRooms,
             total: rooms.count,
             currentPage: parseInt(page),
             totalPages: Math.ceil(rooms.count / parseInt(limit))
@@ -325,7 +330,8 @@ router.get("/my-room", authenticateToken, async (req, res) => {
             return res.status(400).json({ error: "آخر غرفة للمستخدم غير نشطة" });
         }
 
-        res.json({ room });
+        const [serializedRoom] = await attachActiveRoomFrames([room]);
+        res.json({ room: serializedRoom });
     } catch (error) {
         console.error("خطأ في جلب غرفة المستخدم:", error);
         res.status(500).json({ error: "خطأ في جلب غرفة المستخدم" });
@@ -353,7 +359,8 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
             return res.status(400).json({ error: "الغرفة غير نشطة" });
         }
 
-        res.json({ room });
+        const [serializedRoom] = await attachActiveRoomFrames([room]);
+        res.json({ room: serializedRoom });
 
     } catch (error) {
         console.error("خطأ في جلب تفاصيل الغرفة:", error);
@@ -565,11 +572,13 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
             }]
         });
 
+        const [serializedRoom] = await attachActiveRoomFrames([refreshedRoom]);
+
         return res.json({
             message: "Room background updated successfully",
             deductedPoints: backgroundCost,
             remainingSawa,
-            room: refreshedRoom,
+            room: serializedRoom,
         });
     } catch (error) {
         console.error("Error updating room background:", error);
@@ -619,9 +628,11 @@ router.post("/room/:roomId/image", authenticateToken, upload.single("image"), as
             }]
         });
 
+        const [serializedRoom] = await attachActiveRoomFrames([refreshedRoom]);
+
         return res.json({
             message: "تم تحديث صورة الغرفة بنجاح",
-            room: refreshedRoom,
+            room: serializedRoom,
         });
     } catch (error) {
         console.error("خطأ في تحديث صورة الغرفة:", error);
