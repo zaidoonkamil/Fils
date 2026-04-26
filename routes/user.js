@@ -2383,6 +2383,11 @@ router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, 
     user.sawa -= shopItem.price;
     await user.save({ transaction: t });
 
+    await User.update(
+      { id: newId },
+      { where: { id: oldId }, transaction: t }
+    );
+
     await UserCounter.update(
       { userId: newId },
       { where: { userId: oldId }, transaction: t }
@@ -2481,11 +2486,6 @@ router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, 
     await Referrals.update(
       { referredUserId: newId },
       { where: { referredUserId: oldId }, transaction: t }
-    );
-
-    await User.update(
-      { id: newId },
-      { where: { id: oldId }, transaction: t }
     );
 
     shopItem.isAvailable = false;
@@ -2751,6 +2751,11 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
 
     const oldId = user.id;
 
+    await User.update(
+      { id: newId },
+      { where: { id: oldId }, transaction: t }
+    );
+
     await UserCounter.update(
       { userId: newId },
       { where: { userId: oldId }, transaction: t }
@@ -2849,11 +2854,6 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
     await Referrals.update(
       { referredUserId: newId },
       { where: { referredUserId: oldId }, transaction: t }
-    );
-
-    await User.update(
-      { id: newId },
-      { where: { id: oldId }, transaction: t }
     );
 
     await t.commit();
