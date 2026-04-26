@@ -24,7 +24,9 @@ const upload = multer({ storage: storage });
 const { 
   User, OtpCode, UserDevice, IdShop, Referrals, Tearms, Settings, 
   CounterSale, UserCounter, Counter, AgentRequest, Message, Room,
-  DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification
+  DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification,
+  DailyAction, TransferHistory, WithdrawalRequest, ChatMessage,
+  ProductPurchase, ConsumablePurchase, UserGift
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -2372,6 +2374,12 @@ router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, 
     const oldId = user.id;
     const newId = shopItem.idForSale;
 
+    const existingUserWithNewId = await User.findByPk(newId, { transaction: t });
+    if (existingUserWithNewId) {
+      await t.rollback();
+      return res.status(400).json({ error: "هذا الـ ID مستخدم بالفعل" });
+    }
+
     user.sawa -= shopItem.price;
     await user.save({ transaction: t });
 
@@ -2381,6 +2389,86 @@ router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, 
     );
 
     await Counter.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await DailyAction.update(
+      { user_id: newId },
+      { where: { user_id: oldId }, transaction: t }
+    );
+
+    await UserDevice.update(
+      { user_id: newId },
+      { where: { user_id: oldId }, transaction: t }
+    );
+
+    await DeviceFingerprintUser.update(
+      { user_id: newId },
+      { where: { user_id: oldId }, transaction: t }
+    );
+
+    await AgentRequest.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await Message.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await TransferHistory.update(
+      { senderId: newId },
+      { where: { senderId: oldId }, transaction: t }
+    );
+
+    await TransferHistory.update(
+      { receiverId: newId },
+      { where: { receiverId: oldId }, transaction: t }
+    );
+
+    await WithdrawalRequest.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await ChatMessage.update(
+      { senderId: newId },
+      { where: { senderId: oldId }, transaction: t }
+    );
+
+    await ChatMessage.update(
+      { receiverId: newId },
+      { where: { receiverId: oldId }, transaction: t }
+    );
+
+    await ProductPurchase.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await ConsumablePurchase.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await UserGift.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await UserGift.update(
+      { senderId: newId },
+      { where: { senderId: oldId }, transaction: t }
+    );
+
+    await UserGift.update(
+      { roomOwnerId: newId },
+      { where: { roomOwnerId: oldId }, transaction: t }
+    );
+
+    await UserInternalVerification.update(
       { userId: newId },
       { where: { userId: oldId }, transaction: t }
     );
@@ -2673,12 +2761,82 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
       { where: { userId: oldId }, transaction: t }
     );
 
+    await DailyAction.update(
+      { user_id: newId },
+      { where: { user_id: oldId }, transaction: t }
+    );
+
     await UserDevice.update(
+      { user_id: newId },
+      { where: { user_id: oldId }, transaction: t }
+    );
+
+    await DeviceFingerprintUser.update(
+      { user_id: newId },
+      { where: { user_id: oldId }, transaction: t }
+    );
+
+    await AgentRequest.update(
       { userId: newId },
       { where: { userId: oldId }, transaction: t }
     );
 
-    await AgentRequest.update(
+    await Message.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await TransferHistory.update(
+      { senderId: newId },
+      { where: { senderId: oldId }, transaction: t }
+    );
+
+    await TransferHistory.update(
+      { receiverId: newId },
+      { where: { receiverId: oldId }, transaction: t }
+    );
+
+    await WithdrawalRequest.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await ChatMessage.update(
+      { senderId: newId },
+      { where: { senderId: oldId }, transaction: t }
+    );
+
+    await ChatMessage.update(
+      { receiverId: newId },
+      { where: { receiverId: oldId }, transaction: t }
+    );
+
+    await ProductPurchase.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await ConsumablePurchase.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await UserGift.update(
+      { userId: newId },
+      { where: { userId: oldId }, transaction: t }
+    );
+
+    await UserGift.update(
+      { senderId: newId },
+      { where: { senderId: oldId }, transaction: t }
+    );
+
+    await UserGift.update(
+      { roomOwnerId: newId },
+      { where: { roomOwnerId: oldId }, transaction: t }
+    );
+
+    await UserInternalVerification.update(
       { userId: newId },
       { where: { userId: oldId }, transaction: t }
     );
