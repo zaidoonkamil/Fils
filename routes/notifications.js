@@ -75,7 +75,8 @@ router.post("/register-device", async (req, res) => {
 });
 
 router.post('/send-notification', requireAdmin, upload.none(), (req, res) => {
-    const { title, message } = req.body;
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { title, message } = body;
 
     if (!message) {
         return res.status(400).json({ error: 'message مطلوب' });
@@ -87,7 +88,8 @@ router.post('/send-notification', requireAdmin, upload.none(), (req, res) => {
 });
 
 router.post('/send-notification-to-role', requireAdmin, upload.none(), async (req, res) => {
-  const { title, message, role } = req.body;
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const { title, message, role } = body;
 
   if (!message) {
     return res.status(400).json({ error: 'message مطلوب' });
@@ -159,14 +161,21 @@ router.post('/send-notification-to-role', requireAdmin, upload.none(), async (re
 });
 
 router.post('/send-notification-to-referral', requireAdmin, upload.none(), async (req, res) => {
-  const { title, message, referralCode } = req.body;
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const { title, message, referralCode } = body;
 
   if (!message) {
-    return res.status(400).json({ error: 'message مطلوب' });
+    return res.status(400).json({
+      error: 'message مطلوب',
+      hint: 'أرسل الطلب بصيغة JSON أو form-data مع Content-Type صحيح',
+    });
   }
 
   if (!referralCode) {
-    return res.status(400).json({ error: 'referralCode مطلوب' });
+    return res.status(400).json({
+      error: 'referralCode مطلوب',
+      hint: 'أرسل referralCode داخل body',
+    });
   }
 
   try {
