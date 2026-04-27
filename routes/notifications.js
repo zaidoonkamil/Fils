@@ -1,7 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const router = express.Router();
-const { sendNotification } = require('../services/notifications');
+const {
+  sendNotification,
+  sendNotificationToUser,
+} = require('../services/notifications');
 const multer = require("multer");
 const upload = multer();
 const { User, UserDevice, NotificationLog, DeviceFingerprint, DeviceFingerprintUser } = require('../models'); 
@@ -151,6 +154,54 @@ router.post('/send-notification-to-role', requireAdmin, upload.none(), async (re
       status: "failed"
     });
 
+    return res.status(500).json({ error: 'حدث خطأ أثناء إرسال الإشعار' });
+  }
+});
+
+router.post('/send-notification-to-referral', requireAdmin, upload.none(), async (req, res) => {
+  const { title, message, referralCode } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: 'message مطلوب' });
+  }
+
+  if (!referralCode) {
+    return res.status(400).json({ error: 'referralCode مطلوب' });
+  }
+
+  try {
+    const normalizedReferralCode = String(referralCode).trim();
+    const user = await User.findByPk(normalizedReferralCode);
+
+    if (!user) {
+      return res.status(404).json({ error: 'المستخدم غير موجود بهذا الرمز' });
+    }
+
+    const result = await sendNotificationToUser(
+      user.id,
+      message,
+      title || 'Notification'
+    );
+
+    if (!result?.success) {
+      return res.status(404).json({
+        error: result?.message || 'تعذر إرسال الإشعار لهذا المستخدم',
+        referralCode: normalizedReferralCode,
+        userId: user.id,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'تم إرسال الإشعار بنجاح',
+      user: {
+        id: user.id,
+        name: user.name,
+        referralCode: String(user.id),
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error sending notification by referral code:', error);
     return res.status(500).json({ error: 'حدث خطأ أثناء إرسال الإشعار' });
   }
 });
