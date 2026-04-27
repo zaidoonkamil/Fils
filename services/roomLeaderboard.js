@@ -6,6 +6,7 @@ const LEADERBOARD_DURATION_MS = LEADERBOARD_DURATION_HOURS * 60 * 60 * 1000;
 const CYCLE_ANCHOR_KEY = "room_support_leaderboard_cycle_anchor";
 const CYCLE_DURATION_KEY = "room_support_leaderboard_cycle_duration_hours";
 const CYCLE_DATA_START_KEY = "room_support_leaderboard_cycle_data_start";
+const CYCLE_BOOTSTRAP_KEY = "room_support_leaderboard_cycle_bootstrap_v2";
 
 const USER_FRAME_PRESETS = {
   1: {
@@ -101,10 +102,48 @@ async function ensureCycleAnchor() {
     },
   });
 
+  const [bootstrapSetting] = await Settings.findOrCreate({
+    where: { key: CYCLE_BOOTSTRAP_KEY },
+    defaults: {
+      value: "pending",
+      description: "One-time bootstrap to restart leaderboard cycles from now while preserving current standings",
+      isActive: true,
+    },
+  });
+
   const parsedAnchor = new Date(setting.value);
   const storedDuration = Number.parseInt(String(durationSetting.value ?? ""), 10);
+  const now = new Date();
+
+  if (String(bootstrapSetting.value ?? "").trim().toLowerCase() !== "done") {
+    const oldDurationMs =
+      Number.isInteger(storedDuration) && storedDuration > 0
+        ? storedDuration * 60 * 60 * 1000
+        : LEADERBOARD_DURATION_MS;
+    const safeOldAnchor = !Number.isNaN(parsedAnchor.getTime()) ? parsedAnchor : now;
+    const elapsedMs = Math.max(0, now.getTime() - safeOldAnchor.getTime());
+    const oldCycleIndex = Math.floor(elapsedMs / oldDurationMs);
+    const oldCurrentCycleStart = new Date(
+      safeOldAnchor.getTime() + oldCycleIndex * oldDurationMs
+    );
+
+    setting.value = now.toISOString();
+    durationSetting.value = String(LEADERBOARD_DURATION_HOURS);
+    dataStartSetting.value = oldCurrentCycleStart.toISOString();
+    bootstrapSetting.value = "done";
+    await Promise.all([
+      setting.save(),
+      durationSetting.save(),
+      dataStartSetting.save(),
+      bootstrapSetting.save(),
+    ]);
+    return {
+      anchorAt: now,
+      carryoverStartAt: oldCurrentCycleStart,
+    };
+  }
+
   if (storedDuration !== LEADERBOARD_DURATION_HOURS) {
-    const now = new Date();
     const oldDurationMs =
       Number.isInteger(storedDuration) && storedDuration > 0
         ? storedDuration * 60 * 60 * 1000
@@ -135,7 +174,6 @@ async function ensureCycleAnchor() {
     };
   }
 
-  const now = new Date();
   setting.value = now.toISOString();
   durationSetting.value = String(LEADERBOARD_DURATION_HOURS);
   dataStartSetting.value = "";
