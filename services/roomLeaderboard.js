@@ -4,6 +4,8 @@ const { UserGift, GiftItem, User, Room, Settings } = require("../models");
 const LEADERBOARD_DURATION_HOURS = 72;
 const LEADERBOARD_DURATION_MS = LEADERBOARD_DURATION_HOURS * 60 * 60 * 1000;
 const CYCLE_ANCHOR_KEY = "room_support_leaderboard_cycle_anchor";
+const CYCLE_DURATION_KEY = "room_support_leaderboard_cycle_duration_hours";
+const CYCLE_DATA_START_KEY = "room_support_leaderboard_cycle_data_start";
 
 const USER_FRAME_PRESETS = {
   1: {
@@ -81,15 +83,67 @@ async function ensureCycleAnchor() {
     },
   });
 
-  const parsed = new Date(setting.value);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed;
+  const [durationSetting] = await Settings.findOrCreate({
+    where: { key: CYCLE_DURATION_KEY },
+    defaults: {
+      value: String(LEADERBOARD_DURATION_HOURS),
+      description: "Stored duration for room support leaderboard cycles in hours",
+      isActive: true,
+    },
+  });
+
+  const [dataStartSetting] = await Settings.findOrCreate({
+    where: { key: CYCLE_DATA_START_KEY },
+    defaults: {
+      value: "",
+      description: "Carry-over start timestamp for the first room support leaderboard cycle after duration changes",
+      isActive: true,
+    },
+  });
+
+  const parsedAnchor = new Date(setting.value);
+  const storedDuration = Number.parseInt(String(durationSetting.value ?? ""), 10);
+  if (storedDuration !== LEADERBOARD_DURATION_HOURS) {
+    const now = new Date();
+    const oldDurationMs =
+      Number.isInteger(storedDuration) && storedDuration > 0
+        ? storedDuration * 60 * 60 * 1000
+        : LEADERBOARD_DURATION_MS;
+    const safeOldAnchor = !Number.isNaN(parsedAnchor.getTime()) ? parsedAnchor : now;
+    const elapsedMs = Math.max(0, now.getTime() - safeOldAnchor.getTime());
+    const oldCycleIndex = Math.floor(elapsedMs / oldDurationMs);
+    const oldCurrentCycleStart = new Date(
+      safeOldAnchor.getTime() + oldCycleIndex * oldDurationMs
+    );
+
+    setting.value = now.toISOString();
+    durationSetting.value = String(LEADERBOARD_DURATION_HOURS);
+    dataStartSetting.value = oldCurrentCycleStart.toISOString();
+    await Promise.all([setting.save(), durationSetting.save(), dataStartSetting.save()]);
+    return {
+      anchorAt: now,
+      carryoverStartAt: oldCurrentCycleStart,
+    };
+  }
+
+  const parsedDataStart = new Date(dataStartSetting.value);
+
+  if (!Number.isNaN(parsedAnchor.getTime())) {
+    return {
+      anchorAt: parsedAnchor,
+      carryoverStartAt: !Number.isNaN(parsedDataStart.getTime()) ? parsedDataStart : null,
+    };
   }
 
   const now = new Date();
   setting.value = now.toISOString();
-  await setting.save();
-  return now;
+  durationSetting.value = String(LEADERBOARD_DURATION_HOURS);
+  dataStartSetting.value = "";
+  await Promise.all([setting.save(), durationSetting.save(), dataStartSetting.save()]);
+  return {
+    anchorAt: now,
+    carryoverStartAt: null,
+  };
 }
 
 function buildCycleMeta(anchorAt, now = new Date()) {
@@ -114,6 +168,44 @@ function buildCycleMeta(anchorAt, now = new Date()) {
       Math.floor((currentCycleEnd.getTime() - safeNow.getTime()) / 1000)
     ),
   };
+}
+
+function resolveEffectiveCycleBounds(cycle, carryoverStartAt) {
+  const currentStart = new Date(cycle.currentCycle.startsAt);
+  const currentEnd = new Date(cycle.currentCycle.endsAt);
+
+  let effectiveCurrentStart = currentStart;
+  let effectivePreviousStart = cycle.previousCycle ? new Date(cycle.previousCycle.startsAt) : null;
+  const effectivePreviousEnd = cycle.previousCycle ? new Date(cycle.previousCycle.endsAt) : null;
+
+  if (carryoverStartAt instanceof Date && !Number.isNaN(carryoverStartAt.getTime())) {
+    if (cycle.cycleIndex === 0 && carryoverStartAt.getTime() < currentStart.getTime()) {
+      effectiveCurrentStart = carryoverStartAt;
+    }
+
+    if (
+      cycle.cycleIndex === 1 &&
+      effectivePreviousStart &&
+      carryoverStartAt.getTime() < effectivePreviousStart.getTime()
+    ) {
+      effectivePreviousStart = carryoverStartAt;
+    }
+  }
+
+  return {
+    currentStart: effectiveCurrentStart,
+    currentEnd,
+    previousStart: effectivePreviousStart,
+    previousEnd: effectivePreviousEnd,
+  };
+}
+
+function shouldPromoteCarryoverLeaders(cycle, carryoverStartAt) {
+  return (
+    cycle?.cycleIndex === 0 &&
+    carryoverStartAt instanceof Date &&
+    !Number.isNaN(carryoverStartAt.getTime())
+  );
 }
 
 function buildDateWhere(start, end) {
@@ -265,11 +357,12 @@ function applyEntryRanks(entries, frameMap, entityKey) {
 
 async function getRoomSupportLeaderboard(roomId, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const anchorAt = await ensureCycleAnchor();
+  const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
   const cycle = buildCycleMeta(anchorAt, now);
-
-  const currentStart = new Date(cycle.currentCycle.startsAt);
-  const currentEnd = new Date(cycle.currentCycle.endsAt);
+  const { currentStart, currentEnd, previousStart, previousEnd } = resolveEffectiveCycleBounds(
+    cycle,
+    carryoverStartAt
+  );
 
   const currentTopSupporters = await queryTopSupporters({
     roomId,
@@ -281,28 +374,40 @@ async function getRoomSupportLeaderboard(roomId, options = {}) {
   const previousTopSupporters = cycle.previousCycle
     ? await queryTopSupporters({
         roomId,
-        start: new Date(cycle.previousCycle.startsAt),
-        end: new Date(cycle.previousCycle.endsAt),
+        start: previousStart,
+        end: previousEnd,
         limit: 3,
       })
     : [];
 
-  const frameMap = decorateEntriesWithFrames(previousTopSupporters, USER_FRAME_PRESETS, "userId");
+  const effectivePreviousTopSupporters =
+    previousTopSupporters.length > 0
+      ? previousTopSupporters
+      : shouldPromoteCarryoverLeaders(cycle, carryoverStartAt)
+        ? currentTopSupporters.slice(0, 3)
+        : [];
+
+  const frameMap = decorateEntriesWithFrames(
+    effectivePreviousTopSupporters,
+    USER_FRAME_PRESETS,
+    "userId"
+  );
 
   return {
     cycle,
     topSupporters: applyEntryRanks(currentTopSupporters, frameMap, "userId"),
-    activeFrameWinners: applyEntryRanks(previousTopSupporters, frameMap, "userId"),
+    activeFrameWinners: applyEntryRanks(effectivePreviousTopSupporters, frameMap, "userId"),
   };
 }
 
 async function getGlobalSupportLeaderboard(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const anchorAt = await ensureCycleAnchor();
+  const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
   const cycle = buildCycleMeta(anchorAt, now);
-
-  const currentStart = new Date(cycle.currentCycle.startsAt);
-  const currentEnd = new Date(cycle.currentCycle.endsAt);
+  const { currentStart, currentEnd, previousStart, previousEnd } = resolveEffectiveCycleBounds(
+    cycle,
+    carryoverStartAt
+  );
 
   const currentTopSupporters = await queryTopSupporters({
     start: currentStart,
@@ -312,18 +417,29 @@ async function getGlobalSupportLeaderboard(options = {}) {
 
   const previousTopSupporters = cycle.previousCycle
     ? await queryTopSupporters({
-        start: new Date(cycle.previousCycle.startsAt),
-        end: new Date(cycle.previousCycle.endsAt),
+        start: previousStart,
+        end: previousEnd,
         limit: 3,
       })
     : [];
 
-  const frameMap = decorateEntriesWithFrames(previousTopSupporters, USER_FRAME_PRESETS, "userId");
+  const effectivePreviousTopSupporters =
+    previousTopSupporters.length > 0
+      ? previousTopSupporters
+      : shouldPromoteCarryoverLeaders(cycle, carryoverStartAt)
+        ? currentTopSupporters.slice(0, 3)
+        : [];
+
+  const frameMap = decorateEntriesWithFrames(
+    effectivePreviousTopSupporters,
+    USER_FRAME_PRESETS,
+    "userId"
+  );
 
   return {
     cycle,
     topSupporters: applyEntryRanks(currentTopSupporters, frameMap, "userId"),
-    activeFrameWinners: applyEntryRanks(previousTopSupporters, frameMap, "userId"),
+    activeFrameWinners: applyEntryRanks(effectivePreviousTopSupporters, frameMap, "userId"),
   };
 }
 
@@ -358,11 +474,12 @@ async function attachActiveUserFrames(users, options = {}) {
 
 async function getRoomsSupportLeaderboard(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const anchorAt = await ensureCycleAnchor();
+  const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
   const cycle = buildCycleMeta(anchorAt, now);
-
-  const currentStart = new Date(cycle.currentCycle.startsAt);
-  const currentEnd = new Date(cycle.currentCycle.endsAt);
+  const { currentStart, currentEnd, previousStart, previousEnd } = resolveEffectiveCycleBounds(
+    cycle,
+    carryoverStartAt
+  );
 
   const currentTopRooms = await queryTopRooms({
     start: currentStart,
@@ -372,18 +489,29 @@ async function getRoomsSupportLeaderboard(options = {}) {
 
   const previousTopRooms = cycle.previousCycle
     ? await queryTopRooms({
-        start: new Date(cycle.previousCycle.startsAt),
-        end: new Date(cycle.previousCycle.endsAt),
+        start: previousStart,
+        end: previousEnd,
         limit: 3,
       })
     : [];
 
-  const frameMap = decorateEntriesWithFrames(previousTopRooms, ROOM_FRAME_PRESETS, "roomId");
+  const effectivePreviousTopRooms =
+    previousTopRooms.length > 0
+      ? previousTopRooms
+      : shouldPromoteCarryoverLeaders(cycle, carryoverStartAt)
+        ? currentTopRooms.slice(0, 3)
+        : [];
+
+  const frameMap = decorateEntriesWithFrames(
+    effectivePreviousTopRooms,
+    ROOM_FRAME_PRESETS,
+    "roomId"
+  );
 
   return {
     cycle,
     topRooms: applyEntryRanks(currentTopRooms, frameMap, "roomId"),
-    activeFrameWinners: applyEntryRanks(previousTopRooms, frameMap, "roomId"),
+    activeFrameWinners: applyEntryRanks(effectivePreviousTopRooms, frameMap, "roomId"),
   };
 }
 
