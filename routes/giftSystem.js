@@ -222,7 +222,7 @@ function emitRoomGiftNotification({
     return;
   }
 
-  roomsIO.to(`room-${roomId}`).emit("gift-received", payload);
+  roomsIO.emit("gift-received", payload);
 }
 
 async function emitRoomLeaderboardUpdate({
