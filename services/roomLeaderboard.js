@@ -1,7 +1,7 @@
 const { Op, fn, col, literal } = require("sequelize");
 const { UserGift, GiftItem, User, Room, Settings } = require("../models");
 
-const LEADERBOARD_DURATION_HOURS = 24;
+const LEADERBOARD_DURATION_HOURS = 1;
 const LEADERBOARD_DURATION_MS = LEADERBOARD_DURATION_HOURS * 60 * 60 * 1000;
 const CYCLE_ANCHOR_KEY = "room_support_leaderboard_cycle_anchor";
 
