@@ -36,6 +36,30 @@ function resolveTableName(model) {
   return String(tableName);
 }
 
+async function ensureChatMessagesSchema(queryInterface, tableName) {
+  await ensureTable(queryInterface, tableName, {
+    messageType: {
+      type: DataTypes.ENUM("text", "image"),
+      allowNull: false,
+      defaultValue: "text",
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+  });
+
+  const columns = await queryInterface.describeTable(tableName);
+
+  if (columns.message && columns.message.allowNull === false) {
+    await queryInterface.changeColumn(tableName, "message", {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    });
+  }
+}
+
 async function ensureSchema() {
   const queryInterface = sequelize.getQueryInterface();
   const usersTable = resolveTableName(User);
@@ -214,18 +238,7 @@ async function ensureSchema() {
     },
   });
 
-  await ensureTable(queryInterface, chatMessagesTable, {
-    messageType: {
-      type: DataTypes.ENUM("text", "image"),
-      allowNull: false,
-      defaultValue: "text",
-    },
-    image: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      defaultValue: null,
-    },
-  });
+  await ensureChatMessagesSchema(queryInterface, chatMessagesTable);
 }
 
 module.exports = ensureSchema;
