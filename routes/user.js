@@ -26,7 +26,7 @@ const {
   CounterSale, UserCounter, Counter, AgentRequest, Message, Room,
   DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification,
   DailyAction, TransferHistory, WithdrawalRequest, ChatMessage,
-  ProductPurchase, ConsumablePurchase, UserGift
+  ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -2974,6 +2974,171 @@ router.get("/leaderboard/sawa", requireAdmin, async (req, res) => {
   } catch (err) {
     console.error("❌ Error fetching leaderboard:", err);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/users/:referralCode/sawa-activity", requireAdmin, async (req, res) => {
+  try {
+    const referralCode = Number.parseInt(req.params.referralCode, 10);
+    if (!Number.isFinite(referralCode)) {
+      return res.status(400).json({ error: "رمز الإحالة غير صالح" });
+    }
+
+    const user = await User.findByPk(referralCode, {
+      attributes: ["id", "name", "phone", "sawa", "role", "createdAt"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const [
+      adminLogs,
+      sentTransfers,
+      receivedTransfers,
+      withdrawals,
+      productPurchases,
+      consumablePurchases,
+    ] = await Promise.all([
+      AdminBalanceLog.findAll({
+        where: { targetUserId: user.id, balanceType: "sawa" },
+        include: [
+          {
+            model: User,
+            as: "admin",
+            attributes: ["id", "name", "role"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      TransferHistory.findAll({
+        where: { senderId: user.id },
+        include: [
+          { model: User, as: "Receiver", attributes: ["id", "name", "phone"] },
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      TransferHistory.findAll({
+        where: { receiverId: user.id },
+        include: [
+          { model: User, as: "Sender", attributes: ["id", "name", "phone"] },
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      WithdrawalRequest.findAll({
+        where: { userId: user.id },
+        attributes: [
+          "id",
+          "amount",
+          "method",
+          "accountNumber",
+          "status",
+          "createdAt",
+          "updatedAt",
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      ProductPurchase.findAll({
+        where: { userId: user.id },
+        attributes: ["id", "productId", "price", "createdAt"],
+        order: [["createdAt", "DESC"]],
+      }),
+      ConsumablePurchase.findAll({
+        where: { userId: user.id },
+        attributes: ["id", "productId", "quantity", "totalPrice", "status", "createdAt"],
+        order: [["createdAt", "DESC"]],
+      }),
+    ]);
+
+    const activities = [
+      ...adminLogs.map((log) => ({
+        type: "admin_balance_update",
+        direction: Number(log.amount) >= 0 ? "credit" : "debit",
+        amount: Math.abs(Number(log.amount) || 0),
+        netChange: Number(log.amount) || 0,
+        balanceBefore: Number(log.balanceBefore) || 0,
+        balanceAfter: Number(log.balanceAfter) || 0,
+        note: log.note,
+        actor: log.admin
+          ? {
+              id: log.admin.id,
+              name: log.admin.name,
+              role: log.admin.role,
+            }
+          : null,
+        createdAt: log.createdAt,
+      })),
+      ...sentTransfers.map((transfer) => ({
+        type: "transfer_sent",
+        direction: "debit",
+        amount: Number(transfer.amount) || 0,
+        fee: Number(transfer.fee) || 0,
+        netChange: -(Number(transfer.amount) || 0),
+        targetUser: transfer.Receiver
+          ? {
+              id: transfer.Receiver.id,
+              name: transfer.Receiver.name,
+              phone: transfer.Receiver.phone,
+            }
+          : null,
+        createdAt: transfer.createdAt,
+      })),
+      ...receivedTransfers.map((transfer) => ({
+        type: "transfer_received",
+        direction: "credit",
+        amount: Number(transfer.amount) || 0,
+        fee: Number(transfer.fee) || 0,
+        netChange: (Number(transfer.amount) || 0) - (Number(transfer.fee) || 0),
+        sourceUser: transfer.Sender
+          ? {
+              id: transfer.Sender.id,
+              name: transfer.Sender.name,
+              phone: transfer.Sender.phone,
+            }
+          : null,
+        createdAt: transfer.createdAt,
+      })),
+      ...withdrawals.map((withdrawal) => ({
+        type: "withdrawal_request",
+        direction: "debit",
+        amount: Number(withdrawal.amount) || 0,
+        netChange: -(Number(withdrawal.amount) || 0),
+        status: withdrawal.status,
+        method: withdrawal.method,
+        accountNumber: withdrawal.accountNumber,
+        createdAt: withdrawal.createdAt,
+        updatedAt: withdrawal.updatedAt,
+      })),
+      ...productPurchases.map((purchase) => ({
+        type: "digital_product_purchase",
+        direction: "debit",
+        amount: Number(purchase.price) || 0,
+        netChange: -(Number(purchase.price) || 0),
+        productId: purchase.productId,
+        purchaseId: purchase.id,
+        createdAt: purchase.createdAt,
+      })),
+      ...consumablePurchases.map((purchase) => ({
+        type: "consumable_purchase",
+        direction: "debit",
+        amount: Number(purchase.totalPrice) || 0,
+        netChange: -(Number(purchase.totalPrice) || 0),
+        productId: purchase.productId,
+        quantity: purchase.quantity,
+        status: purchase.status,
+        purchaseId: purchase.id,
+        createdAt: purchase.createdAt,
+      })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.status(200).json({
+      user,
+      totalActivities: activities.length,
+      activities,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching user sawa activity:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
