@@ -364,6 +364,11 @@ router.post("/sendmony-simple", authenticateTokenUser, upload.none(), async (req
     const sender = await User.findByPk(senderId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!sender) { await t.rollback(); return res.status(404).json({ error: "المرسل غير موجود" }); }
 
+    if (!["agent", "admin"].includes(sender.role)) {
+      await t.rollback();
+      return res.status(403).json({ error: "هذا التحويل متاح فقط للوكلاء والإدارة" });
+    }
+
     if (sender.sawa < transferAmount) { await t.rollback(); return res.status(400).json({ error: "رصيد المرسل غير كافي" }); }
 
     const receiver = await User.findByPk(receiverId, { transaction: t, lock: t.LOCK.UPDATE });
