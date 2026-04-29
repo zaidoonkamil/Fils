@@ -11,6 +11,7 @@ const {
 const router = express.Router();
 
 const CHAT_USER_ATTRIBUTES = ["id", "name", "role", "images"];
+let cachedChatMessageColumns = null;
 
 function normalizeLimit(value, fallback = 20) {
   const parsed = Number.parseInt(value, 10);
@@ -36,13 +37,84 @@ function getMessageIncludes() {
   ];
 }
 
+function resolveChatMessagesTableName() {
+  const tableName = ChatMessage.getTableName();
+  if (typeof tableName === "string") return tableName;
+  if (tableName && tableName.tableName) return tableName.tableName;
+  return String(tableName);
+}
+
+async function getChatMessageColumns() {
+  if (cachedChatMessageColumns) {
+    return cachedChatMessageColumns;
+  }
+
+  const queryInterface = ChatMessage.sequelize.getQueryInterface();
+  const tableName = resolveChatMessagesTableName();
+  const columns = await queryInterface.describeTable(tableName);
+  cachedChatMessageColumns = columns;
+  return columns;
+}
+
+async function getChatMessageAttributes() {
+  const columns = await getChatMessageColumns();
+  const attributes = [
+    "id",
+    "senderId",
+    "receiverId",
+    "message",
+    "read",
+    "createdAt",
+    "updatedAt",
+  ];
+
+  if (columns.messageType) {
+    attributes.push("messageType");
+  }
+
+  if (columns.image) {
+    attributes.push("image");
+  }
+
+  return attributes;
+}
+
+async function buildChatMessageCreatePayload({
+  senderId,
+  receiverId,
+  message,
+  messageType,
+  image,
+}) {
+  const columns = await getChatMessageColumns();
+  const payload = {
+    senderId,
+    receiverId,
+    message,
+  };
+
+  if (columns.messageType) {
+    payload.messageType = messageType;
+  }
+
+  if (columns.image) {
+    payload.image = image || null;
+  }
+
+  return payload;
+}
+
 function getImageUrl(fileName) {
   if (!fileName) return null;
   return `/uploads/${fileName}`;
 }
 
+function getResolvedMessageType(message) {
+  return message.messageType === "image" && message.image ? "image" : "text";
+}
+
 function buildNotificationMessage(message) {
-  if (message.messageType === "image") {
+  if (getResolvedMessageType(message) === "image") {
     return "تم إرسال صورة";
   }
   return message.message || "";
@@ -71,7 +143,9 @@ async function isAllowedDirectChat(senderId, receiverId) {
 }
 
 async function loadDirectMessages({ userId, receiverId, limit }) {
+  const attributes = await getChatMessageAttributes();
   const messages = await ChatMessage.findAll({
+    attributes,
     where: buildDirectConversationWhere(userId, receiverId),
     order: [["createdAt", "DESC"]],
     limit,
@@ -82,6 +156,7 @@ async function loadDirectMessages({ userId, receiverId, limit }) {
 }
 
 async function loadAdminSupportMessages({ userId, limit }) {
+  const attributes = await getChatMessageAttributes();
   const admins = await User.findAll({
     where: { role: "admin" },
     attributes: ["id"],
@@ -89,6 +164,7 @@ async function loadAdminSupportMessages({ userId, limit }) {
   const adminIds = admins.map((admin) => admin.id);
 
   const messages = await ChatMessage.findAll({
+    attributes,
     where: {
       [Op.or]: [
         { senderId: userId, receiverId: null },
@@ -105,7 +181,9 @@ async function loadAdminSupportMessages({ userId, limit }) {
 }
 
 async function buildConversationListForUser(currentUser) {
+  const attributes = await getChatMessageAttributes();
   const messages = await ChatMessage.findAll({
+    attributes,
     where: {
       [Op.or]: [{ senderId: currentUser.id }, { receiverId: currentUser.id }],
     },
@@ -199,15 +277,18 @@ function initChatSocket(io) {
           }
         }
 
-        const createdMessage = await ChatMessage.create({
+        const createPayload = await buildChatMessageCreatePayload({
           senderId: normalizedSenderId,
           receiverId: normalizedReceiverId,
           message: normalizedType === "image" ? trimmedMessage || "صورة" : trimmedMessage,
           messageType: normalizedType,
           image: image || null,
         });
+        const createdMessage = await ChatMessage.create(createPayload);
 
+        const attributes = await getChatMessageAttributes();
         const fullMessage = await ChatMessage.findOne({
+          attributes,
           where: { id: createdMessage.id },
           include: getMessageIncludes(),
         });
@@ -220,10 +301,7 @@ function initChatSocket(io) {
             where: { role: "admin" },
             attributes: ["id"],
           });
-          recipients = [
-            normalizedSenderId,
-            ...admins.map((admin) => admin.id),
-          ];
+          recipients = [normalizedSenderId, ...admins.map((admin) => admin.id)];
         }
 
         recipients.forEach((id) => {
@@ -300,15 +378,25 @@ router.post(
         return res.status(403).json({ error: allowed.error });
       }
 
-      const createdMessage = await ChatMessage.create({
+      const availableColumns = await getChatMessageColumns();
+      if (!availableColumns.image || !availableColumns.messageType) {
+        return res.status(503).json({
+          error: "ميزة الصور غير مفعلة بعد، يرجى تحديث قاعدة البيانات",
+        });
+      }
+
+      const createPayload = await buildChatMessageCreatePayload({
         senderId,
         receiverId,
         message: caption || "صورة",
         messageType: "image",
         image: req.file.filename,
       });
+      const createdMessage = await ChatMessage.create(createPayload);
 
+      const attributes = await getChatMessageAttributes();
       const fullMessage = await ChatMessage.findOne({
+        attributes,
         where: { id: createdMessage.id },
         include: getMessageIncludes(),
       });
@@ -349,6 +437,7 @@ router.post(
 
 router.get("/usersWithLastMessage", async (req, res) => {
   try {
+    const attributes = await getChatMessageAttributes();
     const admins = await User.findAll({
       where: { role: "admin" },
       attributes: ["id"],
@@ -356,6 +445,7 @@ router.get("/usersWithLastMessage", async (req, res) => {
     const adminIds = admins.map((admin) => admin.id);
 
     const messages = await ChatMessage.findAll({
+      attributes,
       where: {
         [Op.or]: [
           { senderId: { [Op.notIn]: adminIds }, receiverId: { [Op.in]: adminIds } },
