@@ -11,6 +11,7 @@ const {
 const router = express.Router();
 
 const CHAT_USER_ATTRIBUTES = ["id", "name", "role", "images"];
+const LEGACY_IMAGE_PREFIX = "__chat_image__:";
 let cachedChatMessageColumns = null;
 
 function normalizeLimit(value, fallback = 20) {
@@ -138,15 +139,53 @@ function getImageUrl(fileName) {
   return `/uploads/${fileName}`;
 }
 
+function encodeLegacyImagePayload(fileName, caption) {
+  return `${LEGACY_IMAGE_PREFIX}${JSON.stringify({
+    image: fileName,
+    caption: caption || "",
+  })}`;
+}
+
+function parseLegacyImagePayload(value) {
+  if (typeof value !== "string" || !value.startsWith(LEGACY_IMAGE_PREFIX)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value.slice(LEGACY_IMAGE_PREFIX.length));
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeChatMessage(message) {
+  const rawMessage =
+    typeof message?.toJSON === "function" ? message.toJSON() : { ...message };
+
+  const legacyImagePayload = parseLegacyImagePayload(rawMessage.message);
+  if (legacyImagePayload?.image) {
+    rawMessage.messageType = "image";
+    rawMessage.image = legacyImagePayload.image;
+    rawMessage.message = legacyImagePayload.caption || "صورة";
+    return rawMessage;
+  }
+
+  rawMessage.image = rawMessage.image || null;
+  rawMessage.messageType =
+    rawMessage.messageType === "image" && rawMessage.image ? "image" : "text";
+  return rawMessage;
+}
+
 function getResolvedMessageType(message) {
-  return message.messageType === "image" && message.image ? "image" : "text";
+  return normalizeChatMessage(message).messageType;
 }
 
 function buildNotificationMessage(message) {
-  if (getResolvedMessageType(message) === "image") {
+  const normalized = normalizeChatMessage(message);
+  if (normalized.messageType === "image") {
     return "تم إرسال صورة";
   }
-  return message.message || "";
+  return normalized.message || "";
 }
 
 async function isAllowedDirectChat(senderId, receiverId) {
@@ -181,7 +220,7 @@ async function loadDirectMessages({ userId, receiverId, limit }) {
     include: getMessageIncludes(),
   });
 
-  return messages.reverse();
+  return messages.reverse().map(normalizeChatMessage);
 }
 
 async function loadAdminSupportMessages({ userId, limit }) {
@@ -206,7 +245,7 @@ async function loadAdminSupportMessages({ userId, limit }) {
     include: getMessageIncludes(),
   });
 
-  return messages.reverse();
+  return messages.reverse().map(normalizeChatMessage);
 }
 
 async function buildConversationListForUser(currentUser) {
@@ -224,7 +263,11 @@ async function buildConversationListForUser(currentUser) {
   const conversations = new Map();
 
   for (const message of messages) {
-    const peer = message.senderId === currentUser.id ? message.receiver : message.sender;
+    const normalizedMessage = normalizeChatMessage(message);
+    const peer =
+      normalizedMessage.senderId === currentUser.id
+        ? normalizedMessage.receiver
+        : normalizedMessage.sender;
     if (!peer) continue;
 
     if (currentUser.role === "agent") {
@@ -236,7 +279,7 @@ async function buildConversationListForUser(currentUser) {
     if (!conversations.has(peer.id)) {
       conversations.set(peer.id, {
         user: peer,
-        lastMessage: message,
+        lastMessage: normalizedMessage,
       });
     }
   }
@@ -313,7 +356,7 @@ function initChatSocket(io) {
           messageType: normalizedType,
           image: image || null,
         });
-        const fullMessage = await insertChatMessage(createPayload);
+        const fullMessage = normalizeChatMessage(await insertChatMessage(createPayload));
 
         let recipients = [];
         if (normalizedReceiverId) {
@@ -401,20 +444,20 @@ router.post(
       }
 
       const availableColumns = await getChatMessageColumns();
-      if (!availableColumns.image || !availableColumns.messageType) {
-        return res.status(503).json({
-          error: "ميزة الصور غير مفعلة بعد، يرجى تحديث قاعدة البيانات",
-        });
-      }
+      const canStoreStructuredImage = Boolean(
+        availableColumns.image && availableColumns.messageType
+      );
 
       const createPayload = await buildChatMessageCreatePayload({
         senderId,
         receiverId,
-        message: caption || "صورة",
+        message: canStoreStructuredImage
+          ? caption || "صورة"
+          : encodeLegacyImagePayload(req.file.filename, caption),
         messageType: "image",
-        image: req.file.filename,
+        image: canStoreStructuredImage ? req.file.filename : null,
       });
-      const fullMessage = await insertChatMessage(createPayload);
+      const fullMessage = normalizeChatMessage(await insertChatMessage(createPayload));
 
       const chatNamespace = req.app.get("chatNamespace");
       if (chatNamespace) {
