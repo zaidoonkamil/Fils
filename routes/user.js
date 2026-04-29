@@ -26,7 +26,7 @@ const {
   CounterSale, UserCounter, Counter, AgentRequest, Message, Room,
   DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification,
   DailyAction, TransferHistory, WithdrawalRequest, ChatMessage,
-  ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog
+  ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog, GiftItem
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -2999,6 +2999,11 @@ router.get("/admin/users/:referralCode/sawa-activity", requireAdmin, async (req,
       withdrawals,
       productPurchases,
       consumablePurchases,
+      sentGifts,
+      receivedGifts,
+      createdRooms,
+      boughtCounters,
+      soldCounters,
     ] = await Promise.all([
       AdminBalanceLog.findAll({
         where: { targetUserId: user.id, balanceType: "sawa" },
@@ -3047,6 +3052,65 @@ router.get("/admin/users/:referralCode/sawa-activity", requireAdmin, async (req,
         where: { userId: user.id },
         attributes: ["id", "productId", "quantity", "totalPrice", "status", "createdAt"],
         order: [["createdAt", "DESC"]],
+      }),
+      UserGift.findAll({
+        where: { senderId: user.id },
+        include: [
+          {
+            model: GiftItem,
+            as: "item",
+            attributes: ["id", "name", "points"],
+          },
+          {
+            model: User,
+            as: "user",
+            attributes: ["id", "name", "phone"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      UserGift.findAll({
+        where: { userId: user.id },
+        include: [
+          {
+            model: GiftItem,
+            as: "item",
+            attributes: ["id", "name", "points"],
+          },
+          {
+            model: User,
+            as: "sender",
+            attributes: ["id", "name", "phone"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      Room.findAll({
+        where: { creatorId: user.id },
+        attributes: ["id", "name", "cost", "createdAt"],
+        order: [["createdAt", "DESC"]],
+      }),
+      UserCounter.findAll({
+        where: {
+          userId: user.id,
+          price: { [Op.gt]: 0 },
+        },
+        attributes: ["id", "counterId", "price", "purchaseSource", "createdAt"],
+        include: [
+          {
+            model: Counter,
+            attributes: ["id", "name", "type", "points"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      }),
+      CounterSale.findAll({
+        where: {
+          userId: user.id,
+          isSold: true,
+        },
+        attributes: ["id", "price", "pointsAfterCut", "originalPoints", "updatedAt", "createdAt"],
+        order: [["updatedAt", "DESC"]],
       }),
     ]);
 
@@ -3129,11 +3193,100 @@ router.get("/admin/users/:referralCode/sawa-activity", requireAdmin, async (req,
         purchaseId: purchase.id,
         createdAt: purchase.createdAt,
       })),
+      ...sentGifts.map((gift) => ({
+        type: "gift_sent",
+        direction: "debit",
+        amount: Number(gift.item?.points) || 0,
+        netChange: -(Number(gift.item?.points) || 0),
+        giftId: gift.id,
+        giftItem: gift.item
+          ? {
+              id: gift.item.id,
+              name: gift.item.name,
+              points: gift.item.points,
+            }
+          : null,
+        targetUser: gift.user
+          ? {
+              id: gift.user.id,
+              name: gift.user.name,
+              phone: gift.user.phone,
+            }
+          : null,
+        roomId: gift.roomId,
+        createdAt: gift.createdAt,
+      })),
+      ...receivedGifts.map((gift) => ({
+        type: "gift_received",
+        direction: "credit",
+        amount: Number(gift.item?.points) || 0,
+        netChange: Number(gift.item?.points) || 0,
+        note: "القيمة هنا تمثل نقاط الهدية الأساسية، وقد تختلف الحصة الصافية داخل الروم حسب نسب التوزيع.",
+        giftId: gift.id,
+        giftItem: gift.item
+          ? {
+              id: gift.item.id,
+              name: gift.item.name,
+              points: gift.item.points,
+            }
+          : null,
+        sourceUser: gift.sender
+          ? {
+              id: gift.sender.id,
+              name: gift.sender.name,
+              phone: gift.sender.phone,
+            }
+          : null,
+        roomId: gift.roomId,
+        createdAt: gift.createdAt,
+      })),
+      ...createdRooms.map((room) => ({
+        type: "room_creation",
+        direction: "debit",
+        amount: Number(room.cost) || 0,
+        netChange: -(Number(room.cost) || 0),
+        room: {
+          id: room.id,
+          name: room.name,
+        },
+        createdAt: room.createdAt,
+      })),
+      ...boughtCounters.map((counter) => ({
+        type: counter.purchaseSource === "market" ? "counter_market_purchase" : "counter_purchase",
+        direction: "debit",
+        amount: Number(counter.price) || 0,
+        netChange: -(Number(counter.price) || 0),
+        counter: counter.Counter
+          ? {
+              id: counter.Counter.id,
+              name: counter.Counter.name,
+              type: counter.Counter.type,
+              points: counter.Counter.points,
+            }
+          : null,
+        purchaseSource: counter.purchaseSource,
+        createdAt: counter.createdAt,
+      })),
+      ...soldCounters.map((sale) => ({
+        type: "counter_sale",
+        direction: "credit",
+        amount: Number(sale.price) || 0,
+        netChange: Number(sale.price) || 0,
+        saleId: sale.id,
+        originalPoints: sale.originalPoints,
+        pointsAfterCut: sale.pointsAfterCut,
+        createdAt: sale.updatedAt || sale.createdAt,
+      })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.status(200).json({
       user,
       totalActivities: activities.length,
+      coverageNotes: [
+        "السجل يشمل التحويلات، السحب، تعديلات الأدمن، مشتريات المتاجر، الهدايا، شراء/بيع العدادات، وإنشاء الرومات.",
+        "بعض العمليات القديمة أو العمليات التي لا تخزن ledger تفصيليًا قد لا تظهر بدقة كاملة.",
+        "الهدايا المستلمة تُعرض بقيمة الهدية الأساسية، وقد تختلف الحصة الصافية داخل الرومات حسب نسب التوزيع وقت الإرسال.",
+      ],
       activities,
     });
   } catch (err) {
