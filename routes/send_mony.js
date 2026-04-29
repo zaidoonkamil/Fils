@@ -1,7 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const multer = require("multer");
-const { User, DailyAction, UserCounter, Counter, Settings, TransferHistory, WithdrawalRequest, Referrals } = require("../models");
+const {
+  User,
+  DailyAction,
+  UserCounter,
+  Counter,
+  Settings,
+  TransferHistory,
+  WithdrawalRequest,
+  Referrals,
+  AdminBalanceLog,
+} = require("../models");
 const { Op } = require("sequelize");
 const { sendNotificationToRole } = require("../services/notifications");
 const { sendNotificationToUser } = require("../services/notifications");
@@ -9,6 +19,42 @@ const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
+
+function getRequestIp(req) {
+  return (
+    req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() ||
+    req.ip ||
+    null
+  );
+}
+
+async function createAdminBalanceLog({
+  transaction,
+  adminId,
+  targetUserId,
+  balanceType,
+  amount,
+  balanceBefore,
+  balanceAfter,
+  note,
+  req,
+}) {
+  return AdminBalanceLog.create(
+    {
+      adminId,
+      targetUserId,
+      balanceType,
+      amount,
+      balanceBefore,
+      balanceAfter,
+      actionType: amount >= 0 ? "add" : "subtract",
+      note: note || null,
+      ipAddress: getRequestIp(req),
+      userAgent: req.headers["user-agent"] || null,
+    },
+    { transaction }
+  );
+}
 
 
 router.post("/daily-action", authenticateTokenUser, upload.none(), async (req, res) => {
@@ -342,6 +388,166 @@ router.post("/sendmony-simple", authenticateTokenUser, upload.none(), async (req
   } catch (err) {
     await t.rollback();
     res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+router.post("/deposit-jewel", requireAdmin, upload.none(), async (req, res) => {
+  const { userId, amount, note } = req.body;
+  const t = await sequelize.transaction();
+
+  try {
+    const depositAmount = Number(amount);
+
+    if (!Number.isFinite(depositAmount) || depositAmount === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "Invalid deposit amount" });
+    }
+
+    const user = await User.findOne({
+      where: { id: userId },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const balanceBefore = Number(user.Jewel || 0);
+    const balanceAfter = balanceBefore + depositAmount;
+
+    user.Jewel = balanceAfter;
+    await user.save({ transaction: t });
+
+    await createAdminBalanceLog({
+      transaction: t,
+      adminId: req.user.id,
+      targetUserId: user.id,
+      balanceType: "jewel",
+      amount: depositAmount,
+      balanceBefore,
+      balanceAfter,
+      note,
+      req,
+    });
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: `Successfully ${depositAmount > 0 ? "added" : "removed"} ${Math.abs(depositAmount)} jewels ${depositAmount > 0 ? "to" : "from"} ${user.name}`,
+      user: {
+        id: user.id,
+        name: user.name,
+        newBalance: user.Jewel,
+      },
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error during secure jewel deposit:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/deposit-sawa", requireAdmin, upload.none(), async (req, res) => {
+  const { userId, amount, note } = req.body;
+  const t = await sequelize.transaction();
+
+  try {
+    const depositAmount = Number(amount);
+
+    if (!Number.isFinite(depositAmount) || depositAmount === 0) {
+      await t.rollback();
+      return res.status(400).json({
+        error: "Amount must be a valid number and cannot be zero",
+      });
+    }
+
+    const user = await User.findOne({
+      where: { id: userId },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const balanceBefore = Number(user.sawa || 0);
+    const balanceAfter = balanceBefore + depositAmount;
+
+    user.sawa = balanceAfter;
+    await user.save({ transaction: t });
+
+    await createAdminBalanceLog({
+      transaction: t,
+      adminId: req.user.id,
+      targetUserId: user.id,
+      balanceType: "sawa",
+      amount: depositAmount,
+      balanceBefore,
+      balanceAfter,
+      note,
+      req,
+    });
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: `Successfully updated كاك balance by ${depositAmount} for ${user.name}`,
+      user: {
+        id: user.id,
+        name: user.name,
+        newBalance: user.sawa,
+      },
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error during secure كاك deposit:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/balance-logs", requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    if (req.query.balanceType) where.balanceType = req.query.balanceType;
+    if (req.query.adminId) where.adminId = Number(req.query.adminId);
+    if (req.query.targetUserId) where.targetUserId = Number(req.query.targetUserId);
+
+    const { count, rows } = await AdminBalanceLog.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: "admin",
+          attributes: ["id", "name", "role"],
+        },
+        {
+          model: User,
+          as: "targetUser",
+          attributes: ["id", "name", "phone", "role"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+
+    return res.status(200).json({
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+      logs: rows,
+    });
+  } catch (err) {
+    console.error("❌ Error loading admin balance logs:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

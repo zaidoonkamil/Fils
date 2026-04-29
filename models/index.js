@@ -33,6 +33,7 @@ const DominoMatch = require("./DominoMatch");
 const DominoQueue = require("./DominoQueue");
 const UserGift = require("./UserGift");
 const UserInternalVerification = require("./UserInternalVerification");
+const AdminBalanceLog = require("./AdminBalanceLog");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -90,6 +91,12 @@ AgentRequest.belongsTo(User, { foreignKey: 'userId', onDelete: 'CASCADE' });
 
 User.hasOne(UserInternalVerification, { foreignKey: "userId", as: "internalVerification", onDelete: "CASCADE" });
 UserInternalVerification.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+
+User.hasMany(AdminBalanceLog, { foreignKey: "adminId", as: "adminBalanceActions", onDelete: "CASCADE" });
+AdminBalanceLog.belongsTo(User, { foreignKey: "adminId", as: "admin", onDelete: "CASCADE" });
+
+User.hasMany(AdminBalanceLog, { foreignKey: "targetUserId", as: "receivedAdminBalanceActions", onDelete: "CASCADE" });
+AdminBalanceLog.belongsTo(User, { foreignKey: "targetUserId", as: "targetUser", onDelete: "CASCADE" });
 
 // علاقات المتجر الرقمي
 StoreCategory.hasMany(DigitalProduct, { foreignKey: 'categoryId', as: 'products', onDelete: 'CASCADE' });
@@ -166,5 +173,6 @@ module.exports = {
   DominoMatch,
   DominoQueue,
   UserGift,
-  UserInternalVerification
+  UserInternalVerification,
+  AdminBalanceLog
 };
