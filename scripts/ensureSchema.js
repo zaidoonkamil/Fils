@@ -1,6 +1,7 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const User = require("../models/user");
+const ChatMessage = require("../models/ChatMessage");
 
 async function tableExists(queryInterface, tableName) {
   const tables = await queryInterface.showAllTables();
@@ -38,6 +39,7 @@ function resolveTableName(model) {
 async function ensureSchema() {
   const queryInterface = sequelize.getQueryInterface();
   const usersTable = resolveTableName(User);
+  const chatMessagesTable = resolveTableName(ChatMessage);
 
   await ensureTable(queryInterface, "device_fingerprints", {
     id: {
@@ -212,7 +214,7 @@ async function ensureSchema() {
     },
   });
 
-  await ensureTable(queryInterface, "ChatMessages", {
+  await ensureTable(queryInterface, chatMessagesTable, {
     messageType: {
       type: DataTypes.ENUM("text", "image"),
       allowNull: false,
