@@ -104,6 +104,7 @@ app.use("/", chat.router);
 
 const chatNamespace = io.of("/chat");
 chat.initChatSocket(chatNamespace);
+app.set("chatNamespace", chatNamespace);
 
 const dominoNamespace = io.of("/domino");
 initDominoSocket(dominoNamespace);

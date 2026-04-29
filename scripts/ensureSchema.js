@@ -211,6 +211,19 @@ async function ensureSchema() {
       defaultValue: DataTypes.NOW,
     },
   });
+
+  await ensureTable(queryInterface, "ChatMessages", {
+    messageType: {
+      type: DataTypes.ENUM("text", "image"),
+      allowNull: false,
+      defaultValue: "text",
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+  });
 }
 
 module.exports = ensureSchema;
