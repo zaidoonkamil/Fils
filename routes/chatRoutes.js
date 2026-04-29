@@ -12,6 +12,7 @@ const router = express.Router();
 
 const CHAT_USER_ATTRIBUTES = ["id", "name", "role", "images"];
 const LEGACY_IMAGE_PREFIX = "__chat_image__:";
+const LEGACY_AUDIO_PREFIX = "__chat_audio__:";
 let cachedChatMessageColumns = null;
 
 function normalizeLimit(value, fallback = 20) {
@@ -146,6 +147,13 @@ function encodeLegacyImagePayload(fileName, caption) {
   })}`;
 }
 
+function encodeLegacyAudioPayload(fileName, durationInSeconds) {
+  return `${LEGACY_AUDIO_PREFIX}${JSON.stringify({
+    audio: fileName,
+    durationInSeconds: durationInSeconds || 0,
+  })}`;
+}
+
 function parseLegacyImagePayload(value) {
   if (typeof value !== "string" || !value.startsWith(LEGACY_IMAGE_PREFIX)) {
     return null;
@@ -153,6 +161,18 @@ function parseLegacyImagePayload(value) {
 
   try {
     return JSON.parse(value.slice(LEGACY_IMAGE_PREFIX.length));
+  } catch (_) {
+    return null;
+  }
+}
+
+function parseLegacyAudioPayload(value) {
+  if (typeof value !== "string" || !value.startsWith(LEGACY_AUDIO_PREFIX)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value.slice(LEGACY_AUDIO_PREFIX.length));
   } catch (_) {
     return null;
   }
@@ -167,6 +187,15 @@ function normalizeChatMessage(message) {
     rawMessage.messageType = "image";
     rawMessage.image = legacyImagePayload.image;
     rawMessage.message = legacyImagePayload.caption || "صورة";
+    return rawMessage;
+  }
+
+  const legacyAudioPayload = parseLegacyAudioPayload(rawMessage.message);
+  if (legacyAudioPayload?.audio) {
+    rawMessage.messageType = "audio";
+    rawMessage.audio = legacyAudioPayload.audio;
+    rawMessage.durationInSeconds = Number(legacyAudioPayload.durationInSeconds || 0);
+    rawMessage.message = "بصمة صوتية";
     return rawMessage;
   }
 
@@ -489,6 +518,73 @@ router.post(
     } catch (error) {
       console.error("خطأ في رفع صورة المحادثة:", error);
       return res.status(500).json({ error: "تعذر رفع الصورة" });
+    }
+  }
+);
+
+router.post(
+  "/chat/messages/audio",
+  authenticateTokenUser,
+  upload.single("audio"),
+  async (req, res) => {
+    try {
+      const senderId = Number(req.user.id);
+      const receiverId = Number(req.body.receiverId);
+      const durationInSeconds = Number(req.body.durationInSeconds || 0);
+
+      if (!req.file) {
+        return res.status(400).json({ error: "الملف الصوتي مطلوب" });
+      }
+
+      if (!receiverId) {
+        return res.status(400).json({ error: "معرف المستقبل مطلوب" });
+      }
+
+      const allowed = await isAllowedDirectChat(senderId, receiverId);
+      if (!allowed.allowed) {
+        return res.status(403).json({ error: allowed.error });
+      }
+
+      const createPayload = await buildChatMessageCreatePayload({
+        senderId,
+        receiverId,
+        message: encodeLegacyAudioPayload(req.file.filename, durationInSeconds),
+        messageType: "text",
+        image: null,
+      });
+
+      const fullMessage = normalizeChatMessage(await insertChatMessage(createPayload));
+
+      const chatNamespace = req.app.get("chatNamespace");
+      if (chatNamespace) {
+        [senderId, receiverId].forEach((participantId) => {
+          chatNamespace
+            .fetchSockets()
+            .then((sockets) => {
+              sockets
+                .filter(
+                  (socket) => String(socket.handshake.query.userId) === String(participantId)
+                )
+                .forEach((socket) => socket.emit("newMessage", fullMessage));
+            })
+            .catch(() => {});
+        });
+      }
+
+      await sendNotificationToUser(
+        receiverId,
+        "تم إرسال بصمة صوتية",
+        `رسالة جديدة من ${fullMessage.sender?.name || "مستخدم"}`
+      );
+
+      return res.status(201).json({
+        success: true,
+        message: fullMessage,
+        audioUrl: getImageUrl(req.file.filename),
+      });
+    } catch (error) {
+      console.error("خطأ في رفع البصمة الصوتية:", error);
+      return res.status(500).json({ error: "تعذر رفع البصمة الصوتية" });
     }
   }
 );
