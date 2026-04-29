@@ -2572,6 +2572,140 @@ router.delete("/store/:shopId", requireAdmin, async (req, res) => {
   }
 });
 
+router.get("/admin/users/:userId/onesignal-data", requireAdmin, async (req, res) => {
+  try {
+    const userId = Number.parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId)) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const devices = await UserDevice.findAll({
+      where: { user_id: userId },
+      attributes: ["id", "player_id", "createdAt", "updatedAt"],
+      order: [["updatedAt", "DESC"]],
+    });
+
+    const deviceLinks = await DeviceFingerprintUser.findAll({
+      where: { user_id: userId },
+      attributes: ["id", "device_id", "last_seen_at", "createdAt", "updatedAt"],
+      include: [
+        {
+          model: DeviceFingerprint,
+          as: "device",
+          attributes: ["id", "install_id", "is_banned", "banned_reason", "banned_by", "last_seen_at", "createdAt", "updatedAt"],
+        },
+      ],
+      order: [["updatedAt", "DESC"]],
+    });
+
+    const linkedDeviceIds = [...new Set(deviceLinks.map((link) => link.device_id).filter(Boolean))];
+
+    let relatedAccounts = [];
+    if (linkedDeviceIds.length > 0) {
+      const relatedLinks = await DeviceFingerprintUser.findAll({
+        where: { device_id: { [Op.in]: linkedDeviceIds } },
+        attributes: ["device_id", "user_id", "last_seen_at", "createdAt", "updatedAt"],
+        include: [
+          {
+            model: User,
+            as: "user",
+            attributes: ["id", "name", "phone", "email", "role", "isActive", "createdAt"],
+          },
+          {
+            model: DeviceFingerprint,
+            as: "device",
+            attributes: ["id", "install_id", "is_banned", "last_seen_at"],
+          },
+        ],
+        order: [["updatedAt", "DESC"]],
+      });
+
+      relatedAccounts = relatedLinks.map((link) => ({
+        userId: link.user_id,
+        deviceId: link.device_id,
+        lastSeenAt: link.last_seen_at,
+        linkedAt: link.createdAt,
+        user: link.user
+          ? {
+              id: link.user.id,
+              name: link.user.name,
+              phone: link.user.phone,
+              email: link.user.email,
+              role: link.user.role,
+              isActive: link.user.isActive,
+              createdAt: link.user.createdAt,
+            }
+          : null,
+        device: link.device
+          ? {
+              id: link.device.id,
+              installId: link.device.install_id,
+              isBanned: link.device.is_banned,
+              lastSeenAt: link.device.last_seen_at,
+            }
+          : null,
+      }));
+    }
+
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+      searchHints: {
+        externalIdCandidates: [String(user.id), user.email, user.phone].filter(Boolean),
+        playerIds: devices.map((device) => device.player_id).filter(Boolean),
+        installIds: deviceLinks
+          .map((link) => link.device?.install_id)
+          .filter(Boolean),
+      },
+      oneSignalDevices: devices.map((device) => ({
+        id: device.id,
+        playerId: device.player_id,
+        createdAt: device.createdAt,
+        updatedAt: device.updatedAt,
+      })),
+      fingerprintDevices: deviceLinks.map((link) => ({
+        linkId: link.id,
+        deviceId: link.device_id,
+        lastSeenAt: link.last_seen_at,
+        linkedAt: link.createdAt,
+        updatedAt: link.updatedAt,
+        device: link.device
+          ? {
+              id: link.device.id,
+              installId: link.device.install_id,
+              isBanned: link.device.is_banned,
+              bannedReason: link.device.banned_reason,
+              bannedBy: link.device.banned_by,
+              lastSeenAt: link.device.last_seen_at,
+              createdAt: link.device.createdAt,
+              updatedAt: link.device.updatedAt,
+            }
+          : null,
+      })),
+      relatedAccounts,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching OneSignal lookup data:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.get("/admin/stats", async (req, res) => {
   try {
     const totalUsers = await User.count();
