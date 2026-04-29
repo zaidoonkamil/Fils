@@ -282,6 +282,10 @@ router.post("/sendmony", authenticateTokenUser, upload.none(), async (req, res) 
     }
 
     const sender = await User.findByPk(senderId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (sender && !["agent", "admin"].includes(sender.role)) {
+      await t.rollback();
+      return res.status(403).json({ error: "هذا التحويل متاح فقط للوكلاء والإدارة" });
+    }
     if (!sender) {
       await t.rollback();
       return res.status(404).json({ error: "المرسل غير موجود" });
