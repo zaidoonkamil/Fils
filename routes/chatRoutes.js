@@ -104,6 +104,35 @@ async function buildChatMessageCreatePayload({
   return payload;
 }
 
+async function insertChatMessage(payload) {
+  const sequelize = ChatMessage.sequelize;
+  const queryInterface = sequelize.getQueryInterface();
+  const tableName = resolveChatMessagesTableName();
+  const now = new Date();
+
+  const insertPayload = {
+    ...payload,
+    read: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await queryInterface.bulkInsert(tableName, [insertPayload]);
+
+  const createdMessage = await ChatMessage.findOne({
+    attributes: await getChatMessageAttributes(),
+    where: {
+      senderId: payload.senderId,
+      receiverId: payload.receiverId,
+      createdAt: now,
+    },
+    order: [["id", "DESC"]],
+    include: getMessageIncludes(),
+  });
+
+  return createdMessage;
+}
+
 function getImageUrl(fileName) {
   if (!fileName) return null;
   return `/uploads/${fileName}`;
@@ -284,14 +313,7 @@ function initChatSocket(io) {
           messageType: normalizedType,
           image: image || null,
         });
-        const createdMessage = await ChatMessage.create(createPayload);
-
-        const attributes = await getChatMessageAttributes();
-        const fullMessage = await ChatMessage.findOne({
-          attributes,
-          where: { id: createdMessage.id },
-          include: getMessageIncludes(),
-        });
+        const fullMessage = await insertChatMessage(createPayload);
 
         let recipients = [];
         if (normalizedReceiverId) {
@@ -392,14 +414,7 @@ router.post(
         messageType: "image",
         image: req.file.filename,
       });
-      const createdMessage = await ChatMessage.create(createPayload);
-
-      const attributes = await getChatMessageAttributes();
-      const fullMessage = await ChatMessage.findOne({
-        attributes,
-        where: { id: createdMessage.id },
-        include: getMessageIncludes(),
-      });
+      const fullMessage = await insertChatMessage(createPayload);
 
       const chatNamespace = req.app.get("chatNamespace");
       if (chatNamespace) {
