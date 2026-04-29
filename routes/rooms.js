@@ -43,6 +43,13 @@ function canManageRoom(room, user) {
     return String(room.creatorId) === String(user.id);
 }
 
+function normalizeRoomNameInput(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+    return String(value).trim().replace(/\s+/g, " ");
+}
+
 async function buildPinnedMessage(message) {
     if (!message) return null;
     const msg = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
@@ -522,6 +529,122 @@ router.get("/room/:roomId/pinned-message", authenticateToken, async (req, res) =
 });
 
 // حذف غرفة (للمنشئ فقط)
+router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const nextName = normalizeRoomNameInput(req.body?.name);
+
+        if (!nextName) {
+            return res.status(400).json({ error: "اسم الروم مطلوب" });
+        }
+
+        if (nextName.length > 100) {
+            return res.status(400).json({ error: "اسم الروم طويل جدًا" });
+        }
+
+        const room = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images'],
+            }]
+        });
+
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح" });
+        }
+
+        await room.update({ name: nextName });
+
+        const refreshedRoom = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images'],
+            }]
+        });
+
+        const [serializedRoom] = await attachActiveRoomFrames([refreshedRoom]);
+        const roomsIO = req.app.get("roomsIO");
+        if (roomsIO) {
+            roomsIO.to(`room-${roomId}`).emit("room-updated", {
+                roomId: Number(roomId),
+                room: serializedRoom,
+            });
+        }
+
+        return res.json({
+            message: "تم تحديث اسم الروم بنجاح",
+            room: serializedRoom,
+        });
+    } catch (error) {
+        console.error("خطأ في تحديث اسم الروم:", error);
+        return res.status(500).json({ error: "خطأ في تحديث اسم الروم" });
+    }
+});
+
+router.patch("/admin/rooms/:roomId/name", authenticateToken, async (req, res) => {
+    try {
+        if (req.user?.role !== "admin") {
+            return res.status(403).json({ error: "Admins only" });
+        }
+
+        const { roomId } = req.params;
+        const nextName = normalizeRoomNameInput(req.body?.name);
+
+        if (!nextName) {
+            return res.status(400).json({ error: "اسم الروم مطلوب" });
+        }
+
+        if (nextName.length > 100) {
+            return res.status(400).json({ error: "اسم الروم طويل جدًا" });
+        }
+
+        const room = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images'],
+            }]
+        });
+
+        if (!room) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        await room.update({ name: nextName });
+
+        const refreshedRoom = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images'],
+            }]
+        });
+
+        const [serializedRoom] = await attachActiveRoomFrames([refreshedRoom]);
+        const roomsIO = req.app.get("roomsIO");
+        if (roomsIO) {
+            roomsIO.to(`room-${roomId}`).emit("room-updated", {
+                roomId: Number(roomId),
+                room: serializedRoom,
+            });
+        }
+
+        return res.json({
+            message: "تم تحديث اسم الروم من قبل الأدمن بنجاح",
+            room: serializedRoom,
+        });
+    } catch (error) {
+        console.error("خطأ في تحديث اسم الروم من قبل الأدمن:", error);
+        return res.status(500).json({ error: "خطأ في تحديث اسم الروم" });
+    }
+});
+
 router.post("/room/:roomId/background", authenticateToken, upload.single("background"), async (req, res) => {
     try {
         const { roomId } = req.params;
