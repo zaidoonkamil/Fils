@@ -558,6 +558,27 @@ router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
             return res.status(403).json({ error: "غير مصرح" });
         }
 
+        const roomNameChangeCostSetting = await Settings.findOne({
+            where: { key: "room_name_change_cost" }
+        });
+        const roomNameChangeCost = roomNameChangeCostSetting
+            ? parseInt(roomNameChangeCostSetting.value, 10) || 0
+            : 0;
+
+        const currentBalance = Number(req.user.sawa ?? 0);
+        if (currentBalance < roomNameChangeCost) {
+            return res.status(400).json({
+                error: "Ù†Ù‚Ø§Ø· ØºÙŠØ± ÙƒØ§ÙÙŠØ© Ù„ØªØºÙŠÙŠØ± Ø§Ø³Ù… Ø§Ù„Ø±ÙˆÙ…",
+                requiredPoints: roomNameChangeCost,
+                availablePoints: currentBalance,
+            });
+        }
+
+        const remainingSawa = currentBalance - roomNameChangeCost;
+        if (roomNameChangeCost > 0) {
+            await req.user.update({ sawa: remainingSawa });
+        }
+
         await room.update({ name: nextName });
 
         const refreshedRoom = await Room.findByPk(roomId, {
@@ -579,6 +600,8 @@ router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
 
         return res.json({
             message: "تم تحديث اسم الروم بنجاح",
+            deductedPoints: roomNameChangeCost,
+            remainingSawa,
             room: serializedRoom,
         });
     } catch (error) {
@@ -792,11 +815,13 @@ router.get("/room-settings", async (req, res) => {
     const costSetting = await Settings.findOne({ where: { key: "room_creation_cost" } });
     const maxUsersSetting = await Settings.findOne({ where: { key: "room_max_users" } });
     const roomBackgroundChangeCostSetting = await Settings.findOne({ where: { key: "room_background_change_cost" } });
+    const roomNameChangeCostSetting = await Settings.findOne({ where: { key: "room_name_change_cost" } });
 
     res.json({
       room_creation_cost: costSetting ? parseInt(costSetting.value) : 0,
       room_max_users: maxUsersSetting ? parseInt(maxUsersSetting.value) : 50,
       room_background_change_cost: roomBackgroundChangeCostSetting ? parseInt(roomBackgroundChangeCostSetting.value) : 0,
+      room_name_change_cost: roomNameChangeCostSetting ? parseInt(roomNameChangeCostSetting.value) : 0,
     });
   } catch (err) {
     console.error("Error fetching room settings:", err);
