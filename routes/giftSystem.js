@@ -695,7 +695,7 @@ router.get("/room/:roomId/top-supporters", authenticateTokenUser, async (req, re
       return res.status(404).json({ error: "الغرفة غير موجودة" });
     }
 
-    const leaderboard = await getGlobalSupportLeaderboard({ limit: 10 });
+    const leaderboard = await getRoomSupportLeaderboard(roomId, { limit: 10 });
 
     return res.json({
       success: true,
