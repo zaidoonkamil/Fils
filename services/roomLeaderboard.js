@@ -253,6 +253,25 @@ function buildDateWhere(start, end) {
   };
 }
 
+function resolveHistoricalCycleRange(anchorAt, cycleIndex, carryoverStartAt) {
+  const start = new Date(anchorAt.getTime() + cycleIndex * LEADERBOARD_DURATION_MS);
+  const end = new Date(start.getTime() + LEADERBOARD_DURATION_MS);
+
+  if (
+    cycleIndex === 0 &&
+    carryoverStartAt instanceof Date &&
+    !Number.isNaN(carryoverStartAt.getTime()) &&
+    carryoverStartAt.getTime() < start.getTime()
+  ) {
+    return {
+      start: carryoverStartAt,
+      end,
+    };
+  }
+
+  return { start, end };
+}
+
 async function queryTopSupporters({ roomId, start, end, limit = 10 }) {
   const where = {
     senderId: { [Op.not]: null },
@@ -390,6 +409,14 @@ function applyEntryRanks(entries, frameMap, entityKey) {
     ...entry,
     rank: index + 1,
     activeFrame: frameMap.get(String(entry[entityKey])) ?? null,
+  }));
+}
+
+function applyStaticRanks(entries) {
+  return entries.map((entry, index) => ({
+    ...entry,
+    rank: index + 1,
+    activeFrame: null,
   }));
 }
 
@@ -572,12 +599,78 @@ async function attachActiveRoomFrames(rooms, options = {}) {
   });
 }
 
+async function getSupportLeaderboardHistory(options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date();
+  const limit = Math.min(Math.max(Number(options.limit) || 10, 1), 20);
+  const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
+  const cycle = buildCycleMeta(anchorAt, now);
+
+  if (cycle.cycleIndex <= 0) {
+    return [];
+  }
+
+  const history = [];
+  const latestCompletedCycleIndex = cycle.cycleIndex - 1;
+  const earliestCycleIndex = Math.max(0, latestCompletedCycleIndex - limit + 1);
+
+  for (let targetCycleIndex = latestCompletedCycleIndex; targetCycleIndex >= earliestCycleIndex; targetCycleIndex -= 1) {
+    const range = resolveHistoricalCycleRange(anchorAt, targetCycleIndex, carryoverStartAt);
+    const topSupporters = await queryTopSupporters({
+      start: range.start,
+      end: range.end,
+      limit: 3,
+    });
+
+    history.push({
+      cycleIndex: targetCycleIndex,
+      cycle: buildCycleRange(range.start, range.end),
+      topSupporters: applyStaticRanks(topSupporters),
+    });
+  }
+
+  return history;
+}
+
+async function getRoomsLeaderboardHistory(options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date();
+  const limit = Math.min(Math.max(Number(options.limit) || 10, 1), 20);
+  const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
+  const cycle = buildCycleMeta(anchorAt, now);
+
+  if (cycle.cycleIndex <= 0) {
+    return [];
+  }
+
+  const history = [];
+  const latestCompletedCycleIndex = cycle.cycleIndex - 1;
+  const earliestCycleIndex = Math.max(0, latestCompletedCycleIndex - limit + 1);
+
+  for (let targetCycleIndex = latestCompletedCycleIndex; targetCycleIndex >= earliestCycleIndex; targetCycleIndex -= 1) {
+    const range = resolveHistoricalCycleRange(anchorAt, targetCycleIndex, carryoverStartAt);
+    const topRooms = await queryTopRooms({
+      start: range.start,
+      end: range.end,
+      limit: 3,
+    });
+
+    history.push({
+      cycleIndex: targetCycleIndex,
+      cycle: buildCycleRange(range.start, range.end),
+      topRooms: applyStaticRanks(topRooms),
+    });
+  }
+
+  return history;
+}
+
 module.exports = {
   LEADERBOARD_DURATION_HOURS,
   attachActiveUserFrames,
   getActiveSupporterFrameMap,
   getGlobalSupportLeaderboard,
+  getSupportLeaderboardHistory,
   getRoomSupportLeaderboard,
   getRoomsSupportLeaderboard,
+  getRoomsLeaderboardHistory,
   attachActiveRoomFrames,
 };

@@ -10,8 +10,10 @@ const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 const { sendNotificationToUser } = require("../services/notifications");
 const {
   getGlobalSupportLeaderboard,
+  getSupportLeaderboardHistory,
   getRoomSupportLeaderboard,
   getRoomsSupportLeaderboard,
+  getRoomsLeaderboardHistory,
 } = require("../services/roomLeaderboard");
 
 const uploadsDir = path.resolve(process.cwd(), "uploads");
@@ -722,6 +724,36 @@ router.get("/rooms/top-supporters", authenticateTokenUser, async (req, res) => {
   } catch (error) {
     console.error("Error fetching rooms leaderboard:", error);
     return res.status(500).json({ error: "حدث خطأ أثناء جلب توب الرومات" });
+  }
+});
+
+router.get("/leaderboards/supporters/history", authenticateTokenUser, async (req, res) => {
+  try {
+    const limit = parsePositiveInteger(req.query.limit) || 10;
+    const history = await getSupportLeaderboardHistory({ limit });
+    return res.json({
+      success: true,
+      totalCycles: history.length,
+      history,
+    });
+  } catch (error) {
+    console.error("Error fetching supporters leaderboard history:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب سجل توب الداعمين" });
+  }
+});
+
+router.get("/leaderboards/rooms/history", authenticateTokenUser, async (req, res) => {
+  try {
+    const limit = parsePositiveInteger(req.query.limit) || 10;
+    const history = await getRoomsLeaderboardHistory({ limit });
+    return res.json({
+      success: true,
+      totalCycles: history.length,
+      history,
+    });
+  } catch (error) {
+    console.error("Error fetching rooms leaderboard history:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب سجل توب الرومات" });
   }
 });
 
