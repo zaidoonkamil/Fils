@@ -55,6 +55,23 @@ function normalizeImage(images) {
   if (Array.isArray(images) && images.length > 0) {
     return String(images[0] ?? "").trim();
   }
+  if (typeof images === "string") {
+    const normalized = images.trim();
+    if (!normalized) return "";
+
+    try {
+      const parsed = JSON.parse(normalized);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return String(parsed[0] ?? "").trim();
+      }
+      if (typeof parsed === "string") {
+        return parsed.trim();
+      }
+    } catch (_) {
+      return normalized;
+    }
+    return normalized;
+  }
   return "";
 }
 
