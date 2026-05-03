@@ -2,6 +2,9 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const User = require("../models/user");
 const ChatMessage = require("../models/ChatMessage");
+const Settings = require("../models/settings");
+
+const ADMIN_TOKEN_VALID_AFTER_IAT_KEY = "admin_token_valid_after_iat";
 
 async function tableExists(queryInterface, tableName) {
   const tables = await queryInterface.showAllTables();
@@ -301,6 +304,15 @@ async function ensureSchema() {
   });
 
   await ensureChatMessagesSchema(queryInterface, chatMessagesTable);
+
+  await Settings.findOrCreate({
+    where: { key: ADMIN_TOKEN_VALID_AFTER_IAT_KEY },
+    defaults: {
+      value: String(Math.floor(Date.now() / 1000)),
+      description: "Reject admin JWTs issued before this unix timestamp",
+      isActive: true,
+    },
+  });
 }
 
 module.exports = ensureSchema;

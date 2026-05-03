@@ -343,10 +343,11 @@ const sendMailWithFallback = async (mailOptions) => {
 };
 
 const generateToken = (user) => {
+    const expiresIn = user.role === "admin" ? "1d" : "350d";
     return jwt.sign(
         { id: user.id, email: user.email, role: user.role },
         process.env.JWT_SECRET || 'your-secret-key-123456789',
-        { expiresIn: '350d' } 
+        { expiresIn } 
     );
 };
 
