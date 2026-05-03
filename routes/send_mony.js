@@ -560,6 +560,67 @@ router.get("/admin/balance-logs", requireAdmin, async (req, res) => {
   }
 });
 
+router.post("/admin/users/:userId/sawa-balance-adjustment", requireAdmin, upload.none(), async (req, res) => {
+  const { userId } = req.params;
+  const { amount, note } = req.body;
+  const t = await sequelize.transaction();
+
+  try {
+    const depositAmount = Number(amount);
+
+    if (!Number.isFinite(depositAmount) || depositAmount === 0) {
+      await t.rollback();
+      return res.status(400).json({
+        error: "Amount must be a valid number and cannot be zero",
+      });
+    }
+
+    const user = await User.findOne({
+      where: { id: userId },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const balanceBefore = Number(user.sawa || 0);
+    const balanceAfter = balanceBefore + depositAmount;
+
+    user.sawa = balanceAfter;
+    await user.save({ transaction: t });
+
+    await createAdminBalanceLog({
+      transaction: t,
+      adminId: req.user.id,
+      targetUserId: user.id,
+      balanceType: "sawa",
+      amount: depositAmount,
+      balanceBefore,
+      balanceAfter,
+      note,
+      req,
+    });
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: `Successfully updated كاك balance by ${depositAmount} for ${user.name}`,
+      user: {
+        id: user.id,
+        name: user.name,
+        newBalance: user.sawa,
+      },
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error during admin كاك balance adjustment:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/deposit-jewel", requireAdmin, upload.none(), async (req, res) => {
     const { userId, amount } = req.body;
 
