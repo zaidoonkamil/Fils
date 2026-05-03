@@ -50,17 +50,26 @@ const developmentAllowedOrigins = [
     "http://127.0.0.1:1400",
 ];
 const defaultAllowedOrigins = isProduction ? productionAllowedOrigins : developmentAllowedOrigins;
-const allowedOrigins = (process.env.CORS_ORIGINS || defaultAllowedOrigins.join(","))
+function normalizeOrigin(origin) {
+    return String(origin || "").trim().replace(/\/+$/, "");
+}
+
+const configuredAllowedOrigins = (process.env.CORS_ORIGINS || "")
     .split(",")
-    .map((origin) => origin.trim())
+    .map(normalizeOrigin)
     .filter(Boolean);
+const allowedOrigins = Array.from(new Set([
+    ...defaultAllowedOrigins.map(normalizeOrigin),
+    ...configuredAllowedOrigins,
+]));
 
 function isOriginAllowed(origin) {
     if (!origin) return true;
-    if (allowedOrigins.includes(origin)) return true;
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.includes(normalizedOrigin)) return true;
 
     try {
-        const parsedOrigin = new URL(origin);
+        const parsedOrigin = new URL(normalizedOrigin);
         const hostname = parsedOrigin.hostname.toLowerCase();
 
         if (!isProduction && (hostname === "localhost" || hostname === "127.0.0.1")) {
