@@ -57,7 +57,21 @@ const allowedOrigins = (process.env.CORS_ORIGINS || defaultAllowedOrigins.join("
 
 function isOriginAllowed(origin) {
     if (!origin) return true;
-    return allowedOrigins.includes(origin);
+    if (allowedOrigins.includes(origin)) return true;
+
+    try {
+        const parsedOrigin = new URL(origin);
+        const hostname = parsedOrigin.hostname.toLowerCase();
+
+        if (!isProduction && (hostname === "localhost" || hostname === "127.0.0.1")) {
+            return true;
+        }
+
+        return parsedOrigin.protocol === "https:" &&
+            (hostname === "kakplus.com" || hostname.endsWith(".kakplus.com"));
+    } catch (_) {
+        return false;
+    }
 }
 
 const corsOptions = {
