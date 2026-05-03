@@ -542,7 +542,7 @@ router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
       addedColumns,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

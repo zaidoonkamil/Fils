@@ -32,19 +32,64 @@ require("./cron");
 require("dotenv").config();
 
 
+const isProduction = process.env.NODE_ENV === "production";
+const productionAllowedOrigins = [
+    "https://pro.kakplus.com",
+    "https://www.kakplus.com",
+];
+const developmentAllowedOrigins = [
+    ...productionAllowedOrigins,
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:1400",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5000",
+    "http://127.0.0.1:8080",
+    "http://127.0.0.1:1400",
+];
+const defaultAllowedOrigins = isProduction ? productionAllowedOrigins : developmentAllowedOrigins;
+const allowedOrigins = (process.env.CORS_ORIGINS || defaultAllowedOrigins.join(","))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+function isOriginAllowed(origin) {
+    if (!origin) return true;
+    return allowedOrigins.includes(origin);
+}
+
+const corsOptions = {
+    origin(origin, callback) {
+        if (isOriginAllowed(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"],
+    credentials: true,
+};
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: "*",
+        origin(origin, callback) {
+            if (isOriginAllowed(origin)) {
+                return callback(null, true);
+            }
+            return callback(new Error("Not allowed by CORS"));
+        },
         methods: ["GET", "POST"],
-        allowedHeaders: ["*"],
+        allowedHeaders: ["Authorization", "Content-Type"],
         credentials: true
     },
     allowEIO3: true
 });
 
-app.use(cors({ origin: "*" }));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -52,13 +97,6 @@ app.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
-    next();
-});
-
-app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
     next();
 });
 
@@ -124,7 +162,7 @@ app.use((err, req, res, next) => {
     
     res.status(500).json({
         error: "حدث خطأ داخلي في السيرفر",
-        message: err.message,
+        ...(isProduction ? {} : { message: err.message }),
     });
 });
 

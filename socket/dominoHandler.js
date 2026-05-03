@@ -1,27 +1,43 @@
 const matchmaking = require('../services/dominoMatchmaking');
 const dominoService = require('../services/dominoService');
 const dominoForfeit = require('../services/dominoForfeit');
+const jwt = require('jsonwebtoken');
 
 const { Op } = require('sequelize');
 const { DominoQueue, DominoMatch, User } = require('../models');
 
 function initDominoSocket(dominoNamespace) {
   dominoNamespace.on('connection', async (socket) => {
-    const userId = Number(socket.handshake.query.userId);
+    try {
+      const rawToken = socket.handshake.auth?.token || socket.handshake.query?.token;
+      const token = typeof rawToken === "string" && rawToken.startsWith("Bearer ")
+        ? rawToken.split(" ")[1]
+        : rawToken;
 
-    if (!userId) {
+      if (!token) {
+        socket.disconnect(true);
+        return;
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const userId = Number(decoded.id || decoded.userId);
+
+      if (!userId) {
+        socket.disconnect(true);
+        return;
+      }
+
+      const user = await User.findByPk(userId, { attributes: ["id", "isActive"] });
+      if (!user || user.isActive === false) {
+        socket.disconnect(true);
+        return;
+      }
+
+      socket.userId = userId;
+      registerDominoHandlers(dominoNamespace, socket);
+    } catch (_) {
       socket.disconnect(true);
-      return;
     }
-
-    const user = await User.findByPk(userId, { attributes: ["id", "isActive"] });
-    if (!user || user.isActive === false) {
-      socket.disconnect(true);
-      return;
-    }
-
-    socket.userId = userId;
-    registerDominoHandlers(dominoNamespace, socket);
   });
 }
 

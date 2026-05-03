@@ -3,8 +3,9 @@ const router = express.Router();
 const { Counter, UserCounter } = require("../models");
 const { Sequelize } = require("sequelize");
 const sequelize = require("../config/db"); 
+const { requireAdmin } = require("../middlewares/auth");
 
-router.get("/admin/counters/stats", async (req, res) => {
+router.get("/admin/counters/stats", requireAdmin, async (req, res) => {
   try {
     const now = new Date();
 

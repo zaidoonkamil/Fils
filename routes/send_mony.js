@@ -747,7 +747,7 @@ router.post("/withdrawalRequest", authenticateTokenUser, upload.array("images", 
 
   } catch (error) {
     console.error("❌ خطأ أثناء إنشاء طلب السحب:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء الطلب", error: error.message });
+    res.status(500).json({ message: "حدث خطأ أثناء الطلب" });
   }
 });
 
@@ -769,7 +769,7 @@ router.get("/withdrawalRequest/pending", requireAdmin, async (req, res) => {
     res.status(200).json({ requests });
   } catch (error) {
     console.error("❌ خطأ أثناء جلب الطلبات قيد الانتظار:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
+    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات" });
   }
 });
 
@@ -791,15 +791,19 @@ router.get("/withdrawalRequest/accepted", requireAdmin, async (req, res) => {
     res.status(200).json({ requests });
   } catch (error) {
     console.error("خطأ أثناء جلب الطلبات المكتملة:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
+    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات" });
   }
 });
 
-router.get("/withdrawalRequest/processed", async (req, res) => {
+router.get("/withdrawalRequest/processed", authenticateTokenUser, async (req, res) => {
   try {
     const userId = req.query.userId;
     if (!userId) {
       return res.status(400).json({ message: "يجب تحديد userId" });
+    }
+
+    if (req.user.role !== "admin" && String(req.user.id) !== String(userId)) {
+      return res.status(403).json({ error: "غير مسموح لك بعرض طلبات سحب مستخدم آخر" });
     }
 
     const page = parseInt(req.query.page) || 1; 
@@ -835,7 +839,7 @@ router.get("/withdrawalRequest/processed", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ خطأ أثناء جلب الطلبات المكتملة أو المرفوضة للمستخدم:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات", error: error.message });
+    res.status(500).json({ message: "حدث خطأ أثناء جلب الطلبات" });
   }
 });
 
@@ -888,7 +892,7 @@ router.post("/withdrawalRequest/:id/status", requireAdmin, async (req, res) => {
 
   } catch (error) {
     console.error("❌ خطأ أثناء تحديث حالة الطلب:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء تحديث الحالة", error: error.message });
+    res.status(500).json({ message: "حدث خطأ أثناء تحديث الحالة" });
   }
 });
 
@@ -909,7 +913,7 @@ router.delete("/withdrawalRequest/:id", requireAdmin, async (req, res) => {
     res.status(200).json({ message: "تم حذف طلب السحب بنجاح" });
   } catch (error) {
     console.error("❌ خطأ أثناء حذف طلب السحب:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء حذف الطلب", error: error.message });
+    res.status(500).json({ message: "حدث خطأ أثناء حذف الطلب" });
   }
 });
 

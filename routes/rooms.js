@@ -267,7 +267,7 @@ router.get("/search-rooms", authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error("خطأ في البحث عن الغرف:", error);
-        res.status(500).json({ error: "خطأ في البحث عن الغرف", details: error.message });
+        res.status(500).json({ error: "خطأ في البحث عن الغرف" });
     }
 });
 
@@ -308,11 +308,9 @@ router.get("/rooms", authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error("خطأ في جلب الغرف:", error);
-        console.error("تفاصيل الخطأ:", error.message);
         console.error("Stack trace:", error.stack);
         res.status(500).json({ 
-            error: "خطأ في جلب الغرف",
-            details: error.message 
+            error: "خطأ في جلب الغرف"
         });
     }
 });
@@ -790,7 +788,7 @@ router.post("/room/:roomId/image", authenticateToken, upload.single("image"), as
         return res.status(500).json({ error: "خطأ في تحديث صورة الغرفة" });
     }
 });
-router.delete("/room/:roomId", async (req, res) => {
+router.delete("/room/:roomId", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
         
@@ -798,6 +796,10 @@ router.delete("/room/:roomId", async (req, res) => {
         
         if (!room) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "Only the room owner or an admin can delete this room" });
         }
 
         await room.update({ isActive: false });
@@ -830,13 +832,17 @@ router.get("/room-settings", async (req, res) => {
 });
 
 // راوت لتحديث جدول الغرف وإضافة عامود الصور
-router.get("/migrate-rooms-images", async (req, res) => {
+router.get("/migrate-rooms-images", authenticateToken, async (req, res) => {
     try {
+        if (req.user?.role !== "admin") {
+            return res.status(403).json({ error: "Admins only" });
+        }
+
         await require("../models/room").sync({ alter: true });
         res.json({ message: "تم تحديث جدول الغرف وإضافة عامود الصور بنجاح" });
     } catch (error) {
         console.error("خطأ في تحديث قاعدة البيانات:", error);
-        res.status(500).json({ error: "خطأ في تحديث قاعدة البيانات", details: error.message });
+        res.status(500).json({ error: "خطأ في تحديث قاعدة البيانات" });
     }
 });
 

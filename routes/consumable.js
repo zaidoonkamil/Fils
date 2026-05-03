@@ -350,14 +350,19 @@ router.post("/consumable-store/buy-product", authenticateTokenUser, upload.none(
 
   } catch (error) {
     console.error("❌ خطأ في عملية الشراء:", error);
-    res.status(500).json({ error: error.message || "حدث خطأ في الخادم" });
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
 
 // جلب سجل مشتريات المستخدم
-router.get("/consumable-store/my-purchases/:userId", async (req, res) => {
+router.get("/consumable-store/my-purchases/:userId", authenticateTokenUser, async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (req.user.role !== "admin" && String(req.user.id) !== String(userId)) {
+      return res.status(403).json({ error: "غير مسموح لك بعرض مشتريات مستخدم آخر" });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
@@ -405,7 +410,7 @@ router.get("/consumable-store/my-purchases/:userId", async (req, res) => {
 });
 
 // جلب كل الطلبات (Admin) - مرتبة من الأحدث للأقدم مع pagination
-router.get("/consumable-store/orders", async (req, res) => {
+router.get("/consumable-store/orders", requireAdmin, async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 30;
@@ -547,7 +552,7 @@ router.put("/consumable-store/orders/:orderId/status", requireAdmin, upload.none
 });
 
 // جلب الطلبات حسب الحالة مع إحصائيات (Admin فقط)
-router.get("/consumable-store/orders/status-summary", async (req, res) => {
+router.get("/consumable-store/orders/status-summary", requireAdmin, async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = Math.min(parseInt(req.query.limit, 10) || 30, 30);
@@ -665,7 +670,7 @@ router.get("/consumable-store/orders/status-summary", async (req, res) => {
 });
 
 // جلب احصائيات متجر المنتجات الاستهلاكية (Admin فقط)
-router.get("/consumable-store/statistics", async (req, res) => {
+router.get("/consumable-store/statistics", requireAdmin, async (req, res) => {
   try {
     const today = new Date();
     const startOfDay = new Date(today.setHours(0, 0, 0, 0));

@@ -493,7 +493,7 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
 
   } catch (error) {
     console.error("❌ خطأ في عملية الشراء:", error);
-    res.status(500).json({ error: error.message || "حدث خطأ في الخادم" });
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
 
@@ -543,7 +543,7 @@ router.get("/store/featured-products", async (req, res) => {
 });
 
 // جلب احصائيات المتجر (Admin فقط)
-router.get("/store/statistics", async (req, res) => {
+router.get("/store/statistics", requireAdmin, async (req, res) => {
   try {
     const { Op } = require("sequelize");
 

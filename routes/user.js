@@ -239,7 +239,7 @@ router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, 
   }
 });
 
-router.get("/admin/agent-requests", async (req, res) => {
+router.get("/admin/agent-requests", requireAdmin, async (req, res) => {
   try {
     const requests = await AgentRequest.findAll({
       where: { status: "قيد الانتظار" },
@@ -349,6 +349,24 @@ const generateToken = (user) => {
         process.env.JWT_SECRET || 'your-secret-key-123456789',
         { expiresIn } 
     );
+};
+
+const PUBLIC_READABLE_SETTINGS = new Set([
+  "domino_win_fee",
+  "domino_entry_fee",
+  "gift_buy_commission",
+  "profile_update_cost",
+  "sawa_to_dollar_rate",
+  "withdrawal_min_amount",
+  "withdrawal_commission",
+]);
+
+const authorizeSettingRead = async (req, res, next) => {
+  if (PUBLIC_READABLE_SETTINGS.has(req.params.key)) {
+    return authenticateTokenUser(req, res, next);
+  }
+
+  return requireAdmin(req, res, next);
 };
 
 router.post("/users/:id/profile-edit-access", authenticateTokenUser, upload.none(), async (req, res) => {
@@ -1408,15 +1426,17 @@ router.delete("/users/:id", requireAdmin, async (req, res) => {
 
     return res.status(500).json({
       error: "حدث خطأ أثناء عملية الحذف",
-      details: err.message,
-      name: err.name,
     });
   }
 });
 
-router.get("/users/:id/referrals", async (req, res) => {
+router.get("/users/:id/referrals", authenticateTokenUser, async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (req.user.role !== "admin" && String(req.user.id) !== String(id)) {
+      return res.status(403).json({ error: "غير مسموح لك بعرض إحالات مستخدم آخر" });
+    }
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -2042,7 +2062,7 @@ router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res)
   }
 });
 
-router.get("/allusers", async (req, res) => {
+router.get("/allusers", requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query; 
 
@@ -2051,6 +2071,7 @@ router.get("/allusers", async (req, res) => {
     const { count, rows: users } = await User.findAndCountAll({
       limit: parseInt(limit),
       offset: parseInt(offset),
+      attributes: { exclude: ["password", "extraPassword"] },
     });
 
     res.status(200).json({
@@ -2065,7 +2086,7 @@ router.get("/allusers", async (req, res) => {
   }
 });
 
-router.get("/admin/admins", async (req, res) => {
+router.get("/admin/admins", requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
 
@@ -2093,14 +2114,15 @@ router.get("/admin/admins", async (req, res) => {
   }
 });
 
-router.get("/users", async (req, res) => {
+router.get("/users", requireAdmin, async (req, res) => {
   try {
     const users = await User.findAll({
       where: {
         role: {
           [Op.ne]: "admin"
         }
-      }
+      },
+      attributes: { exclude: ["password", "extraPassword"] },
     });
     res.status(200).json(users);
   } catch (err) {
@@ -2196,7 +2218,7 @@ router.get("/profile", authenticateTokenUser, async (req, res) => {
   }
 });
 
-router.get("/users/search", async (req, res) => {
+router.get("/users/search", requireAdmin, async (req, res) => {
   try {
     const { q } = req.query;
 
@@ -2223,10 +2245,14 @@ router.get("/users/search", async (req, res) => {
   }
 });
 
-router.get("/users/:id", async (req, res) => {
+router.get("/users/:id", authenticateTokenUser, async (req, res) => {
   const { id } = req.params;
 
   try {
+    if (req.user.role !== "admin" && String(req.user.id) !== String(id)) {
+      return res.status(403).json({ error: "غير مسموح لك بعرض بيانات مستخدم آخر" });
+    }
+
     const user = await User.findByPk(id, {
       include: [
         {
@@ -2502,7 +2528,7 @@ router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, 
   } catch (err) {
     await t.rollback();
     console.error("❌ Error buying ID:", err);
-    res.status(500).json({ error: "Internal Server Error", details: err.message });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -2563,12 +2589,10 @@ router.delete("/store/:shopId", requireAdmin, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ خطأ أثناء إزالة العنصر من المتجر:");
-    console.error("📌 الرسالة:", err.message);
     console.error("📌 التفاصيل:", err);
 
     res.status(500).json({
       error: "Internal Server Error",
-      details: err.message,
     });
   }
 });
@@ -2707,7 +2731,7 @@ router.get("/admin/users/:userId/onesignal-data", requireAdmin, async (req, res)
   }
 });
 
-router.get("/admin/stats", async (req, res) => {
+router.get("/admin/stats", requireAdmin, async (req, res) => {
   try {
     const totalUsers = await User.count();
 
@@ -2752,7 +2776,7 @@ router.get("/admin/stats", async (req, res) => {
   }
 });
 
-router.get("/admin/settings", async (req, res) => {
+router.get("/admin/settings", requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
 
@@ -2805,7 +2829,7 @@ router.post("/admin/settings", requireAdmin, upload.none(), async (req, res) => 
   }
 });
 
-router.get("/admin/settings/:key", async (req, res) => {
+router.get("/admin/settings/:key", authorizeSettingRead, async (req, res) => {
   try {
 
     const { key } = req.params;
@@ -3012,8 +3036,7 @@ router.patch("/users/:id/change-id", requireAdmin, upload.none(), async (req, re
     await t.rollback();
     console.error("❌ Error changing user ID:", err);
     return res.status(500).json({
-      error: "Internal Server Error",
-      details: err.message
+      error: "Internal Server Error"
     });
   }
 });
