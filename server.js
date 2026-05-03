@@ -35,7 +35,7 @@ require("dotenv").config();
 const isProduction = process.env.NODE_ENV === "production";
 const productionAllowedOrigins = [
     "https://pro.kakplus.com",
-    "https://www.kakplus.com",
+    "https://ssdashss.kakplus.com",
 ];
 const developmentAllowedOrigins = [
     ...productionAllowedOrigins,
@@ -67,8 +67,7 @@ function isOriginAllowed(origin) {
             return true;
         }
 
-        return parsedOrigin.protocol === "https:" &&
-            (hostname === "kakplus.com" || hostname.endsWith(".kakplus.com"));
+        return false;
     } catch (_) {
         return false;
     }
