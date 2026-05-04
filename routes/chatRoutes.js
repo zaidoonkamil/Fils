@@ -250,6 +250,28 @@ async function isAllowedDirectChat(senderId, receiverId) {
   return { allowed: true, sender, receiver };
 }
 
+async function canOpenDirectChat(senderId, receiverId) {
+  const [sender, receiver] = await Promise.all([
+    User.findByPk(senderId, { attributes: ["id", "role", "isActive"] }),
+    User.findByPk(receiverId, { attributes: ["id", "role", "isActive"] }),
+  ]);
+
+  if (!sender || !receiver || sender.isActive === false || receiver.isActive === false) {
+    return { allowed: false, error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" };
+  }
+
+  if (sender.id === receiver.id) {
+    return { allowed: false, error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ù…Ø±Ø§Ø³Ù„Ø© Ù†ÙØ³ Ø§Ù„Ø­Ø³Ø§Ø¨" };
+  }
+
+  const allowedRoles = new Set(["admin", "agent"]);
+  if (!allowedRoles.has(sender.role) && !allowedRoles.has(receiver.role)) {
+    return { allowed: false, error: "Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø© Ù…ØªØ§Ø­Ø© ÙÙ‚Ø· Ù…Ø¹ Ø§Ù„ÙˆÙƒÙŠÙ„ Ø£Ùˆ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©" };
+  }
+
+  return { allowed: true, sender, receiver };
+}
+
 async function loadDirectMessages({ userId, receiverId, limit }) {
   const attributes = await getChatMessageAttributes();
   const messages = await ChatMessage.findAll({
@@ -371,7 +393,7 @@ function initChatSocket(io) {
         if (!payloadUserId) return;
 
         if (receiverId) {
-          const allowed = await isAllowedDirectChat(Number(payloadUserId), Number(receiverId));
+          const allowed = await canOpenDirectChat(Number(payloadUserId), Number(receiverId));
           if (!allowed.allowed) {
             return socket.emit("chatError", { message: allowed.error });
           }
@@ -568,7 +590,7 @@ router.post("/chat/conversations/:peerId/read", authenticateTokenUser, async (re
       return res.status(400).json({ error: "معرف الطرف الآخر مطلوب" });
     }
 
-    const allowed = await isAllowedDirectChat(viewerId, peerId);
+    const allowed = await canOpenDirectChat(viewerId, peerId);
     if (!allowed.allowed) {
       return res.status(403).json({ error: allowed.error });
     }
