@@ -167,6 +167,11 @@ async function ensureSchema() {
       allowNull: true,
       defaultValue: null,
     },
+    agentPrivateChatEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
   });
 
   await ensureTable(queryInterface, "user_internal_verifications", {

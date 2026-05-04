@@ -2331,7 +2331,18 @@ router.get("/roleAgents", async (req, res) => {
   try {
     const agents = await User.findAll({
       where: { role: "agent" },
-      attributes: ["id", "name", "phone", "sawa", "location", "note", "createdAt", "url"],
+      attributes: [
+        "id",
+        "name",
+        "phone",
+        "sawa",
+        "location",
+        "note",
+        "createdAt",
+        "url",
+        "isActive",
+        "agentPrivateChatEnabled",
+      ],
     });
 
     const shuffled = agents.sort(() => Math.random() - 0.5);
@@ -2594,6 +2605,34 @@ router.delete("/store/:shopId", requireAdmin, async (req, res) => {
     res.status(500).json({
       error: "Internal Server Error",
     });
+  }
+});
+
+router.patch("/admin/agents/:id/private-chat", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    const agent = await User.findByPk(id);
+    if (!agent || agent.role !== "agent") {
+      return res.status(404).json({ error: "الوكيل غير موجود" });
+    }
+
+    agent.agentPrivateChatEnabled = enabled === true || enabled === "true";
+    await agent.save();
+
+    return res.status(200).json({
+      message: agent.agentPrivateChatEnabled
+        ? "تم تفعيل الشات الخاص للوكيل"
+        : "تم إيقاف الشات الخاص للوكيل",
+      agent: {
+        id: agent.id,
+        agentPrivateChatEnabled: agent.agentPrivateChatEnabled,
+      },
+    });
+  } catch (err) {
+    console.error("❌ خطأ أثناء تحديث حالة الشات الخاص للوكيل:", err);
+    return res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
 

@@ -236,6 +236,17 @@ async function isAllowedDirectChat(senderId, receiverId) {
     return { allowed: false, error: "المحادثة متاحة فقط مع الوكيل أو الإدارة" };
   }
 
+  const userAgentPair =
+    (sender.role === "user" && receiver.role === "agent") ||
+    (sender.role === "agent" && receiver.role === "user");
+
+  if (userAgentPair) {
+    const agent = sender.role === "agent" ? sender : receiver;
+    if (agent.agentPrivateChatEnabled === false) {
+      return { allowed: false, error: "الشات الخاص مع هذا الوكيل موقوف من الإدارة" };
+    }
+  }
+
   return { allowed: true, sender, receiver };
 }
 
@@ -474,6 +485,77 @@ router.get("/chat/conversations", authenticateTokenUser, async (req, res) => {
   } catch (error) {
     console.error("خطأ في جلب سجل المحادثات:", error);
     return res.status(500).json({ error: "حدث خطأ أثناء جلب سجل المحادثات" });
+  }
+});
+
+router.get("/admin/agents/:agentId/conversations", authenticateTokenUser, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Admins only" });
+    }
+
+    const agentId = Number(req.params.agentId);
+    const agent = await User.findByPk(agentId, {
+      attributes: ["id", "role", "name", "phone", "agentPrivateChatEnabled"],
+    });
+
+    if (!agent || agent.role !== "agent") {
+      return res.status(404).json({ error: "الوكيل غير موجود" });
+    }
+
+    const conversations = await buildConversationListForUser(agent);
+    return res.status(200).json({
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        phone: agent.phone,
+        agentPrivateChatEnabled: agent.agentPrivateChatEnabled,
+      },
+      conversations,
+    });
+  } catch (error) {
+    console.error("خطأ في جلب محادثات الوكيل:", error);
+    return res.status(500).json({ error: "تعذر جلب محادثات الوكيل" });
+  }
+});
+
+router.get("/admin/agents/:agentId/conversations/:userId/messages", authenticateTokenUser, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Admins only" });
+    }
+
+    const agentId = Number(req.params.agentId);
+    const targetUserId = Number(req.params.userId);
+    const limit = normalizeLimit(req.query.limit, 20);
+
+    const [agent, targetUser] = await Promise.all([
+      User.findByPk(agentId, { attributes: ["id", "role", "name", "phone", "images"] }),
+      User.findByPk(targetUserId, { attributes: ["id", "role", "name", "phone", "images"] }),
+    ]);
+
+    if (!agent || agent.role !== "agent") {
+      return res.status(404).json({ error: "الوكيل غير موجود" });
+    }
+
+    if (!targetUser || targetUser.role !== "user") {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const messages = await loadDirectMessages({
+      userId: agentId,
+      receiverId: targetUserId,
+      limit,
+    });
+
+    return res.status(200).json({
+      agent,
+      user: targetUser,
+      messages,
+    });
+  } catch (error) {
+    console.error("خطأ في جلب رسائل الوكيل:", error);
+    return res.status(500).json({ error: "تعذر جلب الرسائل" });
   }
 });
 

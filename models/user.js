@@ -96,6 +96,11 @@ const User = sequelize.define("User", {
         allowNull: false,
         defaultValue: true,
     },
+    agentPrivateChatEnabled: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+    },
 
 }, {
     initialAutoIncrement: 547000,
