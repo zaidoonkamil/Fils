@@ -252,6 +252,21 @@ async function loadDirectMessages({ userId, receiverId, limit }) {
   return messages.reverse().map(normalizeChatMessage);
 }
 
+async function markConversationAsRead(viewerId, peerId) {
+  if (!viewerId || !peerId) return;
+
+  await ChatMessage.update(
+    { read: true },
+    {
+      where: {
+        senderId: peerId,
+        receiverId: viewerId,
+        read: false,
+      },
+    }
+  );
+}
+
 async function loadAdminSupportMessages({ userId, limit }) {
   const attributes = await getChatMessageAttributes();
   const admins = await User.findAll({
@@ -306,9 +321,18 @@ async function buildConversationListForUser(currentUser) {
     }
 
     if (!conversations.has(peer.id)) {
+      const unreadCount = await ChatMessage.count({
+        where: {
+          senderId: peer.id,
+          receiverId: currentUser.id,
+          read: false,
+        },
+      });
+
       conversations.set(peer.id, {
         user: peer,
         lastMessage: normalizedMessage,
+        unreadCount,
       });
     }
   }
@@ -338,6 +362,8 @@ function initChatSocket(io) {
           if (!allowed.allowed) {
             return socket.emit("chatError", { message: allowed.error });
           }
+
+          await markConversationAsRead(Number(payloadUserId), Number(receiverId));
 
           const messages = await loadDirectMessages({
             userId: Number(payloadUserId),
@@ -446,6 +472,33 @@ router.get("/chat/conversations", authenticateTokenUser, async (req, res) => {
   } catch (error) {
     console.error("خطأ في جلب سجل المحادثات:", error);
     return res.status(500).json({ error: "حدث خطأ أثناء جلب سجل المحادثات" });
+  }
+});
+
+router.post("/chat/conversations/:peerId/read", authenticateTokenUser, async (req, res) => {
+  try {
+    const viewerId = Number(req.user.id);
+    const peerId = Number(req.params.peerId);
+
+    if (!peerId) {
+      return res.status(400).json({ error: "معرف الطرف الآخر مطلوب" });
+    }
+
+    const allowed = await isAllowedDirectChat(viewerId, peerId);
+    if (!allowed.allowed) {
+      return res.status(403).json({ error: allowed.error });
+    }
+
+    await markConversationAsRead(viewerId, peerId);
+
+    return res.status(200).json({
+      success: true,
+      peerId,
+      message: "تم تعليم الرسائل كمقروءة",
+    });
+  } catch (error) {
+    console.error("خطأ في تعليم المحادثة كمقروءة:", error);
+    return res.status(500).json({ error: "تعذر تحديث حالة القراءة" });
   }
 });
 
