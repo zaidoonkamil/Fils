@@ -178,12 +178,8 @@ async function bootstrap() {
     try {
         await sequelize.authenticate();
         await runPreSyncCleanup();
-        await sequelize.sync({
-            force: false,
-            logging: console.log
-        });
         await ensureSchema();
-        console.log("Database and schema synced successfully");
+        console.log("Database schema ensured successfully");
 
         server.listen(PORT, HOST, () => {
             console.log(`Server running on http://${HOST}:${PORT}`);
