@@ -129,24 +129,6 @@ app.use(express.static("public", {
     }
 }));
 
-(async () => {
-    try {
-        await sequelize.authenticate();
-        await runPreSyncCleanup();
-        await sequelize.sync({
-            force: false,
-            logging: console.log
-        });
-        await ensureSchema();
-     //   await Counter.sync({ alter: true });
-        console.log('Database and Counter table synced successfully');
-    } catch (err) {
-        console.error('Error syncing database:', err);
-    }
-})();
-
-
-
 app.use("/", usersRouter);
 app.use("/", sendmonyRouter);
 app.use("/timeofday", timeOfDayRouter);
@@ -192,6 +174,24 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 1400;
 const HOST = process.env.HOST || "0.0.0.0";
 
-server.listen(PORT, HOST, () => {
-    console.log(`Server running on http://${HOST}:${PORT}`);
-});
+async function bootstrap() {
+    try {
+        await sequelize.authenticate();
+        await runPreSyncCleanup();
+        await sequelize.sync({
+            force: false,
+            logging: console.log
+        });
+        await ensureSchema();
+        console.log("Database and schema synced successfully");
+
+        server.listen(PORT, HOST, () => {
+            console.log(`Server running on http://${HOST}:${PORT}`);
+        });
+    } catch (err) {
+        console.error("Error bootstrapping server:", err);
+        process.exit(1);
+    }
+}
+
+bootstrap();
