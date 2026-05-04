@@ -315,9 +315,11 @@ async function buildConversationListForUser(currentUser) {
     if (!peer) continue;
 
     if (currentUser.role === "agent") {
-      if (peer.role === "agent" || peer.role === "admin") continue;
+      if (peer.role !== "user") continue;
     } else if (currentUser.role === "user") {
-      if (!["agent", "admin"].includes(peer.role)) continue;
+      if (peer.role !== "agent") continue;
+    } else if (currentUser.role === "admin") {
+      continue;
     }
 
     if (!conversations.has(peer.id)) {
