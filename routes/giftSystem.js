@@ -17,6 +17,32 @@ const {
 } = require("../services/roomLeaderboard");
 
 const uploadsDir = path.resolve(process.cwd(), "uploads");
+let userGiftAccountingColumnsReady = false;
+
+async function ensureUserGiftAccountingColumns() {
+  if (userGiftAccountingColumnsReady) return;
+
+  const queryInterface = UserGift.sequelize.getQueryInterface();
+  const tableName = UserGift.getTableName();
+  const tableDefinition = await queryInterface.describeTable(tableName);
+  const accountingColumns = {
+    pointsSnapshot: DataTypes.INTEGER,
+    ownerShare: DataTypes.INTEGER,
+    receiverShare: DataTypes.INTEGER,
+    adminShare: DataTypes.INTEGER,
+  };
+
+  for (const [columnName, type] of Object.entries(accountingColumns)) {
+    if (!tableDefinition[columnName]) {
+      await queryInterface.addColumn(tableName, columnName, {
+        type,
+        allowNull: true,
+      });
+    }
+  }
+
+  userGiftAccountingColumnsReady = true;
+}
 
 async function deleteGiftMediaFile(filePath) {
   if (!filePath || typeof filePath !== "string") {
@@ -184,6 +210,44 @@ function serializeGiftItem(item) {
   };
 }
 
+async function getRoomGiftCutRates() {
+  const settings = await Settings.findAll({
+    where: {
+      key: ["room_gift_owner_cut", "room_gift_receiver_cut", "room_gift_admin_cut"],
+      isActive: true,
+    },
+  });
+
+  const config = {};
+  settings.forEach((s) => (config[s.key] = Number(s.value)));
+
+  return {
+    ownerCutRate: config.room_gift_owner_cut ?? 0.1,
+    receiverCutRate: config.room_gift_receiver_cut ?? 0.5,
+    adminCutRate: config.room_gift_admin_cut ?? 0.4,
+  };
+}
+
+function estimateRoomGiftAdminShare(userGift, rates) {
+  if (!userGift?.roomId) return 0;
+
+  const points = Number(userGift.item?.points ?? userGift.pointsSnapshot ?? 0);
+  if (!points || points <= 0) return 0;
+
+  const ownerId = userGift.roomOwnerId;
+  const receiverId = userGift.userId;
+  let ownerShare = 0;
+  let receiverShare = Math.floor(points * rates.receiverCutRate);
+
+  if (ownerId && String(ownerId) !== String(receiverId)) {
+    ownerShare = Math.floor(points * rates.ownerCutRate);
+  } else if (ownerId && String(ownerId) === String(receiverId)) {
+    receiverShare = Math.floor(points * (rates.receiverCutRate + rates.ownerCutRate));
+  }
+
+  return Math.max(points - ownerShare - receiverShare, 0);
+}
+
 function buildGiftSocketPayload({
   userGift,
   sender,
@@ -321,20 +385,10 @@ async function convertGiftToPoints({
     const room = await Room.findByPk(userGift.roomId, { transaction });
 
     if (room) {
-      const settings = await Settings.findAll({
-        where: {
-          key: ["room_gift_owner_cut", "room_gift_receiver_cut", "room_gift_admin_cut"],
-          isActive: true,
-        },
-        transaction,
-      });
-
-      const config = {};
-      settings.forEach((s) => (config[s.key] = Number(s.value)));
-
-      ownerCutRate = config.room_gift_owner_cut ?? 0.1;
-      receiverCutRate = config.room_gift_receiver_cut ?? 0.5;
-      adminCutRate = config.room_gift_admin_cut ?? 0.4;
+      const rates = await getRoomGiftCutRates();
+      ownerCutRate = rates.ownerCutRate;
+      receiverCutRate = rates.receiverCutRate;
+      adminCutRate = rates.adminCutRate;
 
       const actualRoomOwnerId = room.creatorId;
       const isRoomOwnerActive = isUserActiveInRoom(
@@ -373,6 +427,10 @@ async function convertGiftToPoints({
   }
 
   await receiver.increment({ sawa: receiverShare }, { transaction });
+  userGift.pointsSnapshot = points;
+  userGift.ownerShare = ownerShare;
+  userGift.receiverShare = receiverShare;
+  userGift.adminShare = adminShare;
   userGift.status = "converted";
   await userGift.save({ transaction });
 
@@ -513,6 +571,8 @@ router.get("/gift-items", async (req, res) => {
 
 router.get("/gift-items/sent-statistics", requireAdmin, async (req, res) => {
   try {
+    await ensureUserGiftAccountingColumns();
+
     const recentLimit = Math.min(parsePositiveInteger(req.query.limit) || 10, 50);
     const { where, roomScope, filters, error } = buildSentGiftStatsFilters(req.query);
 
@@ -637,6 +697,45 @@ router.get("/gift-items/sent-statistics", requireAdmin, async (req, res) => {
     });
 
     const totalPoints = Number(totalPointsRow?.totalPoints ?? 0);
+    const storedAdminGiftPoints = Number(await UserGift.sum("adminShare", {
+      where: {
+        ...where,
+        adminShare: { [Op.not]: null },
+      },
+    }) || 0);
+
+    let estimatedAdminGiftPoints = 0;
+    if (roomScope !== "direct") {
+      const untrackedAdminShareWhere = {
+        ...where,
+        adminShare: { [Op.is]: null },
+      };
+
+      if (roomScope !== "room" && !untrackedAdminShareWhere.roomId) {
+        untrackedAdminShareWhere.roomId = { [Op.not]: null };
+      }
+
+      const rates = await getRoomGiftCutRates();
+      const untrackedRoomGifts = await UserGift.findAll({
+        where: untrackedAdminShareWhere,
+        attributes: ["id", "userId", "roomId", "roomOwnerId", "pointsSnapshot"],
+        include: [
+          {
+            model: GiftItem,
+            as: "item",
+            attributes: ["points"],
+            required: true,
+          },
+        ],
+      });
+
+      estimatedAdminGiftPoints = untrackedRoomGifts.reduce(
+        (sum, gift) => sum + estimateRoomGiftAdminShare(gift, rates),
+        0
+      );
+    }
+
+    const totalAdminGiftPoints = storedAdminGiftPoints + estimatedAdminGiftPoints;
 
     return res.json({
       success: true,
@@ -651,6 +750,7 @@ router.get("/gift-items/sent-statistics", requireAdmin, async (req, res) => {
         totalUniqueReceivers,
         sentInsideRooms,
         sentDirectly,
+        totalAdminGiftPoints,
         averagePointsPerGift: totalSentGifts ? Number((totalPoints / totalSentGifts).toFixed(2)) : 0,
       },
       topGiftItems: topGiftItems.map((entry) => ({
@@ -912,6 +1012,8 @@ router.post("/buy-gift/:giftItemId", authenticateTokenUser, upload.none(), async
 });
 
 router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (req, res) => {
+  await ensureUserGiftAccountingColumns();
+
   const t = await User.sequelize.transaction();
 
   try {
@@ -1093,6 +1195,8 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
 });
 
 router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (req, res) => {
+  await ensureUserGiftAccountingColumns();
+
   const t = await User.sequelize.transaction();
 
   try {
@@ -1292,6 +1396,8 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
 });
 
 router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res) => {
+  await ensureUserGiftAccountingColumns();
+
   const t = await User.sequelize.transaction();
 
   try {
@@ -1506,6 +1612,8 @@ router.get("/my-gifts/:userId", authenticateTokenUser,async (req, res) => {
 
 // تحويل هدية يملكها المستخدم إلى نقاط
 router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), async (req, res) => {
+  await ensureUserGiftAccountingColumns();
+
   const t = await User.sequelize.transaction();
   try {
     const { userGiftId } = req.params;

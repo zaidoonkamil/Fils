@@ -2786,6 +2786,8 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
 
     const availableStoreItems = await IdShop.count({ where: { isAvailable: true } });
 
+    const totalAdminTransferFees = await TransferHistory.sum("fee") || 0;
+
     const activePercentage = totalUsers > 0 ? ((activeUsers / totalUsers) * 100).toFixed(1) : 0;
 
     const totalAdmins = await User.count({ where: { role: "admin" } });
@@ -2801,6 +2803,7 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
       totalGems,
       totalStoreItems,
       availableStoreItems,
+      totalAdminTransferFees: Number(totalAdminTransferFees || 0),
       activePercentage,
       extra: {
         totalAdmins,

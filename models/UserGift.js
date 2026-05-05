@@ -26,6 +26,22 @@ const UserGift = sequelize.define("UserGift", {
         type: DataTypes.ENUM("active", "converted"),
         allowNull: false,
         defaultValue: "active",
+    },
+    pointsSnapshot: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+    },
+    ownerShare: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+    },
+    receiverShare: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+    },
+    adminShare: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
     }
 }, {
     timestamps: true,
