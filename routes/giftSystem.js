@@ -7,7 +7,9 @@ const upload = require("../middlewares/uploads");
 const { Op, DataTypes, fn, col, literal } = require("sequelize");
 const { connectedUsers, roomUsers } = require("../socket/socketHandler");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
-const { sendNotificationToUser } = require("../services/notifications");
+const { sendNotificationToUser: originalSendNotificationToUser } = require("../services/notifications");
+// تم تعطيل إشعارات الهدايا الفردية والجماعية مؤقتًا بطلب الإدارة.
+const sendNotificationToUser = async () => null;
 const {
   getGlobalSupportLeaderboard,
   getSupportLeaderboardHistory,
