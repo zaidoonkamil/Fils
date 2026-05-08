@@ -676,7 +676,6 @@ router.get("/store/admin/purchase-log", requireAdmin, async (req, res) => {
     const { Op } = require("sequelize");
     const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
-    const offset = (page - 1) * limit;
     const search = String(req.query.search || "").trim();
     const userId = Number.parseInt(req.query.userId, 10);
     const productId = Number.parseInt(req.query.productId, 10);
@@ -703,116 +702,109 @@ router.get("/store/admin/purchase-log", requireAdmin, async (req, res) => {
       };
     }
 
-    const include = [
-      {
-        model: User,
-        as: "user",
-        attributes: ["id", "name", "phone", "email", "location", "role"],
-        ...(search
-          ? {
-              where: {
-                [Op.or]: [
-                  { name: { [Op.like]: `%${search}%` } },
-                  { phone: { [Op.like]: `%${search}%` } },
-                  { email: { [Op.like]: `%${search}%` } },
-                ],
-              },
-            }
-          : {}),
-      },
-      {
-        model: DigitalProduct,
-        as: "product",
-        attributes: ["id", "title", "price", "images", "categoryId"],
-        include: [
-          {
-            model: StoreCategory,
-            as: "category",
-            attributes: ["id", "name"],
-          },
-        ],
-        ...(search
-          ? {
-              where: {
-                title: { [Op.like]: `%${search}%` },
-              },
-              required: false,
-            }
-          : {}),
-      },
-    ];
+    if (search) {
+      where.cardCode = { [Op.like]: `%${search}%` };
+    }
 
-    const searchWhere = search
-      ? {
-          [Op.or]: [
-            { cardCode: { [Op.like]: `%${search}%` } },
-            { "$user.name$": { [Op.like]: `%${search}%` } },
-            { "$user.phone$": { [Op.like]: `%${search}%` } },
-            { "$user.email$": { [Op.like]: `%${search}%` } },
-            { "$product.title$": { [Op.like]: `%${search}%` } },
-          ],
-        }
-      : {};
-
-    const finalWhere = {
-      ...where,
-      ...searchWhere,
-    };
-
-    const { count, rows } = await ProductPurchase.findAndCountAll({
-      where: finalWhere,
-      include,
+    const purchaseRows = await ProductPurchase.findAll({
+      where,
       order: [["createdAt", "DESC"]],
-      distinct: true,
-      limit,
-      offset,
     });
 
-    const totalRevenue = await ProductPurchase.sum("price", {
-      where: finalWhere,
-      include,
-    });
+    const uniqueUserIds = [...new Set(purchaseRows.map((item) => item.userId).filter(Boolean))];
+    const uniqueProductIds = [...new Set(purchaseRows.map((item) => item.productId).filter(Boolean))];
 
-    const totalBuyers = await ProductPurchase.count({
-      where: finalWhere,
-      include,
-      distinct: true,
-      col: "userId",
-    });
+    const users = uniqueUserIds.length
+      ? await User.findAll({
+          where: { id: uniqueUserIds },
+          attributes: ["id", "name", "phone", "email", "location", "role"],
+        })
+      : [];
 
-    const purchases = rows.map((purchase) => {
-      const data = purchase.toJSON();
+    const products = uniqueProductIds.length
+      ? await DigitalProduct.findAll({
+          where: { id: uniqueProductIds },
+          attributes: ["id", "title", "price", "images", "categoryId"],
+          include: [
+            {
+              model: StoreCategory,
+              as: "category",
+              attributes: ["id", "name"],
+            },
+          ],
+        })
+      : [];
+
+    const usersMap = new Map(users.map((item) => [item.id, item]));
+    const productsMap = new Map(products.map((item) => [item.id, item]));
+
+    let mergedPurchases = purchaseRows.map((purchase) => {
+      const user = usersMap.get(purchase.userId) || null;
+      const product = productsMap.get(purchase.productId) || null;
+
       return {
-        id: data.id,
-        cardCode: data.cardCode,
-        price: data.price,
-        purchasedAt: data.createdAt,
-        user: data.user
+        id: purchase.id,
+        cardCode: purchase.cardCode,
+        price: purchase.price,
+        purchasedAt: purchase.createdAt,
+        user: user
           ? {
-              id: data.user.id,
-              name: data.user.name,
-              phone: data.user.phone,
-              email: data.user.email,
-              location: data.user.location,
-              role: data.user.role,
+              id: user.id,
+              name: user.name,
+              phone: user.phone,
+              email: user.email,
+              location: user.location,
+              role: user.role,
             }
           : null,
-        product: data.product
+        product: product
           ? {
-              id: data.product.id,
-              title: data.product.title,
-              price: data.product.price,
-              images: data.product.images,
-              category: data.product.category
+              id: product.id,
+              title: product.title,
+              price: product.price,
+              images: product.images,
+              category: product.category
                 ? {
-                    id: data.product.category.id,
-                    name: data.product.category.name,
+                    id: product.category.id,
+                    name: product.category.name,
                   }
                 : null,
             }
           : null,
       };
     });
+
+    if (search) {
+      const loweredSearch = search.toLowerCase();
+      mergedPurchases = mergedPurchases.filter((purchase) => {
+        const values = [
+          purchase.cardCode,
+          purchase.user?.name,
+          purchase.user?.phone,
+          purchase.user?.email,
+          purchase.product?.title,
+          purchase.product?.category?.name,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+
+        return values.some((value) => value.includes(loweredSearch));
+      });
+    }
+
+    const count = mergedPurchases.length;
+    const totalRevenue = mergedPurchases.reduce(
+      (sum, item) => sum + (Number(item.price) || 0),
+      0,
+    );
+    const totalBuyers = new Set(
+      mergedPurchases
+        .map((item) => item.user?.id)
+        .filter(Boolean),
+    ).size;
+
+    const offset = (page - 1) * limit;
+    const purchases = mergedPurchases.slice(offset, offset + limit);
 
     return res.status(200).json({
       success: true,
