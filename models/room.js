@@ -71,6 +71,26 @@ const Room = sequelize.define("Room", {
         allowNull: true,
         defaultValue: null,
     },
+    voiceMicCount: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+    },
+    voicePackageExpiresAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+    },
+    voiceActiveSpeakerIds: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [],
+    },
+    voicePendingRequestIds: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [],
+    },
 }, {
     timestamps: true,
 });

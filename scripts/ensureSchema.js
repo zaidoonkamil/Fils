@@ -1,6 +1,7 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const User = require("../models/user");
+const Room = require("../models/room");
 const ChatMessage = require("../models/ChatMessage");
 const Settings = require("../models/settings");
 
@@ -66,6 +67,7 @@ async function ensureChatMessagesSchema(queryInterface, tableName) {
 async function ensureSchema() {
   const queryInterface = sequelize.getQueryInterface();
   const usersTable = resolveTableName(User);
+  const roomsTable = resolveTableName(Room);
   const chatMessagesTable = resolveTableName(ChatMessage);
 
   await ensureTable(queryInterface, "device_fingerprints", {
@@ -171,6 +173,29 @@ async function ensureSchema() {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+  });
+
+  await ensureTable(queryInterface, roomsTable, {
+    voiceMicCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    voicePackageExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    voiceActiveSpeakerIds: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [],
+    },
+    voicePendingRequestIds: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [],
     },
   });
 
