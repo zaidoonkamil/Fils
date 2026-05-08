@@ -1010,7 +1010,7 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
 
         const settings = await getRoomVoicePackageSettings();
         const packageConfig = settings.packages.find((entry) => entry.micCount === micCount);
-        if (!packageConfig || packageConfig.price <= 0 || packageConfig.hours <= 0) {
+        if (!packageConfig || packageConfig.hours <= 0) {
             return res.status(400).json({ error: "إعدادات باقة المايكات غير مفعلة من الإدارة" });
         }
 
