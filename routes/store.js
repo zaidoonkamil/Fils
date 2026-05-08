@@ -670,5 +670,170 @@ router.get("/store/buyers", requireAdmin, async (req, res) => {
   }
 });
 
+// سجل كامل لمشتريات متجر البطاقات (Admin فقط)
+router.get("/store/admin/purchase-log", requireAdmin, async (req, res) => {
+  try {
+    const { Op } = require("sequelize");
+    const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = (page - 1) * limit;
+    const search = String(req.query.search || "").trim();
+    const userId = Number.parseInt(req.query.userId, 10);
+    const productId = Number.parseInt(req.query.productId, 10);
+    const fromDate = req.query.fromDate ? new Date(String(req.query.fromDate)) : null;
+    const toDate = req.query.toDate ? new Date(String(req.query.toDate)) : null;
+
+    const where = {};
+    if (Number.isInteger(userId) && userId > 0) {
+      where.userId = userId;
+    }
+    if (Number.isInteger(productId) && productId > 0) {
+      where.productId = productId;
+    }
+    if (fromDate && !Number.isNaN(fromDate.getTime())) {
+      where.createdAt = {
+        ...(where.createdAt || {}),
+        [Op.gte]: new Date(fromDate.setHours(0, 0, 0, 0)),
+      };
+    }
+    if (toDate && !Number.isNaN(toDate.getTime())) {
+      where.createdAt = {
+        ...(where.createdAt || {}),
+        [Op.lte]: new Date(toDate.setHours(23, 59, 59, 999)),
+      };
+    }
+
+    const include = [
+      {
+        model: User,
+        as: "user",
+        attributes: ["id", "name", "phone", "email", "location", "role"],
+        ...(search
+          ? {
+              where: {
+                [Op.or]: [
+                  { name: { [Op.like]: `%${search}%` } },
+                  { phone: { [Op.like]: `%${search}%` } },
+                  { email: { [Op.like]: `%${search}%` } },
+                ],
+              },
+            }
+          : {}),
+      },
+      {
+        model: DigitalProduct,
+        as: "product",
+        attributes: ["id", "title", "price", "images", "categoryId"],
+        include: [
+          {
+            model: StoreCategory,
+            as: "category",
+            attributes: ["id", "name"],
+          },
+        ],
+        ...(search
+          ? {
+              where: {
+                title: { [Op.like]: `%${search}%` },
+              },
+              required: false,
+            }
+          : {}),
+      },
+    ];
+
+    const searchWhere = search
+      ? {
+          [Op.or]: [
+            { cardCode: { [Op.like]: `%${search}%` } },
+            { "$user.name$": { [Op.like]: `%${search}%` } },
+            { "$user.phone$": { [Op.like]: `%${search}%` } },
+            { "$user.email$": { [Op.like]: `%${search}%` } },
+            { "$product.title$": { [Op.like]: `%${search}%` } },
+          ],
+        }
+      : {};
+
+    const finalWhere = {
+      ...where,
+      ...searchWhere,
+    };
+
+    const { count, rows } = await ProductPurchase.findAndCountAll({
+      where: finalWhere,
+      include,
+      order: [["createdAt", "DESC"]],
+      distinct: true,
+      limit,
+      offset,
+    });
+
+    const totalRevenue = await ProductPurchase.sum("price", {
+      where: finalWhere,
+      include,
+    });
+
+    const totalBuyers = await ProductPurchase.count({
+      where: finalWhere,
+      include,
+      distinct: true,
+      col: "userId",
+    });
+
+    const purchases = rows.map((purchase) => {
+      const data = purchase.toJSON();
+      return {
+        id: data.id,
+        cardCode: data.cardCode,
+        price: data.price,
+        purchasedAt: data.createdAt,
+        user: data.user
+          ? {
+              id: data.user.id,
+              name: data.user.name,
+              phone: data.user.phone,
+              email: data.user.email,
+              location: data.user.location,
+              role: data.user.role,
+            }
+          : null,
+        product: data.product
+          ? {
+              id: data.product.id,
+              title: data.product.title,
+              price: data.product.price,
+              images: data.product.images,
+              category: data.product.category
+                ? {
+                    id: data.product.category.id,
+                    name: data.product.category.name,
+                  }
+                : null,
+            }
+          : null,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        totalPurchases: count,
+        totalRevenue: totalRevenue || 0,
+        totalBuyers,
+      },
+      pagination: {
+        page,
+        limit,
+        total: count,
+        totalPages: Math.max(Math.ceil(count / limit), 1),
+      },
+      purchases,
+    });
+  } catch (error) {
+    console.error("❌ خطأ في جلب سجل متجر البطاقات:", error);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب سجل متجر البطاقات" });
+  }
+});
+
 module.exports = router;
 
