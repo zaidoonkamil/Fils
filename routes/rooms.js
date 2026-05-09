@@ -171,7 +171,7 @@ async function hydrateVoiceUsers(userIds) {
     return normalizedIds.map((id) => byId.get(id)).filter(Boolean);
 }
 
-async function buildRoomVoicePayload(room, currentUserId = null) {
+async function buildRoomVoicePayload(room, currentUserId = null, currentUserRole = null) {
     const normalized = await normalizeRoomVoiceState(room, { persist: true });
     const settings = await getRoomVoicePackageSettings();
     const [speakers, pendingRequests] = await Promise.all([
@@ -183,6 +183,7 @@ async function buildRoomVoicePayload(room, currentUserId = null) {
     const pendingRequestIds = pendingRequests.map((entry) => Number(entry.id));
     const currentId = currentUserId != null ? Number(currentUserId) : null;
     const isOwner = currentId != null && String(room.creatorId) === String(currentId);
+    const canManage = isOwner || currentUserRole === "admin";
 
     return {
         roomId: Number(room.id),
@@ -198,7 +199,7 @@ async function buildRoomVoicePayload(room, currentUserId = null) {
         packageOptions: settings.packages,
         currentUser: {
             isOwner,
-            canManage: isOwner,
+            canManage,
             isSpeaker: currentId != null ? activeSpeakerIds.includes(currentId) : false,
             hasPendingRequest: currentId != null ? pendingRequestIds.includes(currentId) : false,
         },
@@ -1024,7 +1025,7 @@ router.get("/room/:roomId/voice-state", authenticateToken, async (req, res) => {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        const voiceState = await buildRoomVoicePayload(room, req.user.id);
+        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
         return res.json(voiceState);
     } catch (error) {
         console.error("Error fetching room voice state:", error);
@@ -1039,7 +1040,7 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        if (String(room.creatorId) !== String(req.user.id)) {
+        if (!canManageRoom(room, req.user)) {
             return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
         }
 
@@ -1076,7 +1077,7 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
         await req.user.update({ sawa: currentBalance - packageConfig.price });
 
         await emitRoomVoiceUpdated(req.app, room);
-        const voiceState = await buildRoomVoicePayload(room, req.user.id);
+        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
 
         return res.json({
             message: "تم تفعيل باقة المايكات بنجاح",
@@ -1119,7 +1120,7 @@ router.post("/room/:roomId/voice/request", authenticateToken, async (req, res) =
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: "تم إرسال طلب الصعود للمايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error requesting room voice seat:", error);
@@ -1142,7 +1143,7 @@ router.post("/room/:roomId/voice/cancel-request", authenticateToken, async (req,
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: "تم إلغاء طلب المايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error canceling room voice request:", error);
@@ -1157,7 +1158,7 @@ router.post("/room/:roomId/voice/toggle-owner-speaker", authenticateToken, async
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        if (String(room.creatorId) !== String(req.user.id)) {
+        if (!canManageRoom(room, req.user)) {
             return res.status(403).json({ error: "هذا الإجراء لصاحب الغرفة فقط" });
         }
 
@@ -1185,7 +1186,7 @@ router.post("/room/:roomId/voice/toggle-owner-speaker", authenticateToken, async
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: nextSpeakers.includes(ownerId) ? "تم صعود المشرف للمايك" : "تم نزول المشرف من المايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error toggling owner speaker seat:", error);
@@ -1200,7 +1201,7 @@ router.post("/room/:roomId/voice/approve", authenticateToken, async (req, res) =
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        if (String(room.creatorId) !== String(req.user.id)) {
+        if (!canManageRoom(room, req.user)) {
             return res.status(403).json({ error: "هذا الإجراء لصاحب الغرفة فقط" });
         }
 
@@ -1226,7 +1227,7 @@ router.post("/room/:roomId/voice/approve", authenticateToken, async (req, res) =
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: "تم قبول الطلب وصعود المستخدم للمايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error approving room voice request:", error);
@@ -1241,7 +1242,7 @@ router.post("/room/:roomId/voice/reject", authenticateToken, async (req, res) =>
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        if (String(room.creatorId) !== String(req.user.id)) {
+        if (!canManageRoom(room, req.user)) {
             return res.status(403).json({ error: "هذا الإجراء لصاحب الغرفة فقط" });
         }
 
@@ -1254,7 +1255,7 @@ router.post("/room/:roomId/voice/reject", authenticateToken, async (req, res) =>
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: "تم رفض طلب المايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error rejecting room voice request:", error);
@@ -1269,7 +1270,7 @@ router.post("/room/:roomId/voice/remove-speaker", authenticateToken, async (req,
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        if (String(room.creatorId) !== String(req.user.id)) {
+        if (!canManageRoom(room, req.user)) {
             return res.status(403).json({ error: "هذا الإجراء لصاحب الغرفة فقط" });
         }
 
@@ -1282,7 +1283,7 @@ router.post("/room/:roomId/voice/remove-speaker", authenticateToken, async (req,
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: "تم تنزيل المستخدم من المايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error removing room speaker:", error);
@@ -1306,7 +1307,7 @@ router.post("/room/:roomId/voice/leave-speaker", authenticateToken, async (req, 
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
             message: "تم مغادرة المايك",
-            voiceState: await buildRoomVoicePayload(room, req.user.id),
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error leaving room speaker seat:", error);
@@ -1326,7 +1327,7 @@ router.post("/room/:roomId/voice/token", authenticateToken, async (req, res) => 
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        const voiceState = await buildRoomVoicePayload(room, req.user.id);
+        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
         if (!voiceState.isActive) {
             return res.status(400).json({ error: "الميكات غير مفعلة في هذه الغرفة" });
         }
