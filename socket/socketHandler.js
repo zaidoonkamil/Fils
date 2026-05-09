@@ -2,6 +2,9 @@
 const { User, Message, Room } = require("../models");
 const { maskArabicProfanity } = require("../services/profanityFilter");
 const { attachActiveUserFrames } = require("../services/roomLeaderboard");
+const roomsRouter = require("../routes/rooms");
+
+const cleanupRoomVoiceParticipant = roomsRouter.cleanupRoomVoiceParticipant;
 
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
@@ -234,6 +237,7 @@ function initializeSocketIO(io) {
     socket.on("leave-room", async (roomId) => {
       try {
         socket.leave(`room-${roomId}`);
+        await cleanupRoomVoiceParticipant(io, roomId, socket.userId);
 
         if (roomUsers.has(roomId)) {
           const usersSet = roomUsers.get(roomId);
@@ -327,6 +331,8 @@ function initializeSocketIO(io) {
           });
         }
 
+        await cleanupRoomVoiceParticipant(io, roomId, userId);
+
         if (usersSet) {
           await room.update({ currentUsers: usersSet.size });
         }
@@ -373,6 +379,8 @@ function initializeSocketIO(io) {
             }
 
             if (removed) {
+              await cleanupRoomVoiceParticipant(io, roomId, socket.userId);
+
               const room = await Room.findByPk(roomId);
               if (room) await room.update({ currentUsers: usersSet.size });
 

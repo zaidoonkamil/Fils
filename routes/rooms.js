@@ -215,6 +215,46 @@ async function emitRoomVoiceUpdated(app, room) {
     });
 }
 
+async function emitRoomVoiceUpdatedToIO(roomsIO, room) {
+    if (!roomsIO || !room) return;
+    const voiceState = await buildRoomVoicePayload(room);
+    roomsIO.to(`room-${room.id}`).emit("room-voice-updated", {
+        roomId: Number(room.id),
+        voiceState,
+    });
+}
+
+async function cleanupRoomVoiceParticipant(roomsIO, roomId, userId) {
+    const numericRoomId = Number(roomId);
+    const numericUserId = Number(userId);
+
+    if (!Number.isFinite(numericRoomId) || numericRoomId <= 0 || !Number.isFinite(numericUserId) || numericUserId <= 0) {
+        return false;
+    }
+
+    const room = await Room.findByPk(numericRoomId);
+    if (!room) return false;
+
+    const normalized = await normalizeRoomVoiceState(room, { persist: true });
+    const nextSpeakers = normalized.voiceActiveSpeakerIds.filter((id) => id !== numericUserId);
+    const nextPending = normalized.voicePendingRequestIds.filter((id) => id !== numericUserId);
+
+    if (
+        nextSpeakers.length === normalized.voiceActiveSpeakerIds.length &&
+        nextPending.length === normalized.voicePendingRequestIds.length
+    ) {
+        return false;
+    }
+
+    await room.update({
+        voiceActiveSpeakerIds: nextSpeakers,
+        voicePendingRequestIds: nextPending,
+    });
+
+    await emitRoomVoiceUpdatedToIO(roomsIO, room);
+    return true;
+}
+
 async function buildPinnedMessage(message) {
     if (!message) return null;
     const msg = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
@@ -1361,4 +1401,5 @@ router.get("/migrate-rooms-images", authenticateToken, async (req, res) => {
     }
 });
 
+router.cleanupRoomVoiceParticipant = cleanupRoomVoiceParticipant;
 module.exports = router;
