@@ -95,6 +95,18 @@ async function getRoomVoicePackageSettings() {
     };
 }
 
+async function getRoomSupportAgentSettings() {
+    const [priceSetting, hoursSetting] = await Promise.all([
+        Settings.findOne({ where: { key: "room_support_agent_price" } }),
+        Settings.findOne({ where: { key: "room_support_agent_hours" } }),
+    ]);
+
+    return {
+        price: priceSetting ? parseInt(priceSetting.value, 10) || 0 : 0,
+        hours: hoursSetting ? parseInt(hoursSetting.value, 10) || 0 : 0,
+    };
+}
+
 async function normalizeRoomVoiceState(room, { persist = false } = {}) {
     let voiceMicCount = Number(room.voiceMicCount ?? 0);
     let voicePackageExpiresAt = room.voicePackageExpiresAt ? new Date(room.voicePackageExpiresAt) : null;
@@ -144,6 +156,34 @@ async function normalizeRoomVoiceState(room, { persist = false } = {}) {
         voiceActiveSpeakerIds,
         voicePendingRequestIds,
         isActive: voiceMicCount > 0 && !!voicePackageExpiresAt,
+    };
+}
+
+async function normalizeRoomSupportAgentState(room, { persist = false } = {}) {
+    let supportAgentUserId = room.supportAgentUserId ? Number(room.supportAgentUserId) : null;
+    let supportAgentExpiresAt = room.supportAgentExpiresAt ? new Date(room.supportAgentExpiresAt) : null;
+
+    const isActive =
+        Number.isFinite(supportAgentUserId) &&
+        supportAgentUserId > 0 &&
+        supportAgentExpiresAt &&
+        supportAgentExpiresAt.getTime() > Date.now();
+
+    if (!isActive && (supportAgentUserId || supportAgentExpiresAt)) {
+        supportAgentUserId = null;
+        supportAgentExpiresAt = null;
+        if (persist) {
+            await room.update({
+                supportAgentUserId: null,
+                supportAgentExpiresAt: null,
+            });
+        }
+    }
+
+    return {
+        supportAgentUserId,
+        supportAgentExpiresAt,
+        isActive: Boolean(supportAgentUserId && supportAgentExpiresAt),
     };
 }
 
@@ -206,6 +246,63 @@ async function buildRoomVoicePayload(room, currentUserId = null, currentUserRole
     };
 }
 
+async function buildRoomSupportAgentPayload(room, currentUserId = null, currentUserRole = null) {
+    const normalized = await normalizeRoomSupportAgentState(room, { persist: true });
+    const packageConfig = await getRoomSupportAgentSettings();
+    const currentId = currentUserId != null ? Number(currentUserId) : null;
+    const canManage = canManageRoom(room, {
+        id: currentId,
+        role: currentUserRole,
+    });
+
+    let selectedAgent = null;
+    if (normalized.isActive && normalized.supportAgentUserId) {
+        const agent = await User.findOne({
+            where: {
+                id: normalized.supportAgentUserId,
+                role: "agent",
+            },
+            attributes: [
+                "id",
+                "name",
+                "images",
+                "phone",
+                "location",
+                "agentPrivateChatEnabled",
+                "isActive",
+            ],
+        });
+
+        if (agent) {
+            selectedAgent = {
+                id: Number(agent.id),
+                name: agent.name || "وكيل",
+                image: extractImage(agent.images),
+                phone: agent.phone || "",
+                location: agent.location || "",
+                agentPrivateChatEnabled: agent.agentPrivateChatEnabled !== false,
+                isActive: agent.isActive !== false,
+            };
+        }
+    }
+
+    return {
+        roomId: Number(room.id),
+        isActive: normalized.isActive && selectedAgent != null,
+        expiresAt: normalized.supportAgentExpiresAt
+            ? normalized.supportAgentExpiresAt.toISOString()
+            : null,
+        selectedAgent,
+        packageOption: {
+            price: packageConfig.price,
+            hours: packageConfig.hours,
+        },
+        currentUser: {
+            canManage,
+        },
+    };
+}
+
 async function emitRoomVoiceUpdated(app, room) {
     const roomsIO = app.get("roomsIO");
     if (!roomsIO) return;
@@ -222,6 +319,20 @@ async function emitRoomVoiceUpdatedToIO(roomsIO, room) {
     roomsIO.to(`room-${room.id}`).emit("room-voice-updated", {
         roomId: Number(room.id),
         voiceState,
+    });
+}
+
+async function emitSerializedRoomUpdated(app, roomId) {
+    const roomsIO = app.get("roomsIO");
+    if (!roomsIO) return;
+
+    const refreshedRoom = await Room.findByPk(roomId);
+    if (!refreshedRoom) return;
+
+    const [serializedRoom] = await attachActiveRoomFrames([refreshedRoom]);
+    roomsIO.to(`room-${roomId}`).emit("room-updated", {
+        roomId: Number(roomId),
+        room: serializedRoom,
     });
 }
 
@@ -1033,6 +1144,25 @@ router.get("/room/:roomId/voice-state", authenticateToken, async (req, res) => {
     }
 });
 
+router.get("/room/:roomId/support-agent-state", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const supportAgentState = await buildRoomSupportAgentPayload(
+            room,
+            req.user.id,
+            req.user.role,
+        );
+        return res.json(supportAgentState);
+    } catch (error) {
+        console.error("Error fetching room support agent state:", error);
+        return res.status(500).json({ error: "خطأ في جلب حالة وكيل الغرفة" });
+    }
+});
+
 router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) => {
     try {
         const room = await Room.findByPk(req.params.roomId);
@@ -1088,6 +1218,149 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
     } catch (error) {
         console.error("Error purchasing room voice package:", error);
         return res.status(500).json({ error: "خطأ في شراء باقة المايكات" });
+    }
+});
+
+router.post("/room/:roomId/support-agent/activate", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
+        }
+
+        const agentId = Number(req.body?.agentId);
+        if (!Number.isFinite(agentId) || agentId <= 0) {
+            return res.status(400).json({ error: "يجب اختيار وكيل صحيح" });
+        }
+
+        const agent = await User.findOne({
+            where: {
+                id: agentId,
+                role: "agent",
+                isActive: true,
+            },
+        });
+
+        if (!agent) {
+            return res.status(404).json({ error: "الوكيل غير موجود أو غير متاح" });
+        }
+
+        const packageConfig = await getRoomSupportAgentSettings();
+        if (packageConfig.hours <= 0) {
+            return res.status(400).json({ error: "إعدادات مدة ظهور أيقونة الوكيل غير مفعلة من الإدارة" });
+        }
+
+        const currentBalance = Number(req.user.sawa ?? 0);
+        if (currentBalance < packageConfig.price) {
+            return res.status(400).json({
+                error: "نقاطك غير كافية لتفعيل أيقونة الوكيل",
+                requiredPoints: packageConfig.price,
+                availablePoints: currentBalance,
+            });
+        }
+
+        const normalized = await normalizeRoomSupportAgentState(room, { persist: true });
+        const baseDate = normalized.isActive && normalized.supportAgentExpiresAt
+            ? normalized.supportAgentExpiresAt
+            : new Date();
+        const nextExpiry = new Date(baseDate.getTime() + (packageConfig.hours * 60 * 60 * 1000));
+
+        await room.update({
+            supportAgentUserId: agentId,
+            supportAgentExpiresAt: nextExpiry,
+        });
+        await req.user.update({ sawa: currentBalance - packageConfig.price });
+
+        await emitSerializedRoomUpdated(req.app, room.id);
+
+        return res.json({
+            message: "تم تفعيل أيقونة وكيل الغرفة بنجاح",
+            deductedPoints: packageConfig.price,
+            remainingSawa: currentBalance - packageConfig.price,
+            supportAgentState: await buildRoomSupportAgentPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error activating room support agent:", error);
+        return res.status(500).json({ error: "خطأ في تفعيل أيقونة الوكيل" });
+    }
+});
+
+router.post("/room/:roomId/support-agent/select", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "هذا الإجراء لصاحب الغرفة فقط" });
+        }
+
+        const normalized = await normalizeRoomSupportAgentState(room, { persist: true });
+        if (!normalized.isActive) {
+            return res.status(400).json({ error: "أيقونة الوكيل غير مفعلة في هذه الغرفة" });
+        }
+
+        const agentId = Number(req.body?.agentId);
+        if (!Number.isFinite(agentId) || agentId <= 0) {
+            return res.status(400).json({ error: "يجب اختيار وكيل صحيح" });
+        }
+
+        const agent = await User.findOne({
+            where: {
+                id: agentId,
+                role: "agent",
+                isActive: true,
+            },
+        });
+
+        if (!agent) {
+            return res.status(404).json({ error: "الوكيل غير موجود أو غير متاح" });
+        }
+
+        await room.update({ supportAgentUserId: agentId });
+        await emitSerializedRoomUpdated(req.app, room.id);
+
+        return res.json({
+            message: "تم تغيير وكيل الغرفة بنجاح",
+            supportAgentState: await buildRoomSupportAgentPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error selecting room support agent:", error);
+        return res.status(500).json({ error: "خطأ في تغيير وكيل الغرفة" });
+    }
+});
+
+router.post("/room/:roomId/support-agent/clear", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "هذا الإجراء لصاحب الغرفة فقط" });
+        }
+
+        const normalized = await normalizeRoomSupportAgentState(room, { persist: true });
+        if (!normalized.isActive) {
+            return res.status(400).json({ error: "أيقونة الوكيل غير مفعلة في هذه الغرفة" });
+        }
+
+        await room.update({ supportAgentUserId: null });
+        await emitSerializedRoomUpdated(req.app, room.id);
+
+        return res.json({
+            message: "تمت إزالة وكيل الغرفة الحالي",
+            supportAgentState: await buildRoomSupportAgentPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error clearing room support agent:", error);
+        return res.status(500).json({ error: "خطأ في إزالة وكيل الغرفة" });
     }
 });
 
@@ -1372,6 +1645,8 @@ router.get("/room-settings", async (req, res) => {
     const roomNameChangeCostSetting = await Settings.findOne({ where: { key: "room_name_change_cost" } });
     const roomVoiceMic3PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_price" } });
     const roomVoiceMic3HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_hours" } });
+    const roomSupportAgentPriceSetting = await Settings.findOne({ where: { key: "room_support_agent_price" } });
+    const roomSupportAgentHoursSetting = await Settings.findOne({ where: { key: "room_support_agent_hours" } });
 
     res.json({
       room_creation_cost: costSetting ? parseInt(costSetting.value) : 0,
@@ -1380,6 +1655,8 @@ router.get("/room-settings", async (req, res) => {
       room_name_change_cost: roomNameChangeCostSetting ? parseInt(roomNameChangeCostSetting.value) : 0,
       room_voice_mic_3_price: roomVoiceMic3PriceSetting ? parseInt(roomVoiceMic3PriceSetting.value, 10) || 0 : 0,
       room_voice_mic_3_hours: roomVoiceMic3HoursSetting ? parseInt(roomVoiceMic3HoursSetting.value, 10) || 0 : 0,
+      room_support_agent_price: roomSupportAgentPriceSetting ? parseInt(roomSupportAgentPriceSetting.value, 10) || 0 : 0,
+      room_support_agent_hours: roomSupportAgentHoursSetting ? parseInt(roomSupportAgentHoursSetting.value, 10) || 0 : 0,
     });
   } catch (err) {
     console.error("Error fetching room settings:", err);

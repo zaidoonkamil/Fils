@@ -197,6 +197,16 @@ async function ensureSchema() {
       allowNull: false,
       defaultValue: [],
     },
+    supportAgentUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    supportAgentExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
   });
 
   await ensureTable(queryInterface, "user_internal_verifications", {

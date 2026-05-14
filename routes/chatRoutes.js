@@ -334,7 +334,6 @@ async function buildConversationListForUser(currentUser) {
     },
     include: getMessageIncludes(),
     order: [["createdAt", "DESC"]],
-    limit: 300,
   });
 
   const conversations = new Map();

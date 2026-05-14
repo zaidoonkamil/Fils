@@ -2334,6 +2334,7 @@ router.get("/roleAgents", async (req, res) => {
       attributes: [
         "id",
         "name",
+        "images",
         "phone",
         "sawa",
         "location",

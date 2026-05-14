@@ -91,6 +91,20 @@ const Room = sequelize.define("Room", {
         allowNull: false,
         defaultValue: [],
     },
+    supportAgentUserId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+        references: {
+            model: 'Users',
+            key: 'id'
+        }
+    },
+    supportAgentExpiresAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+    },
 }, {
     timestamps: true,
 });
