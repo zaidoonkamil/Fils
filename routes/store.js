@@ -331,6 +331,63 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
   }
 });
 
+router.get("/store/admin/categories/:categoryId/products", requireAdmin, async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    const category = await StoreCategory.findByPk(categoryId);
+    if (!category) {
+      return res.status(404).json({ error: "الفئة غير موجودة" });
+    }
+
+    const products = await DigitalProduct.findAll({
+      where: {
+        categoryId,
+      },
+      include: [
+        {
+          model: DigitalProductCode,
+          as: "codes",
+          attributes: digitalProductCodeAttributes,
+          required: false,
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const normalizedProducts = [];
+
+    for (const product of products) {
+      const unusedCodesCount = Array.isArray(product.codes)
+        ? product.codes.filter((code) => !code.used).length
+        : await DigitalProductCode.count({
+            where: { productId: product.id, used: false }
+          });
+
+      product.stock = unusedCodesCount;
+      normalizedProducts.push({
+        ...product.toJSON(),
+        stock: unusedCodesCount,
+        hiddenForUsers: unusedCodesCount <= 0,
+        hiddenReason: unusedCodesCount <= 0
+            ? ((Array.isArray(product.codes) && product.codes.length === 0)
+                ? "no_codes_added"
+                : "all_codes_used")
+            : null,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      categoryName: category.name,
+      products: normalizedProducts,
+    });
+  } catch (error) {
+    console.error("❌ خطأ في جلب منتجات القسم للأدمن:", error);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
 // جلب المنتجات المخفية من المتجر (الأكواد نفدت أو لا توجد أكواد متاحة)
 router.get("/store/admin/hidden-products", requireAdmin, async (req, res) => {
   try {
