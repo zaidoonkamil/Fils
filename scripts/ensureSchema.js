@@ -207,6 +207,26 @@ async function ensureSchema() {
       allowNull: true,
       defaultValue: null,
     },
+    roomAudioExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    roomAudioFiles: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [],
+    },
+    roomAudioCurrentTrackId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    roomAudioPlaybackStartedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
   });
 
   await ensureTable(queryInterface, "user_internal_verifications", {

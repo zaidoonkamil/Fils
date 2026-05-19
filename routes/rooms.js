@@ -4,10 +4,24 @@ const Room = require("../models/room");
 const Message = require("../models/message");
 const User = require("../models/user");
 const jwt = require("jsonwebtoken");
+const fs = require("fs");
+const path = require("path");
+const { randomUUID } = require("crypto");
 const { AccessToken } = require("livekit-server-sdk");
+const { parseFile } = require("music-metadata");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
 const { attachActiveRoomFrames, attachActiveUserFrames } = require("../services/roomLeaderboard");
+
+const ROOM_AUDIO_ALLOWED_EXTENSIONS = new Set([
+    ".aac",
+    ".m4a",
+    ".mp3",
+    ".ogg",
+    ".opus",
+    ".wav",
+    ".webm",
+]);
 
 async function normalizeUserPayload(user) {
     if (!user) return null;
@@ -107,6 +121,93 @@ async function getRoomSupportAgentSettings() {
     };
 }
 
+async function getRoomAudioSettings() {
+    const [priceSetting, hoursSetting, maxMinutesSetting] = await Promise.all([
+        Settings.findOne({ where: { key: "room_audio_price" } }),
+        Settings.findOne({ where: { key: "room_audio_hours" } }),
+        Settings.findOne({ where: { key: "room_audio_max_total_minutes" } }),
+    ]);
+
+    return {
+        price: priceSetting ? parseInt(priceSetting.value, 10) || 0 : 0,
+        hours: hoursSetting ? parseInt(hoursSetting.value, 10) || 0 : 0,
+        maxTotalMinutes: maxMinutesSetting ? parseInt(maxMinutesSetting.value, 10) || 60 : 60,
+    };
+}
+
+function normalizeAudioFileName(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+
+    return String(value)
+        .replace(/[^\x20-\x7E\u0600-\u06FF]/g, "")
+        .trim();
+}
+
+function normalizeRoomAudioFiles(value) {
+    if (!Array.isArray(value)) return [];
+
+    const files = [];
+    const seen = new Set();
+
+    for (const item of value) {
+        if (!item || typeof item !== "object") continue;
+
+        const fileId = String(item.id || "").trim();
+        const storedFileName = String(item.storedFileName || item.fileName || "").trim();
+        const extension = path.extname(storedFileName).toLowerCase();
+        if (!fileId || !storedFileName || !ROOM_AUDIO_ALLOWED_EXTENSIONS.has(extension) || seen.has(fileId)) {
+            continue;
+        }
+
+        seen.add(fileId);
+        files.push({
+            id: fileId,
+            name: normalizeAudioFileName(item.name || item.originalName || path.parse(storedFileName).name) || "ملف صوتي",
+            originalName: normalizeAudioFileName(item.originalName || item.name || path.basename(storedFileName)) || path.basename(storedFileName),
+            storedFileName,
+            durationSeconds: Math.max(0, Math.round(Number(item.durationSeconds || 0))),
+            uploadedById: Number(item.uploadedById || 0) || null,
+            uploadedByName: normalizeAudioFileName(item.uploadedByName || "مشرف") || "مشرف",
+            uploadedAt: item.uploadedAt ? new Date(item.uploadedAt).toISOString() : new Date().toISOString(),
+        });
+    }
+
+    return files;
+}
+
+function sumRoomAudioDurationSeconds(files) {
+    return normalizeRoomAudioFiles(files).reduce(
+        (total, file) => total + Math.max(0, Number(file.durationSeconds || 0)),
+        0,
+    );
+}
+
+function formatDurationLabel(totalSeconds) {
+    const safeSeconds = Math.max(0, Math.round(Number(totalSeconds || 0)));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    if (minutes <= 0) {
+        return `${seconds}ث`;
+    }
+    return `${minutes}د ${seconds}ث`;
+}
+
+function isAudioUploadFile(file) {
+    if (!file) return false;
+
+    const extension = path.extname(file.originalname || file.filename || "").toLowerCase();
+    const mimeType = String(file.mimetype || "").toLowerCase();
+    return ROOM_AUDIO_ALLOWED_EXTENSIONS.has(extension) && mimeType.startsWith("audio/");
+}
+
+function removeUploadedFileSafe(filePath) {
+    if (!filePath) return Promise.resolve();
+
+    return fs.promises.unlink(filePath).catch(() => null);
+}
+
 async function normalizeRoomVoiceState(room, { persist = false } = {}) {
     let voiceMicCount = Number(room.voiceMicCount ?? 0);
     let voicePackageExpiresAt = room.voicePackageExpiresAt ? new Date(room.voicePackageExpiresAt) : null;
@@ -184,6 +285,59 @@ async function normalizeRoomSupportAgentState(room, { persist = false } = {}) {
         supportAgentUserId,
         supportAgentExpiresAt,
         isActive: Boolean(supportAgentUserId && supportAgentExpiresAt),
+    };
+}
+
+async function normalizeRoomAudioState(room, { persist = false } = {}) {
+    let roomAudioExpiresAt = room.roomAudioExpiresAt ? new Date(room.roomAudioExpiresAt) : null;
+    let roomAudioFiles = normalizeRoomAudioFiles(room.roomAudioFiles);
+    let roomAudioCurrentTrackId = room.roomAudioCurrentTrackId ? String(room.roomAudioCurrentTrackId) : null;
+    let roomAudioPlaybackStartedAt = room.roomAudioPlaybackStartedAt
+        ? new Date(room.roomAudioPlaybackStartedAt)
+        : null;
+
+    const isPackageActive =
+        roomAudioExpiresAt instanceof Date &&
+        !Number.isNaN(roomAudioExpiresAt.getTime()) &&
+        roomAudioExpiresAt.getTime() > Date.now();
+
+    if (!isPackageActive) {
+        roomAudioExpiresAt = null;
+        roomAudioCurrentTrackId = null;
+        roomAudioPlaybackStartedAt = null;
+    }
+
+    const currentTrack = roomAudioCurrentTrackId
+        ? roomAudioFiles.find((file) => file.id === roomAudioCurrentTrackId) || null
+        : null;
+
+    if (!currentTrack) {
+        roomAudioCurrentTrackId = null;
+        roomAudioPlaybackStartedAt = null;
+    }
+
+    const shouldPersist =
+        JSON.stringify(normalizeRoomAudioFiles(room.roomAudioFiles)) !== JSON.stringify(roomAudioFiles) ||
+        String(room.roomAudioExpiresAt ?? "") !== String(roomAudioExpiresAt ?? "") ||
+        String(room.roomAudioCurrentTrackId ?? "") !== String(roomAudioCurrentTrackId ?? "") ||
+        String(room.roomAudioPlaybackStartedAt ?? "") !== String(roomAudioPlaybackStartedAt ?? "");
+
+    if (persist && shouldPersist) {
+        await room.update({
+            roomAudioExpiresAt,
+            roomAudioFiles,
+            roomAudioCurrentTrackId,
+            roomAudioPlaybackStartedAt,
+        });
+    }
+
+    return {
+        roomAudioExpiresAt,
+        roomAudioFiles,
+        roomAudioCurrentTrackId,
+        roomAudioPlaybackStartedAt,
+        currentTrack,
+        isPackageActive: Boolean(roomAudioExpiresAt),
     };
 }
 
@@ -303,6 +457,47 @@ async function buildRoomSupportAgentPayload(room, currentUserId = null, currentU
     };
 }
 
+async function buildRoomAudioPayload(room, currentUserId = null, currentUserRole = null) {
+    const normalized = await normalizeRoomAudioState(room, { persist: true });
+    const packageOption = await getRoomAudioSettings();
+    const currentId = currentUserId != null ? Number(currentUserId) : null;
+    const canManage = canManageRoom(room, {
+        id: currentId,
+        role: currentUserRole,
+    });
+
+    const currentTrack = normalized.currentTrack
+        ? {
+            ...normalized.currentTrack,
+            durationLabel: formatDurationLabel(normalized.currentTrack.durationSeconds),
+        }
+        : null;
+
+    return {
+        roomId: Number(room.id),
+        isActive: normalized.isPackageActive,
+        expiresAt: normalized.roomAudioExpiresAt
+            ? normalized.roomAudioExpiresAt.toISOString()
+            : null,
+        files: normalized.roomAudioFiles.map((file) => ({
+            ...file,
+            durationLabel: formatDurationLabel(file.durationSeconds),
+            isCurrent: currentTrack != null && currentTrack.id === file.id,
+        })),
+        currentTrackId: normalized.roomAudioCurrentTrackId,
+        currentTrack,
+        isPlaying: currentTrack != null && normalized.roomAudioPlaybackStartedAt != null,
+        playbackStartedAt: normalized.roomAudioPlaybackStartedAt
+            ? normalized.roomAudioPlaybackStartedAt.toISOString()
+            : null,
+        totalDurationSeconds: sumRoomAudioDurationSeconds(normalized.roomAudioFiles),
+        packageOption,
+        currentUser: {
+            canManage,
+        },
+    };
+}
+
 async function emitRoomVoiceUpdated(app, room) {
     const roomsIO = app.get("roomsIO");
     if (!roomsIO) return;
@@ -310,6 +505,16 @@ async function emitRoomVoiceUpdated(app, room) {
     roomsIO.to(`room-${room.id}`).emit("room-voice-updated", {
         roomId: Number(room.id),
         voiceState,
+    });
+}
+
+async function emitRoomAudioUpdated(app, room) {
+    const roomsIO = app.get("roomsIO");
+    if (!roomsIO) return;
+    const audioState = await buildRoomAudioPayload(room);
+    roomsIO.to(`room-${room.id}`).emit("room-audio-updated", {
+        roomId: Number(room.id),
+        audioState,
     });
 }
 
@@ -1163,6 +1368,21 @@ router.get("/room/:roomId/support-agent-state", authenticateToken, async (req, r
     }
 });
 
+router.get("/room/:roomId/audio-state", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const audioState = await buildRoomAudioPayload(room, req.user.id, req.user.role);
+        return res.json(audioState);
+    } catch (error) {
+        console.error("Error fetching room audio state:", error);
+        return res.status(500).json({ error: "خطأ في جلب حالة الصوتيات" });
+    }
+});
+
 router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) => {
     try {
         const room = await Room.findByPk(req.params.roomId);
@@ -1218,6 +1438,236 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
     } catch (error) {
         console.error("Error purchasing room voice package:", error);
         return res.status(500).json({ error: "خطأ في شراء باقة المايكات" });
+    }
+});
+
+router.post("/room/:roomId/audio/purchase", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
+        }
+
+        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
+        if (!voiceState.isActive) {
+            return res.status(400).json({ error: "فعّل المايكات أولاً حتى تتمكن من تفعيل الصوتيات" });
+        }
+
+        const packageConfig = await getRoomAudioSettings();
+        if (packageConfig.hours <= 0) {
+            return res.status(400).json({ error: "إعدادات مدة الصوتيات غير مفعلة من الإدارة" });
+        }
+
+        const currentBalance = Number(req.user.sawa ?? 0);
+        if (currentBalance < packageConfig.price) {
+            return res.status(400).json({
+                error: "نقاطك غير كافية لتفعيل الصوتيات",
+                requiredPoints: packageConfig.price,
+                availablePoints: currentBalance,
+            });
+        }
+
+        const normalized = await normalizeRoomAudioState(room, { persist: true });
+        const baseDate = normalized.isPackageActive && normalized.roomAudioExpiresAt
+            ? normalized.roomAudioExpiresAt
+            : new Date();
+        const nextExpiry = new Date(baseDate.getTime() + (packageConfig.hours * 60 * 60 * 1000));
+
+        await room.update({
+            roomAudioExpiresAt: nextExpiry,
+        });
+        await req.user.update({ sawa: currentBalance - packageConfig.price });
+
+        await emitRoomAudioUpdated(req.app, room);
+        await emitSerializedRoomUpdated(req.app, room.id);
+
+        return res.json({
+            message: "تم تفعيل الصوتيات بنجاح",
+            deductedPoints: packageConfig.price,
+            remainingSawa: currentBalance - packageConfig.price,
+            audioState: await buildRoomAudioPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error purchasing room audio package:", error);
+        return res.status(500).json({ error: "خطأ في شراء عرض الصوتيات" });
+    }
+});
+
+router.post("/room/:roomId/audio/upload", authenticateToken, upload.single("audio"), async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            await removeUploadedFileSafe(req.file?.path);
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            await removeUploadedFileSafe(req.file?.path);
+            return res.status(403).json({ error: "رفع الصوتيات متاح لصاحب الغرفة فقط" });
+        }
+
+        if (!req.file || !isAudioUploadFile(req.file)) {
+            await removeUploadedFileSafe(req.file?.path);
+            return res.status(400).json({ error: "يُسمح فقط برفع ملفات صوتية صالحة" });
+        }
+
+        const audioState = await buildRoomAudioPayload(room, req.user.id, req.user.role);
+        if (!audioState.isActive) {
+            await removeUploadedFileSafe(req.file.path);
+            return res.status(400).json({ error: "فعّل عرض الصوتيات أولاً" });
+        }
+
+        const packageConfig = await getRoomAudioSettings();
+        const parsed = await parseFile(req.file.path);
+        const durationSeconds = Math.max(0, Math.round(Number(parsed.format.duration || 0)));
+        if (durationSeconds <= 0) {
+            await removeUploadedFileSafe(req.file.path);
+            return res.status(400).json({ error: "تعذر قراءة مدة الملف الصوتي" });
+        }
+
+        const normalized = await normalizeRoomAudioState(room, { persist: true });
+        const nextTotalDurationSeconds = sumRoomAudioDurationSeconds(normalized.roomAudioFiles) + durationSeconds;
+        const maxTotalSeconds = Math.max(1, Number(packageConfig.maxTotalMinutes || 60)) * 60;
+        if (nextTotalDurationSeconds > maxTotalSeconds) {
+            await removeUploadedFileSafe(req.file.path);
+            return res.status(400).json({
+                error: `الحد الأعلى لإجمالي الصوتيات هو ${packageConfig.maxTotalMinutes} دقيقة`,
+            });
+        }
+
+        const entry = {
+            id: randomUUID(),
+            name: normalizeAudioFileName(path.parse(req.file.originalname).name) || "ملف صوتي",
+            originalName: normalizeAudioFileName(req.file.originalname) || req.file.filename,
+            storedFileName: req.file.filename,
+            durationSeconds,
+            uploadedById: Number(req.user.id),
+            uploadedByName: normalizeAudioFileName(req.user.name || "مشرف") || "مشرف",
+            uploadedAt: new Date().toISOString(),
+        };
+
+        await room.update({
+            roomAudioFiles: [...normalized.roomAudioFiles, entry],
+        });
+
+        await emitRoomAudioUpdated(req.app, room);
+        return res.json({
+            message: "تم رفع الملف الصوتي بنجاح",
+            audioState: await buildRoomAudioPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        await removeUploadedFileSafe(req.file?.path);
+        console.error("Error uploading room audio:", error);
+        return res.status(500).json({ error: "خطأ في رفع الملف الصوتي" });
+    }
+});
+
+router.post("/room/:roomId/audio/play", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "تشغيل الصوتيات متاح لصاحب الغرفة فقط" });
+        }
+
+        const normalized = await normalizeRoomAudioState(room, { persist: true });
+        if (!normalized.isPackageActive) {
+            return res.status(400).json({ error: "عرض الصوتيات غير مفعل في هذه الغرفة" });
+        }
+
+        const fileId = String(req.body?.fileId || "").trim();
+        const track = normalized.roomAudioFiles.find((entry) => entry.id === fileId);
+        if (!track) {
+            return res.status(404).json({ error: "الملف الصوتي غير موجود" });
+        }
+
+        await room.update({
+            roomAudioCurrentTrackId: track.id,
+            roomAudioPlaybackStartedAt: new Date(),
+        });
+
+        await emitRoomAudioUpdated(req.app, room);
+        return res.json({
+            message: "تم تشغيل الملف الصوتي",
+            audioState: await buildRoomAudioPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error playing room audio:", error);
+        return res.status(500).json({ error: "خطأ في تشغيل الملف الصوتي" });
+    }
+});
+
+router.post("/room/:roomId/audio/stop", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "إيقاف الصوتيات متاح لصاحب الغرفة فقط" });
+        }
+
+        await room.update({
+            roomAudioCurrentTrackId: null,
+            roomAudioPlaybackStartedAt: null,
+        });
+
+        await emitRoomAudioUpdated(req.app, room);
+        return res.json({
+            message: "تم إيقاف الصوتيات",
+            audioState: await buildRoomAudioPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error stopping room audio:", error);
+        return res.status(500).json({ error: "خطأ في إيقاف الصوتيات" });
+    }
+});
+
+router.delete("/room/:roomId/audio/file/:fileId", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "حذف الصوتيات متاح لصاحب الغرفة فقط" });
+        }
+
+        const normalized = await normalizeRoomAudioState(room, { persist: true });
+        const fileId = String(req.params.fileId || "").trim();
+        const targetFile = normalized.roomAudioFiles.find((entry) => entry.id === fileId);
+        if (!targetFile) {
+            return res.status(404).json({ error: "الملف الصوتي غير موجود" });
+        }
+
+        const nextFiles = normalized.roomAudioFiles.filter((entry) => entry.id !== fileId);
+        const shouldStopCurrent = normalized.roomAudioCurrentTrackId === fileId;
+
+        await room.update({
+            roomAudioFiles: nextFiles,
+            roomAudioCurrentTrackId: shouldStopCurrent ? null : normalized.roomAudioCurrentTrackId,
+            roomAudioPlaybackStartedAt: shouldStopCurrent ? null : normalized.roomAudioPlaybackStartedAt,
+        });
+
+        await removeUploadedFileSafe(path.join(process.cwd(), "uploads", targetFile.storedFileName));
+        await emitRoomAudioUpdated(req.app, room);
+
+        return res.json({
+            message: "تم حذف الملف الصوتي",
+            audioState: await buildRoomAudioPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error deleting room audio:", error);
+        return res.status(500).json({ error: "خطأ في حذف الملف الصوتي" });
     }
 });
 
@@ -1645,6 +2095,9 @@ router.get("/room-settings", async (req, res) => {
     const roomNameChangeCostSetting = await Settings.findOne({ where: { key: "room_name_change_cost" } });
     const roomVoiceMic3PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_price" } });
     const roomVoiceMic3HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_hours" } });
+    const roomAudioPriceSetting = await Settings.findOne({ where: { key: "room_audio_price" } });
+    const roomAudioHoursSetting = await Settings.findOne({ where: { key: "room_audio_hours" } });
+    const roomAudioMaxTotalMinutesSetting = await Settings.findOne({ where: { key: "room_audio_max_total_minutes" } });
     const roomSupportAgentPriceSetting = await Settings.findOne({ where: { key: "room_support_agent_price" } });
     const roomSupportAgentHoursSetting = await Settings.findOne({ where: { key: "room_support_agent_hours" } });
 
@@ -1655,6 +2108,9 @@ router.get("/room-settings", async (req, res) => {
       room_name_change_cost: roomNameChangeCostSetting ? parseInt(roomNameChangeCostSetting.value) : 0,
       room_voice_mic_3_price: roomVoiceMic3PriceSetting ? parseInt(roomVoiceMic3PriceSetting.value, 10) || 0 : 0,
       room_voice_mic_3_hours: roomVoiceMic3HoursSetting ? parseInt(roomVoiceMic3HoursSetting.value, 10) || 0 : 0,
+      room_audio_price: roomAudioPriceSetting ? parseInt(roomAudioPriceSetting.value, 10) || 0 : 0,
+      room_audio_hours: roomAudioHoursSetting ? parseInt(roomAudioHoursSetting.value, 10) || 0 : 0,
+      room_audio_max_total_minutes: roomAudioMaxTotalMinutesSetting ? parseInt(roomAudioMaxTotalMinutesSetting.value, 10) || 60 : 60,
       room_support_agent_price: roomSupportAgentPriceSetting ? parseInt(roomSupportAgentPriceSetting.value, 10) || 0 : 0,
       room_support_agent_hours: roomSupportAgentHoursSetting ? parseInt(roomSupportAgentHoursSetting.value, 10) || 0 : 0,
     });
