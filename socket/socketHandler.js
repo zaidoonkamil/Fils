@@ -5,6 +5,7 @@ const { attachActiveUserFrames } = require("../services/roomLeaderboard");
 const roomsRouter = require("../routes/rooms");
 
 const cleanupRoomVoiceParticipant = roomsRouter.cleanupRoomVoiceParticipant;
+const syncRoomAudioPlaybackPresence = roomsRouter.syncRoomAudioPlaybackPresence;
 
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
@@ -117,14 +118,15 @@ function initializeSocketIO(io) {
 
         if (!alreadyJoined) {
           usersSet.add({
-            id: socket.userId,
-            name: socket.userName,
-            image: socket.userImage,
-            activeFrame: socket.userFrame,
-            socketId: socket.id,
-          });
-          await room.update({ currentUsers: usersSet.size });
-        }
+              id: socket.userId,
+              name: socket.userName,
+              image: socket.userImage,
+              activeFrame: socket.userFrame,
+              socketId: socket.id,
+            });
+            await room.update({ currentUsers: usersSet.size });
+            await syncRoomAudioPlaybackPresence(io, roomId, usersSet.size > 0);
+          }
 
         socket.emit("joined-room", {
           roomId,
@@ -264,8 +266,9 @@ function initializeSocketIO(io) {
             image: u.image,
             activeFrame: u.activeFrame ?? null,
           }));
-          io.to(`room-${roomId}`).emit("room-users", currentUsers);
+            io.to(`room-${roomId}`).emit("room-users", currentUsers);
 
+          await syncRoomAudioPlaybackPresence(io, roomId, usersSet.size > 0);
           if (usersSet.size === 0) roomUsers.delete(roomId);
         }
       } catch (error) {
@@ -348,8 +351,9 @@ function initializeSocketIO(io) {
             name: u.name,
             image: u.image,
           }));
-          io.to(`room-${roomId}`).emit("room-users", currentUsers);
+            io.to(`room-${roomId}`).emit("room-users", currentUsers);
 
+          await syncRoomAudioPlaybackPresence(io, roomId, usersSet.size > 0);
           if (usersSet.size === 0) roomUsers.delete(roomId);
         }
       } catch (e) {
@@ -399,6 +403,7 @@ function initializeSocketIO(io) {
               io.to(`room-${roomId}`).emit("room-users", currentUsers);
             }
 
+            await syncRoomAudioPlaybackPresence(io, roomId, usersSet.size > 0);
             if (usersSet.size === 0) roomUsers.delete(roomId);
           }
         });

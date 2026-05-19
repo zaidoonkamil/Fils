@@ -518,6 +518,51 @@ async function emitRoomAudioUpdated(app, room) {
     });
 }
 
+async function emitRoomAudioUpdatedToIO(roomsIO, room) {
+    if (!roomsIO || !room) return;
+    const audioState = await buildRoomAudioPayload(room);
+    roomsIO.to(`room-${room.id}`).emit("room-audio-updated", {
+        roomId: Number(room.id),
+        audioState,
+    });
+}
+
+async function syncRoomAudioPlaybackPresence(roomsIO, roomId, shouldPlay) {
+    const numericRoomId = Number(roomId);
+    if (!Number.isFinite(numericRoomId) || numericRoomId <= 0) {
+        return false;
+    }
+
+    const room = await Room.findByPk(numericRoomId);
+    if (!room || !room.isActive) {
+        return false;
+    }
+
+    const normalized = await normalizeRoomAudioState(room, { persist: true });
+    if (!normalized.isPackageActive || !normalized.roomAudioCurrentTrackId) {
+        return false;
+    }
+
+    const isCurrentlyPlaying = normalized.roomAudioPlaybackStartedAt != null;
+    if (shouldPlay && !isCurrentlyPlaying) {
+        await room.update({
+            roomAudioPlaybackStartedAt: new Date(),
+        });
+        await emitRoomAudioUpdatedToIO(roomsIO, room);
+        return true;
+    }
+
+    if (!shouldPlay && isCurrentlyPlaying) {
+        await room.update({
+            roomAudioPlaybackStartedAt: null,
+        });
+        await emitRoomAudioUpdatedToIO(roomsIO, room);
+        return true;
+    }
+
+    return false;
+}
+
 async function emitRoomVoiceUpdatedToIO(roomsIO, room) {
     if (!roomsIO || !room) return;
     const voiceState = await buildRoomVoicePayload(room);
@@ -2136,4 +2181,5 @@ router.get("/migrate-rooms-images", authenticateToken, async (req, res) => {
 });
 
 router.cleanupRoomVoiceParticipant = cleanupRoomVoiceParticipant;
+router.syncRoomAudioPlaybackPresence = syncRoomAudioPlaybackPresence;
 module.exports = router;
