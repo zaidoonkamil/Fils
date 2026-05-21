@@ -1394,7 +1394,6 @@ router.get("/room/:roomId/voice-state", authenticateToken, async (req, res) => {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
-        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
         return res.json(voiceState);
     } catch (error) {
         console.error("Error fetching room voice state:", error);
@@ -1468,7 +1467,14 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
         }
 
         const normalized = await normalizeRoomVoiceState(room, { persist: true });
-        const baseDate = normalized.isActive && normalized.voicePackageExpiresAt
+        const isReplacingPackage = normalized.isActive && normalized.voiceMicCount !== micCount;
+        const nextActiveSpeakerIds = isReplacingPackage
+            ? normalized.voiceActiveSpeakerIds.slice(0, micCount)
+            : normalized.voiceActiveSpeakerIds;
+        const nextPendingRequestIds = isReplacingPackage
+            ? normalized.voicePendingRequestIds.filter((userId) => !nextActiveSpeakerIds.includes(userId))
+            : normalized.voicePendingRequestIds;
+        const baseDate = normalized.isActive && normalized.voicePackageExpiresAt && !isReplacingPackage
             ? normalized.voicePackageExpiresAt
             : new Date();
         const nextExpiry = new Date(baseDate.getTime() + (packageConfig.hours * 60 * 60 * 1000));
@@ -1476,11 +1482,12 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
         await room.update({
             voiceMicCount: micCount,
             voicePackageExpiresAt: nextExpiry,
+            voiceActiveSpeakerIds: nextActiveSpeakerIds,
+            voicePendingRequestIds: nextPendingRequestIds,
         });
         await req.user.update({ sawa: currentBalance - packageConfig.price });
 
         await emitRoomVoiceUpdated(req.app, room);
-        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
 
         return res.json({
             message: "تم تفعيل باقة المايكات بنجاح",
@@ -1506,7 +1513,7 @@ router.post("/room/:roomId/audio/purchase", authenticateToken, async (req, res) 
         }
 
         const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
-        if (!voiceState.isActive) {
+        if (false && !voiceState.isActive) {
             return res.status(400).json({ error: "فعّل المايكات أولاً حتى تتمكن من تفعيل الصوتيات" });
         }
 
