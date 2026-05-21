@@ -93,19 +93,27 @@ function getLiveKitRoomName(roomId) {
 }
 
 async function getRoomVoicePackageSettings() {
-    const [mic3PriceSetting, mic3HoursSetting] = await Promise.all([
-        Settings.findOne({ where: { key: "room_voice_mic_3_price" } }),
-        Settings.findOne({ where: { key: "room_voice_mic_3_hours" } }),
-    ]);
+    const packageCounts = [3, 6, 9, 12];
+    const settingsList = await Promise.all(
+        packageCounts.flatMap((micCount) => ([
+            Settings.findOne({ where: { key: `room_voice_mic_${micCount}_price` } }),
+            Settings.findOne({ where: { key: `room_voice_mic_${micCount}_hours` } }),
+        ])),
+    );
+
+    const packages = packageCounts.map((micCount, index) => {
+        const priceSetting = settingsList[index * 2];
+        const hoursSetting = settingsList[(index * 2) + 1];
+
+        return {
+            micCount,
+            price: priceSetting ? parseInt(priceSetting.value, 10) || 0 : 0,
+            hours: hoursSetting ? parseInt(hoursSetting.value, 10) || 0 : 0,
+        };
+    });
 
     return {
-        packages: [
-            {
-                micCount: 3,
-                price: mic3PriceSetting ? parseInt(mic3PriceSetting.value, 10) || 0 : 0,
-                hours: mic3HoursSetting ? parseInt(mic3HoursSetting.value, 10) || 0 : 0,
-            },
-        ],
+        packages,
     };
 }
 
@@ -1440,8 +1448,8 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
         }
 
         const micCount = Number(req.body?.micCount ?? 3);
-        if (micCount !== 3) {
-            return res.status(400).json({ error: "حالياً المتاح فقط باقة 3 مايكات" });
+        if (![3, 6, 9, 12].includes(micCount)) {
+            return res.status(400).json({ error: "باقة المايكات المطلوبة غير مدعومة" });
         }
 
         const settings = await getRoomVoicePackageSettings();
@@ -2140,6 +2148,12 @@ router.get("/room-settings", async (req, res) => {
     const roomNameChangeCostSetting = await Settings.findOne({ where: { key: "room_name_change_cost" } });
     const roomVoiceMic3PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_price" } });
     const roomVoiceMic3HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_hours" } });
+    const roomVoiceMic6PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_6_price" } });
+    const roomVoiceMic6HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_6_hours" } });
+    const roomVoiceMic9PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_9_price" } });
+    const roomVoiceMic9HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_9_hours" } });
+    const roomVoiceMic12PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_12_price" } });
+    const roomVoiceMic12HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_12_hours" } });
     const roomAudioPriceSetting = await Settings.findOne({ where: { key: "room_audio_price" } });
     const roomAudioHoursSetting = await Settings.findOne({ where: { key: "room_audio_hours" } });
     const roomAudioMaxTotalMinutesSetting = await Settings.findOne({ where: { key: "room_audio_max_total_minutes" } });
@@ -2153,6 +2167,12 @@ router.get("/room-settings", async (req, res) => {
       room_name_change_cost: roomNameChangeCostSetting ? parseInt(roomNameChangeCostSetting.value) : 0,
       room_voice_mic_3_price: roomVoiceMic3PriceSetting ? parseInt(roomVoiceMic3PriceSetting.value, 10) || 0 : 0,
       room_voice_mic_3_hours: roomVoiceMic3HoursSetting ? parseInt(roomVoiceMic3HoursSetting.value, 10) || 0 : 0,
+      room_voice_mic_6_price: roomVoiceMic6PriceSetting ? parseInt(roomVoiceMic6PriceSetting.value, 10) || 0 : 0,
+      room_voice_mic_6_hours: roomVoiceMic6HoursSetting ? parseInt(roomVoiceMic6HoursSetting.value, 10) || 0 : 0,
+      room_voice_mic_9_price: roomVoiceMic9PriceSetting ? parseInt(roomVoiceMic9PriceSetting.value, 10) || 0 : 0,
+      room_voice_mic_9_hours: roomVoiceMic9HoursSetting ? parseInt(roomVoiceMic9HoursSetting.value, 10) || 0 : 0,
+      room_voice_mic_12_price: roomVoiceMic12PriceSetting ? parseInt(roomVoiceMic12PriceSetting.value, 10) || 0 : 0,
+      room_voice_mic_12_hours: roomVoiceMic12HoursSetting ? parseInt(roomVoiceMic12HoursSetting.value, 10) || 0 : 0,
       room_audio_price: roomAudioPriceSetting ? parseInt(roomAudioPriceSetting.value, 10) || 0 : 0,
       room_audio_hours: roomAudioHoursSetting ? parseInt(roomAudioHoursSetting.value, 10) || 0 : 0,
       room_audio_max_total_minutes: roomAudioMaxTotalMinutesSetting ? parseInt(roomAudioMaxTotalMinutesSetting.value, 10) || 60 : 60,

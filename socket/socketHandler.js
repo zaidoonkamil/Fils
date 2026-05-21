@@ -218,16 +218,39 @@ function initializeSocketIO(io) {
           replyToId: replyMessage?.id ?? null,
         });
 
-        const messageData = await normalizeMessagePayload({
-          ...message.toJSON(),
-          user: {
-            id: socket.userId,
-            name: socket.userName,
-            image: socket.userImage,
-            activeFrame: socket.userFrame,
-          },
-          replyTo: replyMessage,
+        const createdMessage = await Message.findByPk(message.id, {
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "images"],
+            },
+            {
+              model: Message,
+              as: "replyTo",
+              required: false,
+              where: { isDeleted: false },
+              include: [{
+                model: User,
+                as: "user",
+                attributes: ["id", "name", "images"],
+              }],
+            },
+          ],
         });
+
+        const messageData = await normalizeMessagePayload(
+          createdMessage || {
+            ...message.toJSON(),
+            user: {
+              id: socket.userId,
+              name: socket.userName,
+              image: socket.userImage,
+              activeFrame: socket.userFrame,
+            },
+            replyTo: replyMessage,
+          },
+        );
 
         io.to(`room-${roomId}`).emit("new-message", messageData);
       } catch (error) {
