@@ -227,6 +227,11 @@ async function ensureSchema() {
       allowNull: true,
       defaultValue: null,
     },
+    roomChallengeState: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
   });
 
   await ensureTable(queryInterface, "user_internal_verifications", {

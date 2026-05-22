@@ -17,6 +17,7 @@ const {
   getRoomsSupportLeaderboard,
   getRoomsLeaderboardHistory,
 } = require("../services/roomLeaderboard");
+const roomsRouter = require("./rooms");
 
 const uploadsDir = path.resolve(process.cwd(), "uploads");
 let userGiftAccountingColumnsReady = false;
@@ -1146,6 +1147,16 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
         roomId,
         payload,
       });
+      if (typeof roomsRouter.processRoomChallengeGift === "function") {
+        await roomsRouter.processRoomChallengeGift({
+          app: req.app,
+          roomId,
+          receiver,
+          sender,
+          points: conversionResult.points,
+          receiverShare: conversionResult.receiverShare,
+        });
+      }
     } else {
       const receiverSocketId = connectedUsers.get(String(receiverId));
       if (roomsIO && receiverSocketId) {
@@ -1532,6 +1543,16 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
         roomId,
         payload,
       });
+      if (typeof roomsRouter.processRoomChallengeGift === "function") {
+        await roomsRouter.processRoomChallengeGift({
+          app: req.app,
+          roomId,
+          receiver,
+          sender,
+          points: conversionResult.points,
+          receiverShare: conversionResult.receiverShare,
+        });
+      }
     } else {
       const receiverSocketId = connectedUsers.get(String(receiverId));
       if (roomsIO && receiverSocketId) {

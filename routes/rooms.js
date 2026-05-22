@@ -143,6 +143,74 @@ async function getRoomAudioSettings() {
     };
 }
 
+async function getRoomChallengeSettings() {
+    const durationSetting = await Settings.findOne({ where: { key: "room_challenge_duration_seconds" } });
+    return {
+        durationSeconds: durationSetting ? parseInt(durationSetting.value, 10) || 180 : 180,
+    };
+}
+
+function normalizeChallengeSupporters(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+            userId: Number(item.userId || 0) || 0,
+            name: normalizeAudioFileName(item.name || item.userName || "مستخدم") || "مستخدم",
+            image: extractImage(item.image || item.images || ""),
+            totalPoints: Math.max(0, Number(item.totalPoints || 0) || 0),
+        }))
+        .filter((item) => item.userId > 0)
+        .slice(0, 6);
+}
+
+function createChallengeParticipantPayload(user) {
+    return {
+        userId: Number(user?.id || 0) || 0,
+        name: normalizeAudioFileName(user?.name || "مستخدم") || "مستخدم",
+        image: extractImage(user?.image || user?.images || ""),
+        score: 0,
+        receiverShareTotal: 0,
+        supportersCount: 0,
+        supporters: [],
+    };
+}
+
+function normalizeRoomChallengeState(value) {
+    if (!value || typeof value !== "object") return null;
+    const left = value.left && typeof value.left === "object" ? value.left : null;
+    const right = value.right && typeof value.right === "object" ? value.right : null;
+    const status = String(value.status || "idle");
+    const startedAt = value.startedAt ? new Date(value.startedAt) : null;
+    const endsAt = value.endsAt ? new Date(value.endsAt) : null;
+    if (!left || !right || !left.userId || !right.userId) return null;
+    return {
+        status,
+        startedAt: startedAt instanceof Date && !Number.isNaN(startedAt.getTime()) ? startedAt : null,
+        endsAt: endsAt instanceof Date && !Number.isNaN(endsAt.getTime()) ? endsAt : null,
+        winnerUserId: Number(value.winnerUserId || 0) || null,
+        settledAt: value.settledAt ? new Date(value.settledAt).toISOString() : null,
+        left: {
+            userId: Number(left.userId || 0) || 0,
+            name: normalizeAudioFileName(left.name || "مستخدم") || "مستخدم",
+            image: extractImage(left.image || ""),
+            score: Math.max(0, Number(left.score || 0) || 0),
+            receiverShareTotal: Math.max(0, Number(left.receiverShareTotal || 0) || 0),
+            supportersCount: Math.max(0, Number(left.supportersCount || 0) || 0),
+            supporters: normalizeChallengeSupporters(left.supporters),
+        },
+        right: {
+            userId: Number(right.userId || 0) || 0,
+            name: normalizeAudioFileName(right.name || "مستخدم") || "مستخدم",
+            image: extractImage(right.image || ""),
+            score: Math.max(0, Number(right.score || 0) || 0),
+            receiverShareTotal: Math.max(0, Number(right.receiverShareTotal || 0) || 0),
+            supportersCount: Math.max(0, Number(right.supportersCount || 0) || 0),
+            supporters: normalizeChallengeSupporters(right.supporters),
+        },
+    };
+}
+
 function normalizeAudioFileName(value) {
     if (value === undefined || value === null) {
         return "";
@@ -504,6 +572,144 @@ async function buildRoomAudioPayload(room, currentUserId = null, currentUserRole
             canManage,
         },
     };
+}
+
+async function settleRoomChallengeIfNeeded(room) {
+    const normalized = normalizeRoomChallengeState(room.roomChallengeState);
+    if (!normalized || normalized.status !== "active" || !normalized.endsAt || normalized.endsAt.getTime() > Date.now()) {
+        return normalizeRoomChallengeState(room.roomChallengeState);
+    }
+
+    const leftShare = Math.max(0, Number(normalized.left.receiverShareTotal || 0));
+    const rightShare = Math.max(0, Number(normalized.right.receiverShareTotal || 0));
+    const isDraw = normalized.left.score === normalized.right.score;
+    let winnerUserId = null;
+
+    if (!isDraw) {
+        winnerUserId = normalized.left.score > normalized.right.score
+            ? normalized.left.userId
+            : normalized.right.userId;
+        const loserUserId = winnerUserId === normalized.left.userId ? normalized.right.userId : normalized.left.userId;
+        const transferAmount = winnerUserId === normalized.left.userId ? rightShare : leftShare;
+
+        if (transferAmount > 0) {
+            const [winner, loser] = await Promise.all([
+                User.findByPk(winnerUserId),
+                User.findByPk(loserUserId),
+            ]);
+
+            if (winner && loser) {
+                await loser.update({ sawa: Number(loser.sawa || 0) - transferAmount });
+                await winner.update({ sawa: Number(winner.sawa || 0) + transferAmount });
+            }
+        }
+    }
+
+    const nextState = {
+        ...normalized,
+        status: isDraw ? "draw" : "finished",
+        winnerUserId,
+        settledAt: new Date().toISOString(),
+    };
+    await room.update({ roomChallengeState: nextState });
+    return normalizeRoomChallengeState(nextState);
+}
+
+async function buildRoomChallengePayload(room, currentUserId = null, currentUserRole = null) {
+    const settled = await settleRoomChallengeIfNeeded(room);
+    if (!settled) {
+        return {
+            roomId: Number(room.id),
+            isActive: false,
+            challenge: null,
+            currentUser: {
+                isOwner: String(room.creatorId) === String(currentUserId),
+                canManage: currentUserRole === "admin" || String(room.creatorId) === String(currentUserId),
+            },
+        };
+    }
+
+    const now = Date.now();
+    const remainingSeconds = settled.endsAt ? Math.max(0, Math.floor((settled.endsAt.getTime() - now) / 1000)) : 0;
+    return {
+        roomId: Number(room.id),
+        isActive: settled.status === "active" && remainingSeconds > 0,
+        challenge: {
+            status: settled.status,
+            startedAt: settled.startedAt ? settled.startedAt.toISOString() : null,
+            endsAt: settled.endsAt ? settled.endsAt.toISOString() : null,
+            remainingSeconds,
+            winnerUserId: settled.winnerUserId,
+            settledAt: settled.settledAt,
+            left: settled.left,
+            right: settled.right,
+        },
+        currentUser: {
+            isOwner: String(room.creatorId) === String(currentUserId),
+            canManage: currentUserRole === "admin" || String(room.creatorId) === String(currentUserId),
+        },
+    };
+}
+
+async function emitRoomChallengeUpdatedToIO(roomsIO, room, currentUserId = null, currentUserRole = null) {
+    if (!roomsIO || !room) return;
+    const challengeState = await buildRoomChallengePayload(room, currentUserId, currentUserRole);
+    roomsIO.to(`room-${room.id}`).emit("room-challenge-updated", {
+        roomId: Number(room.id),
+        challengeState,
+    });
+}
+
+async function processRoomChallengeGift({
+    app,
+    roomId,
+    receiver,
+    sender,
+    points,
+    receiverShare,
+}) {
+    const room = await Room.findByPk(roomId);
+    if (!room) return null;
+
+    const settled = await settleRoomChallengeIfNeeded(room);
+    if (!settled || settled.status !== "active" || !settled.endsAt || settled.endsAt.getTime() <= Date.now()) {
+        await emitRoomChallengeUpdatedToIO(app?.get?.("roomsIO"), room);
+        return null;
+    }
+
+    let changed = false;
+    const challenge = JSON.parse(JSON.stringify(settled));
+
+    for (const sideKey of ["left", "right"]) {
+        const side = challenge[sideKey];
+        if (String(side.userId) !== String(receiver.id)) continue;
+
+        side.score = Math.max(0, Number(side.score || 0) + Number(points || 0));
+        side.receiverShareTotal = Math.max(0, Number(side.receiverShareTotal || 0) + Number(receiverShare || 0));
+        const supporters = Array.isArray(side.supporters) ? side.supporters : [];
+        const existingIndex = supporters.findIndex((entry) => String(entry.userId) === String(sender.id));
+        if (existingIndex >= 0) {
+            supporters[existingIndex].totalPoints = Math.max(0, Number(supporters[existingIndex].totalPoints || 0) + Number(points || 0));
+        } else {
+            supporters.unshift({
+                userId: Number(sender.id),
+                name: normalizeAudioFileName(sender.name || "مستخدم") || "مستخدم",
+                image: extractImage(sender.images || sender.image || ""),
+                totalPoints: Math.max(0, Number(points || 0)),
+            });
+        }
+        supporters.sort((a, b) => Number(b.totalPoints || 0) - Number(a.totalPoints || 0));
+        side.supporters = supporters.slice(0, 6);
+        side.supportersCount = supporters.length;
+        changed = true;
+        break;
+    }
+
+    if (!changed) return null;
+
+    await room.update({ roomChallengeState: challenge });
+    await emitRoomChallengeUpdatedToIO(app?.get?.("roomsIO"), room);
+    return buildRoomChallengePayload(room);
 }
 
 async function emitRoomVoiceUpdated(app, room) {
@@ -1435,6 +1641,93 @@ router.get("/room/:roomId/audio-state", authenticateToken, async (req, res) => {
     }
 });
 
+router.get("/room/:roomId/challenge-state", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const challengeState = await buildRoomChallengePayload(room, req.user.id, req.user.role);
+        return res.json(challengeState);
+    } catch (error) {
+        console.error("Error fetching room challenge state:", error);
+        return res.status(500).json({ error: "خطأ في جلب حالة التحدي" });
+    }
+});
+
+router.post("/room/:roomId/challenge/start", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
+        }
+
+        const leftUserId = Number(req.body?.leftUserId || 0);
+        const rightUserId = Number(req.body?.rightUserId || 0);
+        if (!leftUserId || !rightUserId || leftUserId === rightUserId) {
+            return res.status(400).json({ error: "يجب اختيار شخصين مختلفين للتحدي" });
+        }
+
+        const [leftUser, rightUser] = await Promise.all([
+            User.findByPk(leftUserId, { attributes: ["id", "name", "images"] }),
+            User.findByPk(rightUserId, { attributes: ["id", "name", "images"] }),
+        ]);
+        if (!leftUser || !rightUser) {
+            return res.status(404).json({ error: "أحد المستخدمين غير موجود" });
+        }
+
+        const settings = await getRoomChallengeSettings();
+        const now = new Date();
+        const nextState = {
+            status: "active",
+            startedAt: now.toISOString(),
+            endsAt: new Date(now.getTime() + (settings.durationSeconds * 1000)).toISOString(),
+            winnerUserId: null,
+            settledAt: null,
+            left: createChallengeParticipantPayload(leftUser),
+            right: createChallengeParticipantPayload(rightUser),
+        };
+
+        await room.update({ roomChallengeState: nextState });
+        await emitRoomChallengeUpdatedToIO(req.app.get("roomsIO"), room, req.user.id, req.user.role);
+
+        return res.json({
+            message: "تم بدء التحدي بنجاح",
+            challengeState: await buildRoomChallengePayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error starting room challenge:", error);
+        return res.status(500).json({ error: "خطأ في بدء التحدي" });
+    }
+});
+
+router.post("/room/:roomId/challenge/cancel", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
+        }
+
+        await room.update({ roomChallengeState: null });
+        await emitRoomChallengeUpdatedToIO(req.app.get("roomsIO"), room, req.user.id, req.user.role);
+
+        return res.json({
+            message: "تم إلغاء التحدي",
+            challengeState: await buildRoomChallengePayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error cancelling room challenge:", error);
+        return res.status(500).json({ error: "خطأ في إلغاء التحدي" });
+    }
+});
+
 router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) => {
     try {
         const room = await Room.findByPk(req.params.roomId);
@@ -1493,7 +1786,7 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
             message: "تم تفعيل باقة المايكات بنجاح",
             deductedPoints: packageConfig.price,
             remainingSawa: currentBalance - packageConfig.price,
-            voiceState,
+            voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error purchasing room voice package:", error);
@@ -1512,7 +1805,6 @@ router.post("/room/:roomId/audio/purchase", authenticateToken, async (req, res) 
             return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
         }
 
-        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
         if (false && !voiceState.isActive) {
             return res.status(400).json({ error: "فعّل المايكات أولاً حتى تتمكن من تفعيل الصوتيات" });
         }
@@ -2166,6 +2458,7 @@ router.get("/room-settings", async (req, res) => {
     const roomAudioMaxTotalMinutesSetting = await Settings.findOne({ where: { key: "room_audio_max_total_minutes" } });
     const roomSupportAgentPriceSetting = await Settings.findOne({ where: { key: "room_support_agent_price" } });
     const roomSupportAgentHoursSetting = await Settings.findOne({ where: { key: "room_support_agent_hours" } });
+    const roomChallengeDurationSetting = await Settings.findOne({ where: { key: "room_challenge_duration_seconds" } });
 
     res.json({
       room_creation_cost: costSetting ? parseInt(costSetting.value) : 0,
@@ -2185,6 +2478,7 @@ router.get("/room-settings", async (req, res) => {
       room_audio_max_total_minutes: roomAudioMaxTotalMinutesSetting ? parseInt(roomAudioMaxTotalMinutesSetting.value, 10) || 60 : 60,
       room_support_agent_price: roomSupportAgentPriceSetting ? parseInt(roomSupportAgentPriceSetting.value, 10) || 0 : 0,
       room_support_agent_hours: roomSupportAgentHoursSetting ? parseInt(roomSupportAgentHoursSetting.value, 10) || 0 : 0,
+      room_challenge_duration_seconds: roomChallengeDurationSetting ? parseInt(roomChallengeDurationSetting.value, 10) || 180 : 180,
     });
   } catch (err) {
     console.error("Error fetching room settings:", err);
@@ -2209,4 +2503,6 @@ router.get("/migrate-rooms-images", authenticateToken, async (req, res) => {
 
 router.cleanupRoomVoiceParticipant = cleanupRoomVoiceParticipant;
 router.syncRoomAudioPlaybackPresence = syncRoomAudioPlaybackPresence;
+router.processRoomChallengeGift = processRoomChallengeGift;
+router.buildRoomChallengePayload = buildRoomChallengePayload;
 module.exports = router;

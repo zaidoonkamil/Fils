@@ -125,6 +125,11 @@ const Room = sequelize.define("Room", {
         allowNull: true,
         defaultValue: null,
     },
+    roomChallengeState: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: null,
+    },
 }, {
     timestamps: true,
 });
