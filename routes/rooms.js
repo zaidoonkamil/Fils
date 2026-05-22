@@ -1600,6 +1600,7 @@ router.get("/room/:roomId/voice-state", authenticateToken, async (req, res) => {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
+        const voiceState = await buildRoomVoicePayload(room, req.user.id, req.user.role);
         return res.json(voiceState);
     } catch (error) {
         console.error("Error fetching room voice state:", error);
