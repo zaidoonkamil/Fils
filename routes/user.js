@@ -2288,7 +2288,11 @@ router.get("/users/:id", authenticateTokenUser, async (req, res) => {
             model: Counter,
             paranoid: false, 
           }],
-        }
+        },
+        {
+          model: UserInternalVerification,
+          as: "internalVerification",
+        },
       ]
     });
 
@@ -2345,6 +2349,10 @@ router.get("/users/:id", authenticateTokenUser, async (req, res) => {
     userData.totalPoints = totalPoints;
     userData.totalGems = totalGems;
     userData.internalVerification = buildInternalVerificationFlags(user);
+    userData.internalVerificationFlags = buildInternalVerificationFlags(user);
+    userData.internalVerificationRecord = sanitizeInternalVerificationRecord(
+      user.internalVerification
+    );
 
     res.status(200).json(userData);
 
@@ -2633,6 +2641,100 @@ router.delete("/store/:shopId", requireAdmin, async (req, res) => {
     res.status(500).json({
       error: "Internal Server Error",
     });
+  }
+});
+
+router.patch("/admin/users/:id/internal-verification", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      fullName,
+      motherName,
+      birthDate,
+      governorate,
+      district,
+      phone,
+      email,
+      acceptedResponsibility,
+      isInternalVerified,
+      verifiedAt,
+    } = req.body;
+
+    const user = await User.findByPk(id, {
+      include: [
+        {
+          model: UserInternalVerification,
+          as: "internalVerification",
+        },
+      ],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const normalizedPayload = {
+      fullName: String(fullName || "").trim(),
+      motherName: String(motherName || "").trim(),
+      birthDate: String(birthDate || "").trim(),
+      governorate: String(governorate || "").trim(),
+      district: String(district || "").trim(),
+      phone: String(phone || "").trim(),
+      email: String(email || "").trim().toLowerCase(),
+      acceptedResponsibility:
+        acceptedResponsibility === true ||
+        acceptedResponsibility === "true" ||
+        acceptedResponsibility === 1 ||
+        acceptedResponsibility === "1",
+      verifiedAt: verifiedAt ? new Date(verifiedAt) : new Date(),
+    };
+
+    const requiredFields = [
+      normalizedPayload.fullName,
+      normalizedPayload.motherName,
+      normalizedPayload.birthDate,
+      normalizedPayload.governorate,
+      normalizedPayload.district,
+      normalizedPayload.phone,
+      normalizedPayload.email,
+    ];
+
+    if (requiredFields.some((value) => !value)) {
+      return res.status(400).json({ error: "يرجى إدخال جميع معلومات التوثيق" });
+    }
+
+    if (user.internalVerification) {
+      await user.internalVerification.update(normalizedPayload);
+    } else {
+      await UserInternalVerification.create({
+        userId: user.id,
+        ...normalizedPayload,
+      });
+    }
+
+    const shouldBeVerified =
+      isInternalVerified === true ||
+      isInternalVerified === "true" ||
+      isInternalVerified === 1 ||
+      isInternalVerified === "1";
+
+    user.isInternalVerified = shouldBeVerified;
+    user.internalVerifiedAt = shouldBeVerified ? normalizedPayload.verifiedAt : null;
+    await user.save();
+
+    const freshVerification = await UserInternalVerification.findOne({
+      where: { userId: user.id },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "تم تحديث معلومات التوثيق بنجاح",
+      flags: buildInternalVerificationFlags(user),
+      verification: sanitizeInternalVerificationRecord(freshVerification),
+    });
+  } catch (err) {
+    console.error("❌ Error updating internal verification by admin:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
