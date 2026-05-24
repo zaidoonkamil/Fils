@@ -546,6 +546,114 @@ router.get("/admin/fix-db-counter", requireAdmin, async (req, res) => {
   }
 });
 
+router.post("/admin/users/:userId/counters", requireAdmin, upload.none(), async (req, res) => {
+  const { userId } = req.params;
+  const counterId = Number(req.body?.counterId || 0);
+
+  if (!counterId) {
+    return res.status(400).json({ error: "يجب توفير counterId" });
+  }
+
+  try {
+    const [user, counter] = await Promise.all([
+      User.findByPk(userId),
+      Counter.findByPk(counterId),
+    ]);
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (!counter || !counter.isActive) {
+      return res.status(404).json({ error: "العداد غير موجود" });
+    }
+
+    let durationDays;
+    if (counter.durationDays !== null && counter.durationDays !== undefined) {
+      durationDays = counter.durationDays;
+    } else {
+      const durationSetting = await Settings.findOne({
+        where: { key: "counter_duration_days", isActive: true },
+      });
+      durationDays = durationSetting ? parseInt(durationSetting.value, 10) : 365;
+    }
+
+    const now = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + durationDays);
+
+    const userCounter = await UserCounter.create({
+      userId: Number(userId),
+      counterId: counter.id,
+      points: counter.points,
+      type: counter.type,
+      price: counter.price,
+      startDate: now,
+      endDate,
+      isForSale: false,
+      purchaseSource: "system",
+      durationDays,
+    });
+
+    const createdUserCounter = await UserCounter.findByPk(userCounter.id, {
+      include: [
+        {
+          model: Counter,
+          required: false,
+        },
+      ],
+    });
+
+    return res.status(201).json({
+      message: `تمت إضافة العداد للمستخدم لمدة ${durationDays} يوم`,
+      userCounter: createdUserCounter,
+    });
+  } catch (err) {
+    console.error("❌ Error assigning counter by admin:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء إضافة العداد للمستخدم" });
+  }
+});
+
+router.delete("/admin/users/:userId/counters/:userCounterId", requireAdmin, async (req, res) => {
+  const { userId, userCounterId } = req.params;
+
+  try {
+    const userCounter = await UserCounter.findOne({
+      where: {
+        id: userCounterId,
+        userId,
+      },
+      include: [
+        {
+          model: Counter,
+          required: false,
+        },
+      ],
+    });
+
+    if (!userCounter) {
+      return res.status(404).json({ error: "اشتراك العداد غير موجود لهذا المستخدم" });
+    }
+
+    await CounterSale.destroy({
+      where: {
+        userCounterId: userCounter.id,
+        isSold: false,
+      },
+    });
+
+    await userCounter.destroy();
+
+    return res.status(200).json({
+      message: "تم حذف العداد من المستخدم بنجاح",
+      deletedUserCounterId: Number(userCounterId),
+    });
+  } catch (err) {
+    console.error("❌ Error deleting user counter by admin:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء حذف العداد من المستخدم" });
+  }
+});
+
 router.delete("/admin/users/:userId/counters", requireAdmin, async (req, res) => {
   const { userId } = req.params;
 
