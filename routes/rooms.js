@@ -70,7 +70,18 @@ function extractImage(images) {
         return images[0] ? String(images[0]) : "";
     }
     if (typeof images === "string" && images.trim().length > 0) {
-        return images.trim();
+        const normalized = images.trim();
+        if (normalized.startsWith("[")) {
+            try {
+                const parsed = JSON.parse(normalized);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return parsed[0] ? String(parsed[0]).trim() : "";
+                }
+            } catch (_) {
+                // ignore invalid JSON and fall through to raw string
+            }
+        }
+        return normalized;
     }
     return "";
 }
@@ -190,6 +201,21 @@ function normalizeRoomChallengeState(value) {
         endsAt: endsAt instanceof Date && !Number.isNaN(endsAt.getTime()) ? endsAt : null,
         winnerUserId: Number(value.winnerUserId || 0) || null,
         settledAt: value.settledAt ? new Date(value.settledAt).toISOString() : null,
+        resultSummary:
+            value.resultSummary && typeof value.resultSummary === "object"
+                ? {
+                    winnerUserId: Number(value.resultSummary.winnerUserId || 0) || null,
+                    loserUserId: Number(value.resultSummary.loserUserId || 0) || null,
+                    winnerScore: Math.max(0, Number(value.resultSummary.winnerScore || 0) || 0),
+                    loserScore: Math.max(0, Number(value.resultSummary.loserScore || 0) || 0),
+                    winnerOwnShare: Math.max(0, Number(value.resultSummary.winnerOwnShare || 0) || 0),
+                    loserOwnShare: Math.max(0, Number(value.resultSummary.loserOwnShare || 0) || 0),
+                    transferAmount: Math.max(0, Number(value.resultSummary.transferAmount || 0) || 0),
+                    totalWinnerGain: Math.max(0, Number(value.resultSummary.totalWinnerGain || 0) || 0),
+                    totalLoserLoss: Math.max(0, Number(value.resultSummary.totalLoserLoss || 0) || 0),
+                    isDraw: value.resultSummary.isDraw === true,
+                }
+                : null,
         left: {
             userId: Number(left.userId || 0) || 0,
             name: normalizeAudioFileName(left.name || "مستخدم") || "مستخدم",
@@ -584,13 +610,23 @@ async function settleRoomChallengeIfNeeded(room) {
     const rightShare = Math.max(0, Number(normalized.right.receiverShareTotal || 0));
     const isDraw = normalized.left.score === normalized.right.score;
     let winnerUserId = null;
+    let loserUserId = null;
+    let transferAmount = 0;
+    let winnerOwnShare = 0;
+    let loserOwnShare = 0;
+    let winnerScore = 0;
+    let loserScore = 0;
 
     if (!isDraw) {
         winnerUserId = normalized.left.score > normalized.right.score
             ? normalized.left.userId
             : normalized.right.userId;
-        const loserUserId = winnerUserId === normalized.left.userId ? normalized.right.userId : normalized.left.userId;
-        const transferAmount = winnerUserId === normalized.left.userId ? rightShare : leftShare;
+        loserUserId = winnerUserId === normalized.left.userId ? normalized.right.userId : normalized.left.userId;
+        transferAmount = winnerUserId === normalized.left.userId ? rightShare : leftShare;
+        winnerOwnShare = winnerUserId === normalized.left.userId ? leftShare : rightShare;
+        loserOwnShare = winnerUserId === normalized.left.userId ? rightShare : leftShare;
+        winnerScore = winnerUserId === normalized.left.userId ? normalized.left.score : normalized.right.score;
+        loserScore = winnerUserId === normalized.left.userId ? normalized.right.score : normalized.left.score;
 
         if (transferAmount > 0) {
             const [winner, loser] = await Promise.all([
@@ -610,6 +646,18 @@ async function settleRoomChallengeIfNeeded(room) {
         status: isDraw ? "draw" : "finished",
         winnerUserId,
         settledAt: new Date().toISOString(),
+        resultSummary: {
+            winnerUserId,
+            loserUserId,
+            winnerScore,
+            loserScore,
+            winnerOwnShare,
+            loserOwnShare,
+            transferAmount,
+            totalWinnerGain: winnerOwnShare + transferAmount,
+            totalLoserLoss: transferAmount,
+            isDraw,
+        },
     };
     await room.update({ roomChallengeState: nextState });
     return normalizeRoomChallengeState(nextState);
@@ -641,6 +689,7 @@ async function buildRoomChallengePayload(room, currentUserId = null, currentUser
             remainingSeconds,
             winnerUserId: settled.winnerUserId,
             settledAt: settled.settledAt,
+            resultSummary: settled.resultSummary || null,
             left: settled.left,
             right: settled.right,
         },
