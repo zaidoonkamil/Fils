@@ -12,6 +12,8 @@ const { parseFile } = require("music-metadata");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
 const { attachActiveRoomFrames, attachActiveUserFrames } = require("../services/roomLeaderboard");
+const { sendNotificationToUser } = require("../services/notifications");
+const { RoomJoinSubscription } = require("../models");
 
 const ROOM_AUDIO_ALLOWED_EXTENSIONS = new Set([
     ".aac",
@@ -34,6 +36,37 @@ async function normalizeUserPayload(user) {
         delete plainUser.images;
     }
     return plainUser;
+}
+
+async function buildRoomJoinPayload(room, currentUserId = null, currentUserRole = null) {
+    const roomId = Number(room.id);
+    const joinedCount = await RoomJoinSubscription.count({
+        where: { roomId },
+    });
+
+    let isJoined = false;
+    if (currentUserId != null) {
+        const subscription = await RoomJoinSubscription.findOne({
+            where: {
+                roomId,
+                userId: Number(currentUserId),
+            },
+            attributes: ["id"],
+        });
+        isJoined = !!subscription;
+    }
+
+    return {
+        roomId,
+        isJoined,
+        joinedCount,
+        currentUser: {
+            canManage: canManageRoom(room, {
+                id: currentUserId,
+                role: currentUserRole,
+            }),
+        },
+    };
 }
 
 async function normalizeMessagePayload(message) {
@@ -101,6 +134,40 @@ function normalizeVoiceIdArray(value) {
 
 function getLiveKitRoomName(roomId) {
     return `room-voice-${roomId}`;
+}
+
+function getSocketRoomName(roomId) {
+    return `room-${roomId}`;
+}
+
+function isUserPresentInRoomSocket(app, roomId, userId) {
+    const roomsIO = app?.get?.("roomsIO");
+    if (!roomsIO) return false;
+
+    const socketIds = roomsIO.adapter.rooms.get(getSocketRoomName(roomId));
+    if (!socketIds || socketIds.size === 0) {
+        return false;
+    }
+
+    for (const socketId of socketIds) {
+        const socket = roomsIO.sockets.get(socketId);
+        if (socket && String(socket.userId) === String(userId)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function ensureUserPresentInRoomSocket(req, res, roomId) {
+    if (isUserPresentInRoomSocket(req.app, roomId, req.user.id)) {
+        return true;
+    }
+
+    res.status(403).json({
+        error: "يجب الدخول إلى الغرفة أولاً قبل استخدام هذه الميزة",
+    });
+    return false;
 }
 
 async function getRoomVoicePackageSettings() {
@@ -1644,6 +1711,9 @@ router.delete("/room/:roomId", authenticateToken, async (req, res) => {
 
 router.get("/room/:roomId/voice-state", authenticateToken, async (req, res) => {
     try {
+        if (!ensureUserPresentInRoomSocket(req, res, req.params.roomId)) {
+            return;
+        }
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
@@ -1659,6 +1729,9 @@ router.get("/room/:roomId/voice-state", authenticateToken, async (req, res) => {
 
 router.get("/room/:roomId/support-agent-state", authenticateToken, async (req, res) => {
     try {
+        if (!ensureUserPresentInRoomSocket(req, res, req.params.roomId)) {
+            return;
+        }
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
@@ -1678,6 +1751,9 @@ router.get("/room/:roomId/support-agent-state", authenticateToken, async (req, r
 
 router.get("/room/:roomId/audio-state", authenticateToken, async (req, res) => {
     try {
+        if (!ensureUserPresentInRoomSocket(req, res, req.params.roomId)) {
+            return;
+        }
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
@@ -1693,6 +1769,9 @@ router.get("/room/:roomId/audio-state", authenticateToken, async (req, res) => {
 
 router.get("/room/:roomId/challenge-state", authenticateToken, async (req, res) => {
     try {
+        if (!ensureUserPresentInRoomSocket(req, res, req.params.roomId)) {
+            return;
+        }
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
             return res.status(404).json({ error: "الغرفة غير موجودة" });
@@ -1703,6 +1782,149 @@ router.get("/room/:roomId/challenge-state", authenticateToken, async (req, res) 
     } catch (error) {
         console.error("Error fetching room challenge state:", error);
         return res.status(500).json({ error: "خطأ في جلب حالة التحدي" });
+    }
+});
+
+router.get("/room/:roomId/join-state", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const joinState = await buildRoomJoinPayload(room, req.user.id, req.user.role);
+        return res.json(joinState);
+    } catch (error) {
+        console.error("Error fetching room join state:", error);
+        return res.status(500).json({ error: "خطأ في جلب حالة الانضمام" });
+    }
+});
+
+router.post("/room/:roomId/join/toggle", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const roomId = Number(room.id);
+        const userId = Number(req.user.id);
+        const existing = await RoomJoinSubscription.findOne({
+            where: { roomId, userId },
+        });
+
+        let message = "تم الانضمام إلى الغرفة";
+        if (existing) {
+            await existing.destroy();
+            message = "تم إلغاء الانضمام إلى الغرفة";
+        } else {
+            await RoomJoinSubscription.create({ roomId, userId });
+        }
+
+        return res.json({
+            message,
+            joinState: await buildRoomJoinPayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error toggling room join subscription:", error);
+        return res.status(500).json({ error: "خطأ في تحديث حالة الانضمام" });
+    }
+});
+
+router.get("/room/:roomId/join-members", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح لك بعرض المنضمين إلى هذه الغرفة" });
+        }
+
+        const subscriptions = await RoomJoinSubscription.findAll({
+            where: { roomId: Number(room.id) },
+            include: [{
+                model: User,
+                as: "user",
+                attributes: ["id", "name", "images"],
+                required: true,
+            }],
+            order: [["createdAt", "DESC"]],
+        });
+
+        const members = await Promise.all(
+            subscriptions.map(async (subscription) => {
+                const user = await normalizeUserPayload(subscription.user);
+                return {
+                    subscriptionId: subscription.id,
+                    joinedAt: subscription.createdAt,
+                    user: user ? {
+                        id: user.id,
+                        name: user.name,
+                        image: user.image ?? "",
+                        activeFrame: user.activeFrame ?? null,
+                    } : null,
+                };
+            }),
+        );
+
+        return res.json({
+            roomId: Number(room.id),
+            total: members.length,
+            members: members.filter((member) => member.user != null),
+        });
+    } catch (error) {
+        console.error("Error fetching joined room members:", error);
+        return res.status(500).json({ error: "خطأ في جلب المنضمين إلى الغرفة" });
+    }
+});
+
+router.post("/room/:roomId/join-members/notify", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح لك بإرسال إشعار لهذه الغرفة" });
+        }
+
+        const message = String(req.body?.message ?? "").trim();
+        if (!message) {
+            return res.status(400).json({ error: "نص الإشعار مطلوب" });
+        }
+
+        const title = String(req.body?.title ?? "").trim() || `إشعار من غرفة ${room.name}`;
+        const subscriptions = await RoomJoinSubscription.findAll({
+            where: { roomId: Number(room.id) },
+            attributes: ["userId"],
+        });
+
+        const userIds = [...new Set(
+            subscriptions
+                .map((subscription) => Number(subscription.userId))
+                .filter((userId) => Number.isFinite(userId) && userId > 0),
+        )];
+
+        if (userIds.length === 0) {
+            return res.status(400).json({ error: "لا يوجد منضمون لهذه الغرفة حاليًا" });
+        }
+
+        const results = await Promise.allSettled(
+            userIds.map((userId) => sendNotificationToUser(userId, message, title)),
+        );
+        const sentCount = results.filter((result) => result.status === "fulfilled").length;
+
+        return res.json({
+            message: "تم إرسال الإشعار إلى المنضمين بالغرفة",
+            sentCount,
+            totalRecipients: userIds.length,
+        });
+    } catch (error) {
+        console.error("Error notifying joined room members:", error);
+        return res.status(500).json({ error: "خطأ في إرسال الإشعار إلى المنضمين" });
     }
 });
 
@@ -2442,6 +2664,9 @@ router.post("/room/:roomId/voice/leave-speaker", authenticateToken, async (req, 
 
 router.post("/room/:roomId/voice/token", authenticateToken, async (req, res) => {
     try {
+        if (!ensureUserPresentInRoomSocket(req, res, req.params.roomId)) {
+            return;
+        }
         const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
         if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
             return res.status(500).json({ error: "إعدادات LiveKit غير مكتملة على السيرفر" });

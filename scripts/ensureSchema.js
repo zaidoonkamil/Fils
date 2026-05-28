@@ -146,6 +146,49 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "RoomJoinSubscriptions", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    roomId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  const roomJoinIndexes = await queryInterface.showIndex("RoomJoinSubscriptions");
+  const hasRoomUserUniqueIndex = roomJoinIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === true &&
+      fields.length === 2 &&
+      fields.includes("roomId") &&
+      fields.includes("userId");
+  });
+
+  if (!hasRoomUserUniqueIndex) {
+    await queryInterface.addIndex("RoomJoinSubscriptions", ["roomId", "userId"], {
+      unique: true,
+      name: "room_join_subscriptions_room_user_unique",
+    });
+  }
+
   await ensureTable(queryInterface, "Counters", {
     name: {
       type: DataTypes.STRING,

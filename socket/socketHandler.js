@@ -43,6 +43,11 @@ async function normalizeMessagePayload(message, fallbackUser) {
 }
 
 function initializeSocketIO(io) {
+  const isBlockedRoomShortcutMessage = (value) => {
+    if (typeof value !== "string") return false;
+    return /^#\s*\+/.test(value.trim());
+  };
+
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -159,6 +164,13 @@ function initializeSocketIO(io) {
     socket.on("send-message", async (data) => {
       try {
         const { roomId, content, messageType = "text", replyToId } = data;
+
+        if (messageType === "text" && isBlockedRoomShortcutMessage(content)) {
+          socket.emit("error", {
+            message: "هذا النمط من الرسائل غير مسموح داخل الغرف",
+          });
+          return;
+        }
 
         const kickedMap = kickedUsers.get(roomId);
         if (kickedMap && kickedMap.has(String(socket.userId))) {

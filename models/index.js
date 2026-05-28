@@ -34,6 +34,7 @@ const DominoQueue = require("./DominoQueue");
 const UserGift = require("./UserGift");
 const UserInternalVerification = require("./UserInternalVerification");
 const AdminBalanceLog = require("./AdminBalanceLog");
+const RoomJoinSubscription = require("./RoomJoinSubscription");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -48,6 +49,10 @@ Message.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' 
 Message.belongsTo(Room, { foreignKey: 'roomId', as: 'room', onDelete: 'CASCADE' });
 Message.belongsTo(Message, { foreignKey: 'replyToId', as: 'replyTo', constraints: false });
 Message.hasMany(Message, { foreignKey: 'replyToId', as: 'replies', constraints: false });
+Room.hasMany(RoomJoinSubscription, { foreignKey: "roomId", as: "joinSubscriptions", onDelete: "CASCADE" });
+RoomJoinSubscription.belongsTo(Room, { foreignKey: "roomId", as: "room", onDelete: "CASCADE" });
+User.hasMany(RoomJoinSubscription, { foreignKey: "userId", as: "joinedRooms", onDelete: "CASCADE" });
+RoomJoinSubscription.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -174,5 +179,6 @@ module.exports = {
   DominoQueue,
   UserGift,
   UserInternalVerification,
-  AdminBalanceLog
+  AdminBalanceLog,
+  RoomJoinSubscription
 };
