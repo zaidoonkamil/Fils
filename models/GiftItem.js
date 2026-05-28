@@ -19,6 +19,11 @@ const GiftItem = sequelize.define("GiftItem", {
         allowNull: false,
         defaultValue: 0,
     },
+    tier: {
+        type: DataTypes.ENUM("normal", "premium", "vip"),
+        allowNull: false,
+        defaultValue: "premium",
+    },
     isAvailable: {
         type: DataTypes.BOOLEAN,
         allowNull: false,

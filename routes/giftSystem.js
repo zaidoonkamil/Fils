@@ -21,6 +21,17 @@ const roomsRouter = require("./rooms");
 
 const uploadsDir = path.resolve(process.cwd(), "uploads");
 let userGiftAccountingColumnsReady = false;
+let giftItemsTierColumnReady = false;
+
+const GIFT_TIERS = new Set(["normal", "premium", "vip"]);
+
+function normalizeGiftTier(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (GIFT_TIERS.has(normalized)) {
+    return normalized;
+  }
+  return "premium";
+}
 
 async function ensureUserGiftAccountingColumns() {
   if (userGiftAccountingColumnsReady) return;
@@ -45,6 +56,30 @@ async function ensureUserGiftAccountingColumns() {
   }
 
   userGiftAccountingColumnsReady = true;
+}
+
+async function ensureGiftItemTierColumn() {
+  if (giftItemsTierColumnReady) return;
+
+  const queryInterface = GiftItem.sequelize.getQueryInterface();
+  const tableName = GiftItem.getTableName();
+  const tableDefinition = await queryInterface.describeTable(tableName);
+
+  if (!tableDefinition.tier) {
+    await queryInterface.addColumn(tableName, "tier", {
+      type: DataTypes.ENUM("normal", "premium", "vip"),
+      allowNull: false,
+      defaultValue: "premium",
+      after: "points",
+    });
+  }
+
+  await GiftItem.update(
+    { tier: "premium" },
+    { where: { [Op.or]: [{ tier: null }, { tier: "" }] } },
+  );
+
+  giftItemsTierColumnReady = true;
 }
 
 async function deleteGiftMediaFile(filePath) {
@@ -207,6 +242,7 @@ function serializeGiftItem(item) {
     image: item.image,
     video: item.video,
     points: item.points,
+    tier: normalizeGiftTier(item.tier),
     isAvailable: item.isAvailable,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -455,7 +491,8 @@ router.post("/gift-items", requireAdmin, upload.fields([
   { name: "video", maxCount: 1 },
 ]), async (req, res) => {
   try {
-    const { name, points } = req.body;
+    await ensureGiftItemTierColumn();
+    const { name, points, tier } = req.body;
     const image = req.files?.image?.[0]?.path || null;
     const video = req.files?.video?.[0]?.path || null;
 
@@ -470,6 +507,7 @@ router.post("/gift-items", requireAdmin, upload.fields([
     const giftItemPayload = {
       name,
       points,
+      tier: normalizeGiftTier(tier),
       isAvailable: true,
     };
 
@@ -544,6 +582,21 @@ router.post("/gift-items/fix-schema", requireAdmin, async (req, res) => {
       changes.push("image_nullable");
     }
 
+    if (!tableDefinition.tier) {
+      await queryInterface.addColumn(tableName, "tier", {
+        type: DataTypes.ENUM("normal", "premium", "vip"),
+        allowNull: false,
+        defaultValue: "premium",
+        after: "points",
+      });
+      changes.push("added_tier");
+    }
+
+    await GiftItem.update(
+      { tier: "premium" },
+      { where: { [Op.or]: [{ tier: null }, { tier: "" }] } },
+    );
+
     return res.json({
       message: changes.length ? "تم إصلاح بنية جدول الهدايا" : "بنية جدول الهدايا سليمة بالفعل",
       changes,
@@ -556,6 +609,7 @@ router.post("/gift-items/fix-schema", requireAdmin, async (req, res) => {
 
 router.get("/gift-items", async (req, res) => {
     try {
+        await ensureGiftItemTierColumn();
         const { includeUnavailable } = req.query; // للسماح للأدمن برؤية الكل
 
         const whereClause = {};
@@ -564,7 +618,7 @@ router.get("/gift-items", async (req, res) => {
         }
 
         const items = await GiftItem.findAll({ where: whereClause });
-        res.json(items);
+        res.json(items.map((item) => serializeGiftItem(item)));
     } catch (error) {
         console.error("❌ خطأ أثناء جلب الهدايا:", error);
         res.status(500).json({ error: "حدث خطأ أثناء جلب الهدايا" });
@@ -862,6 +916,7 @@ router.get("/leaderboards/rooms/history", authenticateTokenUser, async (req, res
 
 router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
     try {
+        await ensureGiftItemTierColumn();
         const giftItemId = req.params.id;
         const item = await GiftItem.findByPk(giftItemId);
 
@@ -889,8 +944,9 @@ router.patch("/gift-items/:id/toggle", requireAdmin, async (req, res) => {
 // تعديل بيانات الهدية (الاسم، النقاط)
 router.patch("/gift-items/:id", requireAdmin, upload.none(), async (req, res) => {
   try {
+    await ensureGiftItemTierColumn();
     const giftItemId = req.params.id;
-    const { name, points } = req.body;
+    const { name, points, tier } = req.body;
     const item = await GiftItem.findByPk(giftItemId);
 
     if (!item) {
@@ -900,6 +956,7 @@ router.patch("/gift-items/:id", requireAdmin, upload.none(), async (req, res) =>
     // تحديث الاسم والنقاط إذا تم تقديمها
     if (name) item.name = name;
     if (points !== undefined) item.points = points;
+    if (tier !== undefined) item.tier = normalizeGiftTier(tier);
 
     await item.save();
 
