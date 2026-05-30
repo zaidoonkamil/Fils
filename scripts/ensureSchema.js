@@ -70,6 +70,21 @@ async function ensureSchema() {
   const roomsTable = resolveTableName(Room);
   const chatMessagesTable = resolveTableName(ChatMessage);
 
+  if (await tableExists(queryInterface, "digital_product_codes")) {
+    const digitalProductCodeIndexes = await queryInterface.showIndex("digital_product_codes");
+    for (const index of digitalProductCodeIndexes) {
+      const fields = (index.fields || []).map((field) => field.attribute || field.name);
+      const isSingleCodeUniqueIndex =
+        index.unique === true &&
+        fields.length === 1 &&
+        fields[0] === "code";
+
+      if (isSingleCodeUniqueIndex && index.name && index.name !== "PRIMARY") {
+        await queryInterface.removeIndex("digital_product_codes", index.name);
+      }
+    }
+  }
+
   await ensureTable(queryInterface, "device_fingerprints", {
     id: {
       type: DataTypes.INTEGER,

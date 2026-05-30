@@ -16,7 +16,6 @@ const DigitalProductCode = sequelize.define(
     code: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
     },
     used: {
       type: DataTypes.BOOLEAN,

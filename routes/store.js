@@ -137,14 +137,14 @@ router.post("/store/products", requireAdmin, upload.array("images", 5), async (r
       (c, i) => codesArr.indexOf(c) !== i
     );
 
-    if (duplicateInside.length > 0) {
+    if (false && duplicateInside.length > 0) {
       return res.status(400).json({
         error: "الأكواد تحتوي تكرار داخل نفس القائمة",
         duplicatedCodes: [...new Set(duplicateInside)],
       });
     }
 
-    if (codesArr.length > 0) {
+    if (false && codesArr.length > 0) {
       const existedCodes = await DigitalProductCode.findAll({
         where: { code: codesArr },
         attributes: ["code"],
@@ -233,7 +233,7 @@ router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async 
 
     const duplicatesInsideList = codesArr.filter((item, index) => codesArr.indexOf(item) !== index);
 
-    if (duplicatesInsideList.length > 0) {
+    if (false && duplicatesInsideList.length > 0) {
       return res.status(400).json({
         error: "الأكواد تحتوي تكرار داخل نفس القائمة",
         duplicatedCodes: [...new Set(duplicatesInsideList)],
