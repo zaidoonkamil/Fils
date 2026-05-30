@@ -245,12 +245,12 @@ router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async 
       attributes: ["code"],
     });
 
-    if (existedCodes.length > 0) {
+    /*if (existedCodes.length > 0) {
       return res.status(400).json({
         error: "بعض الأكواد موجودة مسبقاً في القاعدة",
         duplicatedCodes: existedCodes.map((c) => c.code),
       });
-    }
+    }*/
 
     const entries = codesArr.map((code) => ({
       productId: id,
