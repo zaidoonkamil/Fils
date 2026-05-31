@@ -252,7 +252,15 @@ function serializeGiftItem(item) {
 async function getRoomGiftCutRates() {
   const settings = await Settings.findAll({
     where: {
-      key: ["room_gift_owner_cut", "room_gift_receiver_cut", "room_gift_admin_cut"],
+      key: [
+        "room_gift_owner_cut",
+        "room_gift_receiver_cut",
+        "room_gift_admin_cut",
+        "room_gift_supervisor_gold_cut",
+        "room_gift_supervisor_silver_cut",
+        "room_gift_supervisor_bronze_cut",
+        "room_gift_supervisor_standard_cut",
+      ],
       isActive: true,
     },
   });
@@ -264,6 +272,12 @@ async function getRoomGiftCutRates() {
     ownerCutRate: config.room_gift_owner_cut ?? 0.1,
     receiverCutRate: config.room_gift_receiver_cut ?? 0.5,
     adminCutRate: config.room_gift_admin_cut ?? 0.4,
+    supervisorRates: {
+      gold: config.room_gift_supervisor_gold_cut ?? 0,
+      silver: config.room_gift_supervisor_silver_cut ?? 0,
+      bronze: config.room_gift_supervisor_bronze_cut ?? 0,
+      standard: config.room_gift_supervisor_standard_cut ?? 0,
+    },
   };
 }
 
@@ -285,6 +299,27 @@ function estimateRoomGiftAdminShare(userGift, rates) {
   }
 
   return Math.max(points - ownerShare - receiverShare, 0);
+}
+
+function normalizeRoomSupervisorSlots(value) {
+  const base = {
+    gold: null,
+    silver: null,
+    bronze: null,
+    standard: null,
+  };
+
+  const source =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+
+  for (const key of Object.keys(base)) {
+    const parsedId = Number(source[key]);
+    base[key] = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null;
+  }
+
+  return base;
 }
 
 function buildGiftSocketPayload({
@@ -419,6 +454,12 @@ async function convertGiftToPoints({
   let ownerShare = 0;
   let receiverShare = points;
   let adminShare = 0;
+  let supervisorShares = {
+    gold: 0,
+    silver: 0,
+    bronze: 0,
+    standard: 0,
+  };
 
   if (isReceivedGift && userGift.roomId) {
     const room = await Room.findByPk(userGift.roomId, { transaction });
@@ -428,12 +469,23 @@ async function convertGiftToPoints({
       ownerCutRate = rates.ownerCutRate;
       receiverCutRate = rates.receiverCutRate;
       adminCutRate = rates.adminCutRate;
+      const supervisorRates = rates.supervisorRates || {};
 
       const actualRoomOwnerId = room.creatorId;
       const isRoomOwnerActive = isUserActiveInRoom(
         userGift.roomId,
         actualRoomOwnerId
       );
+
+      const supervisorSlots = normalizeRoomSupervisorSlots(room.supervisorSlots);
+      const activeSupervisorEntries = Object.entries(supervisorSlots)
+        .filter(([, userId]) => userId != null)
+        .map(([slotKey, userId]) => ({
+          slotKey,
+          userId: Number(userId),
+          isActive: isUserActiveInRoom(userGift.roomId, Number(userId)),
+          rate: Number(supervisorRates[slotKey] ?? 0),
+        }));
 
       const roomOwner = isRoomOwnerActive
         ? await User.findByPk(actualRoomOwnerId, {
@@ -445,7 +497,6 @@ async function convertGiftToPoints({
       if (roomOwner && String(roomOwner.id) !== String(receiver.id)) {
         ownerShare = Math.floor(points * ownerCutRate);
         receiverShare = Math.floor(points * receiverCutRate);
-        adminShare = points - ownerShare - receiverShare;
 
         if (ownerShare > 0) {
           await roomOwner.increment({ sawa: ownerShare }, { transaction });
@@ -460,8 +511,32 @@ async function convertGiftToPoints({
       } else {
         receiverShare = Math.floor(points * receiverCutRate);
         ownerShare = 0;
-        adminShare = points - receiverShare;
       }
+
+      for (const entry of activeSupervisorEntries) {
+        const share = Math.max(0, Math.floor(points * entry.rate));
+        if (share <= 0) continue;
+
+        if (entry.isActive) {
+          const supervisorUser = await User.findByPk(entry.userId, {
+            transaction,
+            lock: transaction.LOCK.UPDATE,
+          });
+
+          if (supervisorUser) {
+            await supervisorUser.increment({ sawa: share }, { transaction });
+            supervisorShares[entry.slotKey] = share;
+            continue;
+          }
+        }
+
+        adminShare += share;
+      }
+
+      adminShare += Math.max(
+        points - ownerShare - receiverShare - Object.values(supervisorShares).reduce((sum, value) => sum + value, 0),
+        0,
+      );
     }
   }
 
@@ -482,6 +557,7 @@ async function convertGiftToPoints({
     ownerShare,
     receiverShare,
     adminShare,
+    supervisorShares,
   };
 }
 
@@ -1180,6 +1256,7 @@ router.post("/send-gift-direct", authenticateTokenUser, upload.none(), async (re
       ownerShare: conversionResult.ownerShare,
       receiverShare: conversionResult.receiverShare,
       adminShare: conversionResult.adminShare,
+      supervisorShares: conversionResult.supervisorShares,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
     };
@@ -1374,6 +1451,7 @@ router.post("/send-gift-room-all", authenticateTokenUser, upload.none(), async (
             ownerShare: conversionResult.ownerShare,
             receiverShare: conversionResult.receiverShare,
             adminShare: conversionResult.adminShare,
+            supervisorShares: conversionResult.supervisorShares,
           },
           message: "وصلتك هدية وتم تحويلها مباشرة إلى نقاط 🎁",
           senderBalance: sender.sawa,
@@ -1577,6 +1655,7 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
       ownerShare: conversionResult.ownerShare,
       receiverShare: conversionResult.receiverShare,
       adminShare: conversionResult.adminShare,
+      supervisorShares: conversionResult.supervisorShares,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
     };
@@ -1741,6 +1820,7 @@ router.post("/convert-gift/:userGiftId", authenticateTokenUser, upload.none(), a
       ownerShare: conversionResult.ownerShare,
       receiverShare: conversionResult.receiverShare,
       adminShare: conversionResult.adminShare,
+      supervisorShares: conversionResult.supervisorShares,
       receiverNewBalance: updatedReceiver?.sawa,
       roomOwnerNewBalance: updatedOwner?.sawa,
 

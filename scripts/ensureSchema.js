@@ -290,6 +290,16 @@ async function ensureSchema() {
       allowNull: true,
       defaultValue: null,
     },
+    supervisorSlots: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: {
+        gold: null,
+        silver: null,
+        bronze: null,
+        standard: null,
+      },
+    },
   });
 
   await ensureTable(queryInterface, "user_internal_verifications", {

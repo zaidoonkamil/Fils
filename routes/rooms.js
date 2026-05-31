@@ -25,6 +25,39 @@ const ROOM_AUDIO_ALLOWED_EXTENSIONS = new Set([
     ".webm",
 ]);
 
+const ROOM_SUPERVISOR_SLOT_META = {
+    gold: {
+        key: "gold",
+        label: "مشرف سوبر ذهبي",
+        shortLabel: "ذهبي",
+        color: "#F6C453",
+        settingKey: "room_gift_supervisor_gold_cut",
+    },
+    silver: {
+        key: "silver",
+        label: "مشرف سوبر فضي",
+        shortLabel: "فضي",
+        color: "#CBD5E1",
+        settingKey: "room_gift_supervisor_silver_cut",
+    },
+    bronze: {
+        key: "bronze",
+        label: "مشرف سوبر برونزي",
+        shortLabel: "برونزي",
+        color: "#D97706",
+        settingKey: "room_gift_supervisor_bronze_cut",
+    },
+    standard: {
+        key: "standard",
+        label: "مشرف سوبر",
+        shortLabel: "سوبر",
+        color: "#60A5FA",
+        settingKey: "room_gift_supervisor_standard_cut",
+    },
+};
+
+const ROOM_SUPERVISOR_SLOT_KEYS = Object.keys(ROOM_SUPERVISOR_SLOT_META);
+
 async function normalizeUserPayload(user) {
     if (!user) return null;
     const [plainUser] = await attachActiveUserFrames([user]);
@@ -88,7 +121,144 @@ async function normalizeMessagePayload(message) {
 function canManageRoom(room, user) {
     if (!room || !user) return false;
     if (user.role === "admin") return true;
+    if (String(room.creatorId) === String(user.id)) return true;
+
+    const slots = normalizeRoomSupervisorSlots(room.supervisorSlots);
+    return ROOM_SUPERVISOR_SLOT_KEYS.some(
+        (slotKey) => String(slots[slotKey] ?? "") === String(user.id),
+    );
+}
+
+function canManageRoomSupervisorAssignments(room, user) {
+    if (!room || !user) return false;
+    if (user.role === "admin") return true;
     return String(room.creatorId) === String(user.id);
+}
+
+function normalizeRoomSupervisorSlots(value) {
+    const base = {
+        gold: null,
+        silver: null,
+        bronze: null,
+        standard: null,
+    };
+
+    const source =
+        value && typeof value === "object" && !Array.isArray(value)
+            ? value
+            : {};
+
+    for (const slotKey of ROOM_SUPERVISOR_SLOT_KEYS) {
+        const parsedId = Number(source[slotKey]);
+        base[slotKey] = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null;
+    }
+
+    return base;
+}
+
+async function getRoomSupervisorCommissionRates() {
+    const keys = ROOM_SUPERVISOR_SLOT_KEYS.map(
+        (slotKey) => ROOM_SUPERVISOR_SLOT_META[slotKey].settingKey,
+    );
+    const settings = await Settings.findAll({
+        where: {
+            key: keys,
+            isActive: true,
+        },
+    });
+
+    const config = {};
+    settings.forEach((setting) => {
+        config[setting.key] = Number(setting.value ?? 0);
+    });
+
+    const rates = {};
+    for (const slotKey of ROOM_SUPERVISOR_SLOT_KEYS) {
+        const settingKey = ROOM_SUPERVISOR_SLOT_META[slotKey].settingKey;
+        rates[slotKey] = Number.isFinite(config[settingKey]) ? config[settingKey] : 0;
+    }
+    return rates;
+}
+
+async function buildRoomSupervisorsPayload(room, currentUserId = null, currentUserRole = null, app = null) {
+    const slots = normalizeRoomSupervisorSlots(room.supervisorSlots);
+    const assignedIds = ROOM_SUPERVISOR_SLOT_KEYS
+        .map((slotKey) => slots[slotKey])
+        .filter(Boolean);
+
+    const users = assignedIds.length > 0
+        ? await User.findAll({
+            where: { id: assignedIds },
+            attributes: ["id", "name", "images", "role", "isActive"],
+        })
+        : [];
+
+    const userMap = new Map(
+        users.map((user) => [
+            String(user.id),
+            {
+                id: Number(user.id),
+                name: user.name || "مستخدم",
+                image: extractImage(user.images),
+                role: user.role || "user",
+                isActive: user.isActive !== false,
+            },
+        ]),
+    );
+
+    const rates = await getRoomSupervisorCommissionRates();
+    const currentId = currentUserId != null ? Number(currentUserId) : null;
+    const normalizedSlots = ROOM_SUPERVISOR_SLOT_KEYS.map((slotKey) => {
+        const assignedUserId = slots[slotKey];
+        return {
+            slotKey,
+            title: ROOM_SUPERVISOR_SLOT_META[slotKey].label,
+            shortTitle: ROOM_SUPERVISOR_SLOT_META[slotKey].shortLabel,
+            color: ROOM_SUPERVISOR_SLOT_META[slotKey].color,
+            commissionRate: Number(rates[slotKey] ?? 0),
+            userId: assignedUserId,
+            isOccupied: assignedUserId != null,
+            isPresentInRoom:
+                assignedUserId != null
+                    ? isUserPresentInRoomSocket(app, room.id, assignedUserId)
+                    : false,
+            user: assignedUserId != null
+                ? userMap.get(String(assignedUserId)) ?? null
+                : null,
+        };
+    });
+
+    const assignedSlot =
+        normalizedSlots.find(
+            (slot) => slot.userId != null && String(slot.userId) === String(currentId),
+        ) ?? {
+            slotKey: null,
+            title: "",
+            shortTitle: "",
+            color: "",
+            commissionRate: 0,
+            userId: null,
+            isOccupied: false,
+            isPresentInRoom: false,
+            user: null,
+        };
+
+    return {
+        roomId: Number(room.id),
+        slots: normalizedSlots,
+        currentUser: {
+            isOwner: String(room.creatorId) === String(currentUserId),
+            canManage: canManageRoom(room, {
+                id: currentUserId,
+                role: currentUserRole,
+            }),
+            canManageAssignments: canManageRoomSupervisorAssignments(room, {
+                id: currentUserId,
+                role: currentUserRole,
+            }),
+            assignedSlotKey: assignedSlot["slotKey"],
+        },
+    };
 }
 
 function normalizeRoomNameInput(value) {
@@ -141,7 +311,7 @@ function getSocketRoomName(roomId) {
 }
 
 function isUserPresentInRoomSocket(app, roomId, userId) {
-    const roomsIO = app?.get?.("roomsIO");
+    const roomsIO = app?.get?.("roomsIO") ?? app;
     if (!roomsIO) return false;
 
     const socketIds = roomsIO.adapter.rooms.get(getSocketRoomName(roomId));
@@ -773,6 +943,20 @@ async function emitRoomChallengeUpdatedToIO(roomsIO, room, currentUserId = null,
     roomsIO.to(`room-${room.id}`).emit("room-challenge-updated", {
         roomId: Number(room.id),
         challengeState,
+    });
+}
+
+async function emitRoomSupervisorsUpdatedToIO(roomsIO, room, currentUserId = null, currentUserRole = null) {
+    if (!roomsIO || !room) return;
+    const supervisorState = await buildRoomSupervisorsPayload(
+        room,
+        currentUserId,
+        currentUserRole,
+        roomsIO.app,
+    );
+    roomsIO.to(`room-${room.id}`).emit("room-supervisors-updated", {
+        roomId: Number(room.id),
+        supervisorState,
     });
 }
 
@@ -1579,8 +1763,8 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
             return res.status(404).json({ error: "Room not found" });
         }
 
-        if (String(room.creatorId) !== String(req.user.id)) {
-            return res.status(403).json({ error: "Only the room owner can change the room background" });
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مصرح لك بتغيير خلفية الغرفة" });
         }
 
         if (!req.file) {
@@ -1785,6 +1969,26 @@ router.get("/room/:roomId/challenge-state", authenticateToken, async (req, res) 
     }
 });
 
+router.get("/room/:roomId/supervisors-state", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const supervisorState = await buildRoomSupervisorsPayload(
+            room,
+            req.user.id,
+            req.user.role,
+            req.app,
+        );
+        return res.json(supervisorState);
+    } catch (error) {
+        console.error("Error fetching room supervisors state:", error);
+        return res.status(500).json({ error: "خطأ في جلب حالة السوبر مشرفين" });
+    }
+});
+
 router.get("/room/:roomId/join-state", authenticateToken, async (req, res) => {
     try {
         const room = await Room.findByPk(req.params.roomId);
@@ -1925,6 +2129,99 @@ router.post("/room/:roomId/join-members/notify", authenticateToken, async (req, 
     } catch (error) {
         console.error("Error notifying joined room members:", error);
         return res.status(500).json({ error: "خطأ في إرسال الإشعار إلى المنضمين" });
+    }
+});
+
+router.post("/room/:roomId/supervisors/assign", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoomSupervisorAssignments(room, req.user)) {
+            return res.status(403).json({ error: "فقط صاحب الغرفة يقدر يعيّن السوبر مشرفين" });
+        }
+
+        const slotKey = String(req.body?.slotKey ?? "").trim().toLowerCase();
+        const userId = Number(req.body?.userId);
+
+        if (!ROOM_SUPERVISOR_SLOT_KEYS.includes(slotKey)) {
+            return res.status(400).json({ error: "الخانة غير صالحة" });
+        }
+
+        if (!Number.isFinite(userId) || userId <= 0) {
+            return res.status(400).json({ error: "المستخدم غير صالح" });
+        }
+
+        if (!isUserPresentInRoomUsersMap(room.id, userId)) {
+            return res.status(400).json({ error: "لازم المستخدم يكون موجود داخل الروم حتى تعيّنه" });
+        }
+
+        if (String(room.creatorId) === String(userId)) {
+            return res.status(400).json({ error: "صاحب الغرفة موجود أصلًا وما يحتاج تعيين كسوبر مشرف" });
+        }
+
+        const targetUser = await User.findByPk(userId, {
+            attributes: ["id", "name", "isActive"],
+        });
+        if (!targetUser || targetUser.isActive === false) {
+            return res.status(404).json({ error: "المستخدم غير موجود أو غير نشط" });
+        }
+
+        const slots = normalizeRoomSupervisorSlots(room.supervisorSlots);
+        for (const currentSlotKey of ROOM_SUPERVISOR_SLOT_KEYS) {
+            if (currentSlotKey !== slotKey && String(slots[currentSlotKey] ?? "") === String(userId)) {
+                return res.status(400).json({ error: "هذا المستخدم معيّن بالفعل بخانة أخرى" });
+            }
+        }
+
+        slots[slotKey] = userId;
+        await room.update({ supervisorSlots: slots });
+
+        const roomsIO = req.app.get("roomsIO");
+        await emitRoomSupervisorsUpdatedToIO(roomsIO, room, req.user.id, req.user.role);
+
+        return res.json({
+            message: `تم تعيين ${targetUser.name || "المستخدم"} كـ ${ROOM_SUPERVISOR_SLOT_META[slotKey].label}`,
+            supervisorState: await buildRoomSupervisorsPayload(room, req.user.id, req.user.role, req.app),
+        });
+    } catch (error) {
+        console.error("Error assigning room supervisor:", error);
+        return res.status(500).json({ error: "خطأ في تعيين السوبر مشرف" });
+    }
+});
+
+router.post("/room/:roomId/supervisors/remove", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        if (!canManageRoomSupervisorAssignments(room, req.user)) {
+            return res.status(403).json({ error: "فقط صاحب الغرفة يقدر يشيل السوبر مشرفين" });
+        }
+
+        const slotKey = String(req.body?.slotKey ?? "").trim().toLowerCase();
+        if (!ROOM_SUPERVISOR_SLOT_KEYS.includes(slotKey)) {
+            return res.status(400).json({ error: "الخانة غير صالحة" });
+        }
+
+        const slots = normalizeRoomSupervisorSlots(room.supervisorSlots);
+        slots[slotKey] = null;
+        await room.update({ supervisorSlots: slots });
+
+        const roomsIO = req.app.get("roomsIO");
+        await emitRoomSupervisorsUpdatedToIO(roomsIO, room, req.user.id, req.user.role);
+
+        return res.json({
+            message: `تم إزالة ${ROOM_SUPERVISOR_SLOT_META[slotKey].label}`,
+            supervisorState: await buildRoomSupervisorsPayload(room, req.user.id, req.user.role, req.app),
+        });
+    } catch (error) {
+        console.error("Error removing room supervisor:", error);
+        return res.status(500).json({ error: "خطأ في إزالة السوبر مشرف" });
     }
 });
 
@@ -2780,4 +3077,5 @@ router.cleanupRoomVoiceParticipant = cleanupRoomVoiceParticipant;
 router.syncRoomAudioPlaybackPresence = syncRoomAudioPlaybackPresence;
 router.processRoomChallengeGift = processRoomChallengeGift;
 router.buildRoomChallengePayload = buildRoomChallengePayload;
+router.canManageRoom = canManageRoom;
 module.exports = router;

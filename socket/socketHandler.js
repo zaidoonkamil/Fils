@@ -6,6 +6,7 @@ const roomsRouter = require("../routes/rooms");
 
 const cleanupRoomVoiceParticipant = roomsRouter.cleanupRoomVoiceParticipant;
 const syncRoomAudioPlaybackPresence = roomsRouter.syncRoomAudioPlaybackPresence;
+const canManageRoom = roomsRouter.canManageRoom;
 
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
@@ -334,10 +335,12 @@ function initializeSocketIO(io) {
         }
 
         const me = await User.findByPk(socket.userId, { attributes: ["id", "role"] });
-        const isAdmin = me?.role === "admin";
-        const isCreator = String(room.creatorId) === String(socket.userId);
+        const canKick = canManageRoom?.(room, {
+          id: socket.userId,
+          role: me?.role,
+        }) === true;
 
-        if (!isAdmin && !isCreator) {
+        if (!canKick) {
           socket.emit("error", { message: "غير مصرح" });
           return;
         }
