@@ -846,6 +846,24 @@ async function settleRoomChallengeIfNeeded(room) {
     const leftShare = Math.max(0, Number(normalized.left.receiverShareTotal || 0));
     const rightShare = Math.max(0, Number(normalized.right.receiverShareTotal || 0));
     const isDraw = normalized.left.score === normalized.right.score;
+    const hasAnyChallengePoints =
+        Math.max(0, Number(normalized.left.score || 0)) > 0 ||
+        Math.max(0, Number(normalized.right.score || 0)) > 0;
+
+    if (isDraw && hasAnyChallengePoints) {
+        const overtimeEndsAt = new Date(Date.now() + (30 * 1000));
+        const nextState = {
+            ...normalized,
+            status: "active",
+            winnerUserId: null,
+            settledAt: null,
+            resultSummary: null,
+            endsAt: overtimeEndsAt.toISOString(),
+        };
+        await room.update({ roomChallengeState: nextState });
+        return normalizeRoomChallengeState(nextState);
+    }
+
     let winnerUserId = null;
     let loserUserId = null;
     let transferAmount = 0;
