@@ -2172,7 +2172,7 @@ router.post("/room/:roomId/supervisors/assign", authenticateToken, async (req, r
             return res.status(400).json({ error: "المستخدم غير صالح" });
         }
 
-        if (!isUserPresentInRoomUsersMap(room.id, userId)) {
+        if (!isUserPresentInRoomSocket(req.app, room.id, userId)) {
             return res.status(400).json({ error: "لازم المستخدم يكون موجود داخل الروم حتى تعيّنه" });
         }
 
