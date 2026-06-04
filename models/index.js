@@ -35,6 +35,8 @@ const UserGift = require("./UserGift");
 const UserInternalVerification = require("./UserInternalVerification");
 const AdminBalanceLog = require("./AdminBalanceLog");
 const RoomJoinSubscription = require("./RoomJoinSubscription");
+const PremiumFrame = require("./PremiumFrame");
+const UserPremiumFrame = require("./UserPremiumFrame");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -53,6 +55,11 @@ Room.hasMany(RoomJoinSubscription, { foreignKey: "roomId", as: "joinSubscription
 RoomJoinSubscription.belongsTo(Room, { foreignKey: "roomId", as: "room", onDelete: "CASCADE" });
 User.hasMany(RoomJoinSubscription, { foreignKey: "userId", as: "joinedRooms", onDelete: "CASCADE" });
 RoomJoinSubscription.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+
+PremiumFrame.hasMany(UserPremiumFrame, { foreignKey: "frameId", as: "subscriptions", onDelete: "CASCADE" });
+UserPremiumFrame.belongsTo(PremiumFrame, { foreignKey: "frameId", as: "frame", onDelete: "CASCADE" });
+User.hasMany(UserPremiumFrame, { foreignKey: "userId", as: "premiumFrames", onDelete: "CASCADE" });
+UserPremiumFrame.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -180,5 +187,7 @@ module.exports = {
   UserGift,
   UserInternalVerification,
   AdminBalanceLog,
-  RoomJoinSubscription
+  RoomJoinSubscription,
+  PremiumFrame,
+  UserPremiumFrame
 };

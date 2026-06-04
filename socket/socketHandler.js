@@ -43,6 +43,59 @@ async function normalizeMessagePayload(message, fallbackUser) {
   return plainMessage;
 }
 
+async function refreshConnectedUserFrame(io, userId) {
+  if (!io || userId == null) {
+    return null;
+  }
+
+  const user = await User.findByPk(userId, {
+    attributes: ["id", "name", "images", "isActive"],
+  });
+  const normalizedUser = await normalizeUserPayload(user);
+  const activeFrame = normalizedUser?.activeFrame ?? null;
+  const image = normalizedUser?.image ?? null;
+
+  const targetSocketId = connectedUsers.get(String(userId));
+  const targetSocket = targetSocketId ? io.sockets.sockets.get(targetSocketId) : null;
+  if (targetSocket) {
+    targetSocket.userImage = image;
+    targetSocket.userFrame = activeFrame;
+  }
+
+  for (const [roomId, usersSet] of roomUsers.entries()) {
+    let updated = false;
+    const nextUsers = new Set();
+
+    for (const currentUser of usersSet) {
+      if (String(currentUser.id) === String(userId)) {
+        nextUsers.add({
+          ...currentUser,
+          image,
+          activeFrame,
+        });
+        updated = true;
+      } else {
+        nextUsers.add(currentUser);
+      }
+    }
+
+    if (!updated) {
+      continue;
+    }
+
+    roomUsers.set(roomId, nextUsers);
+    const currentUsers = Array.from(nextUsers).map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      image: entry.image,
+      activeFrame: entry.activeFrame ?? null,
+    }));
+    io.to(`room-${roomId}`).emit("room-users", currentUsers);
+  }
+
+  return normalizedUser;
+}
+
 function initializeSocketIO(io) {
   const isBlockedRoomShortcutMessage = (value) => {
     if (typeof value !== "string") return false;
@@ -452,4 +505,5 @@ module.exports = {
   initializeSocketIO,
   connectedUsers,
   roomUsers,
+  refreshConnectedUserFrame,
 };

@@ -22,6 +22,7 @@ const store = require("./routes/store");
 const consumable = require("./routes/consumable");
 const stateCounterRouter = require("./routes/StateCounter");
 const giftSystemRouter = require("./routes/giftSystem");
+const premiumFramesRouter = require("./routes/premiumFrames");
 const chat = require("./routes/chatRoutes");
 const { initializeSocketIO } = require("./socket/socketHandler.js");
 const { initDominoSocket } = require("./socket/dominoHandler");
@@ -141,6 +142,7 @@ app.use("/", adsRouter);
 app.use("/", store);
 app.use("/", consumable);
 app.use("/", giftSystemRouter);
+app.use("/", premiumFramesRouter);
 app.use("/", stateCounterRouter);
 app.use("/", chat.router);
 

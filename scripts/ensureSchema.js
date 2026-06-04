@@ -188,6 +188,104 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "PremiumFrames", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    price: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    durationHours: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 24,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "UserPremiumFrames", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    frameId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    activatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    expiresAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  const userPremiumFrameIndexes = await queryInterface.showIndex("UserPremiumFrames");
+  const hasUserFrameIndex = userPremiumFrameIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === false &&
+      fields.length === 2 &&
+      fields.includes("userId") &&
+      fields.includes("isActive");
+  });
+
+  if (!hasUserFrameIndex) {
+    await queryInterface.addIndex("UserPremiumFrames", ["userId", "isActive"], {
+      name: "user_premium_frames_user_active_idx",
+    });
+  }
+
   const roomJoinIndexes = await queryInterface.showIndex("RoomJoinSubscriptions");
   const hasRoomUserUniqueIndex = roomJoinIndexes.some((index) => {
     const fields = (index.fields || []).map((field) => field.attribute || field.name);

@@ -1,5 +1,5 @@
 const { Op, fn, col, literal } = require("sequelize");
-const { UserGift, GiftItem, User, Room, Settings } = require("../models");
+const { UserGift, GiftItem, User, Room, Settings, PremiumFrame, UserPremiumFrame } = require("../models");
 
 const LEADERBOARD_DURATION_HOURS = 72;
 const LEADERBOARD_DURATION_MS = LEADERBOARD_DURATION_HOURS * 60 * 60 * 1000;
@@ -538,18 +538,89 @@ async function getActiveSupporterFrameMap(options = {}) {
   );
 }
 
+async function getActivePurchasedFrameMap(userIds, options = {}) {
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return new Map();
+  }
+
+  const normalizedIds = Array.from(
+    new Set(
+      userIds
+        .map((value) => Number.parseInt(String(value), 10))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )
+  );
+
+  if (normalizedIds.length === 0) {
+    return new Map();
+  }
+
+  const now = options.now instanceof Date ? options.now : new Date();
+  const subscriptions = await UserPremiumFrame.findAll({
+    where: {
+      userId: { [Op.in]: normalizedIds },
+      isActive: true,
+      expiresAt: { [Op.gt]: now },
+    },
+    include: [
+      {
+        model: PremiumFrame,
+        as: "frame",
+        required: true,
+        where: { isActive: true },
+      },
+    ],
+    order: [["expiresAt", "DESC"], ["updatedAt", "DESC"]],
+  });
+
+  const frameMap = new Map();
+  for (const subscription of subscriptions) {
+    const plainSubscription =
+      typeof subscription.toJSON === "function" ? subscription.toJSON() : { ...subscription };
+    const frame = plainSubscription.frame;
+    if (!frame) {
+      continue;
+    }
+
+    const userId = String(plainSubscription.userId);
+    if (frameMap.has(userId)) {
+      continue;
+    }
+
+    frameMap.set(userId, {
+      rank: 0,
+      key: `premium_frame_${frame.id}`,
+      label: frame.name || "إطار مميز",
+      colors: ["#F6C453", "#FF8A00"],
+      image: frame.image || "",
+      source: "premium",
+      frameId: frame.id,
+      expiresAt: plainSubscription.expiresAt,
+    });
+  }
+
+  return frameMap;
+}
+
 async function attachActiveUserFrames(users, options = {}) {
   if (!Array.isArray(users) || users.length === 0) {
     return [];
   }
 
   const frameMap = await getActiveSupporterFrameMap(options);
+  const purchasedFrameMap = await getActivePurchasedFrameMap(
+    users.map((user) => user?.id),
+    options
+  );
 
   return users.map((user) => {
     const plainUser = typeof user?.toJSON === "function" ? user.toJSON() : { ...(user || {}) };
     return {
       ...plainUser,
-      activeFrame: frameMap.get(String(plainUser.id)) ?? null,
+      activeFrame:
+        purchasedFrameMap.get(String(plainUser.id)) ??
+        frameMap.get(String(plainUser.id)) ??
+        null,
     };
   });
 }

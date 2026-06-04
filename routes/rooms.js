@@ -716,7 +716,10 @@ async function buildRoomVoicePayload(room, currentUserId = null, currentUserRole
     const pendingRequestIds = pendingRequests.map((entry) => Number(entry.id));
     const currentId = currentUserId != null ? Number(currentUserId) : null;
     const isOwner = currentId != null && String(room.creatorId) === String(currentId);
-    const canManage = isOwner || currentUserRole === "admin";
+    const canManage = canManageRoom(room, {
+        id: currentId,
+        role: currentUserRole,
+    });
 
     return {
         roomId: Number(room.id),
@@ -961,6 +964,18 @@ async function emitRoomChallengeUpdatedToIO(roomsIO, room, currentUserId = null,
     roomsIO.to(`room-${room.id}`).emit("room-challenge-updated", {
         roomId: Number(room.id),
         challengeState,
+    });
+}
+
+function emitGlobalRoomChallengeStarted(roomsIO, room, challengeState) {
+    if (!roomsIO || !room || !challengeState?.challenge) return;
+    roomsIO.emit("global-room-challenge-started", {
+        roomId: Number(room.id),
+        roomName: normalizeRoomNameInput(room.name) || "غرفة",
+        left: challengeState.challenge.left || null,
+        right: challengeState.challenge.right || null,
+        startedAt: challengeState.challenge.startedAt || null,
+        endsAt: challengeState.challenge.endsAt || null,
     });
 }
 
@@ -2280,11 +2295,14 @@ router.post("/room/:roomId/challenge/start", authenticateToken, async (req, res)
         };
 
         await room.update({ roomChallengeState: nextState });
-        await emitRoomChallengeUpdatedToIO(req.app.get("roomsIO"), room, req.user.id, req.user.role);
+        const roomsIO = req.app.get("roomsIO");
+        const challengeState = await buildRoomChallengePayload(room, req.user.id, req.user.role);
+        await emitRoomChallengeUpdatedToIO(roomsIO, room, req.user.id, req.user.role);
+        emitGlobalRoomChallengeStarted(roomsIO, room, challengeState);
 
         return res.json({
             message: "تم بدء التحدي بنجاح",
-            challengeState: await buildRoomChallengePayload(room, req.user.id, req.user.role),
+            challengeState,
         });
     } catch (error) {
         console.error("Error starting room challenge:", error);
