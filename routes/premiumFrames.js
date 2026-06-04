@@ -375,8 +375,13 @@ router.post("/premium-frames/:id/buy", authenticateTokenUser, async (req, res) =
     user.sawa = currentBalance - price;
     await user.save();
 
-    const roomsIO = req.app.get("roomsIO");
-    const normalizedUser = await refreshConnectedUserFrame(roomsIO, user.id);
+    let normalizedUser = null;
+    try {
+      const roomsIO = req.app.get("roomsIO");
+      normalizedUser = await refreshConnectedUserFrame(roomsIO, user.id);
+    } catch (refreshError) {
+      console.error("Premium frame purchase succeeded but live refresh failed:", refreshError);
+    }
 
     res.json({
       success: true,
