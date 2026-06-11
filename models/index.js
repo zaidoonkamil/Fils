@@ -40,6 +40,7 @@ const UserPremiumFrame = require("./UserPremiumFrame");
 const CommunityPost = require("./CommunityPost");
 const CommunityPostLike = require("./CommunityPostLike");
 const CommunityPostComment = require("./CommunityPostComment");
+const CommunityFollow = require("./CommunityFollow");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -90,6 +91,27 @@ User.hasMany(CommunityPostComment, {
 CommunityPostComment.belongsTo(User, {
   foreignKey: "userId",
   as: "user",
+  onDelete: "CASCADE",
+});
+
+User.hasMany(CommunityFollow, {
+  foreignKey: "followerId",
+  as: "followingRelations",
+  onDelete: "CASCADE",
+});
+CommunityFollow.belongsTo(User, {
+  foreignKey: "followerId",
+  as: "follower",
+  onDelete: "CASCADE",
+});
+User.hasMany(CommunityFollow, {
+  foreignKey: "followingId",
+  as: "followersRelations",
+  onDelete: "CASCADE",
+});
+CommunityFollow.belongsTo(User, {
+  foreignKey: "followingId",
+  as: "following",
   onDelete: "CASCADE",
 });
 
@@ -224,5 +246,6 @@ module.exports = {
   UserPremiumFrame,
   CommunityPost,
   CommunityPostLike,
-  CommunityPostComment
+  CommunityPostComment,
+  CommunityFollow
 };

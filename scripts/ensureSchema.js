@@ -362,6 +362,33 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "CommunityFollows", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    followerId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    followingId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   const userPremiumFrameIndexes = await queryInterface.showIndex("UserPremiumFrames");
   const hasUserFrameIndex = userPremiumFrameIndexes.some((index) => {
     const fields = (index.fields || []).map((field) => field.attribute || field.name);
@@ -436,6 +463,34 @@ async function ensureSchema() {
   if (!hasCommunityCommentsPostIndex) {
     await queryInterface.addIndex("CommunityPostComments", ["postId", "createdAt"], {
       name: "community_comments_post_created_idx",
+    });
+  }
+
+  const communityFollowsIndexes = await queryInterface.showIndex("CommunityFollows");
+  const hasCommunityFollowUniqueIndex = communityFollowsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === true &&
+      fields.length === 2 &&
+      fields.includes("followerId") &&
+      fields.includes("followingId");
+  });
+
+  if (!hasCommunityFollowUniqueIndex) {
+    await queryInterface.addIndex("CommunityFollows", ["followerId", "followingId"], {
+      unique: true,
+      name: "community_follows_follower_following_unique",
+    });
+  }
+
+  const hasCommunityFollowingIndex = communityFollowsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "community_follows_following_idx" ||
+      (fields.length === 1 && fields[0] === "followingId");
+  });
+
+  if (!hasCommunityFollowingIndex) {
+    await queryInterface.addIndex("CommunityFollows", ["followingId"], {
+      name: "community_follows_following_idx",
     });
   }
 

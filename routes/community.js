@@ -9,6 +9,7 @@ const {
   CommunityPost,
   CommunityPostLike,
   CommunityPostComment,
+  CommunityFollow,
 } = require("../models");
 
 const router = express.Router();
@@ -157,38 +158,198 @@ async function buildPostsPayload(posts, currentUserId) {
   return posts.map((post) => serializePost(post, currentUserId, likesMap, commentsMap));
 }
 
+async function buildPaginatedPostsPayload({
+  currentUserId,
+  page,
+  limit,
+  where = {},
+}) {
+  const safePage = parsePositiveInteger(page, 1);
+  const safeLimit = Math.min(parsePositiveInteger(limit, 20), 100);
+  const offset = (safePage - 1) * safeLimit;
+
+  const { rows, count } = await CommunityPost.findAndCountAll({
+    where,
+    include: [
+      {
+        model: User,
+        as: "user",
+        attributes: ["id", "name", "images", "role"],
+      },
+    ],
+    order: [["createdAt", "DESC"]],
+    limit: safeLimit,
+    offset,
+  });
+
+  const posts = await buildPostsPayload(rows, currentUserId);
+  return {
+    posts,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total: count,
+      hasMore: offset + rows.length < count,
+    },
+  };
+}
+
+async function getCommunityRelationshipSummary(targetUserId, currentUserId) {
+  const [postsCount, followersCount, followingCount, followRelation] = await Promise.all([
+    CommunityPost.count({ where: { userId: targetUserId } }),
+    CommunityFollow.count({ where: { followingId: targetUserId } }),
+    CommunityFollow.count({ where: { followerId: targetUserId } }),
+    currentUserId && Number(currentUserId) !== Number(targetUserId)
+      ? CommunityFollow.findOne({
+          where: {
+            followerId: currentUserId,
+            followingId: targetUserId,
+          },
+          attributes: ["id"],
+        })
+      : null,
+  ]);
+
+  return {
+    postsCount,
+    followersCount,
+    followingCount,
+    isFollowing: !!followRelation,
+  };
+}
+
 router.get("/community/posts", authenticateTokenUser, async (req, res) => {
   try {
-    const page = parsePositiveInteger(req.query.page, 1);
-    const limit = Math.min(parsePositiveInteger(req.query.limit, 20), 100);
-    const offset = (page - 1) * limit;
-
-    const { rows, count } = await CommunityPost.findAndCountAll({
-      include: [
-        {
-          model: User,
-          as: "user",
-          attributes: ["id", "name", "images", "role"],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
-      limit,
-      offset,
+    const targetUserId = req.query.userId ? Number(req.query.userId) : null;
+    const payload = await buildPaginatedPostsPayload({
+      currentUserId: req.user.id,
+      page: req.query.page,
+      limit: req.query.limit,
+      where: targetUserId ? { userId: targetUserId } : {},
     });
-
-    const posts = await buildPostsPayload(rows, req.user.id);
-    res.json({
-      posts,
-      pagination: {
-        page,
-        limit,
-        total: count,
-        hasMore: offset + rows.length < count,
-      },
-    });
+    res.json(payload);
   } catch (error) {
     console.error("Error fetching community posts:", error);
     res.status(500).json({ error: "خطأ في جلب منشورات المجتمع" });
+  }
+});
+
+router.get("/community/users/:userId/profile", authenticateTokenUser, async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.userId);
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const user = await User.findByPk(targetUserId, {
+      attributes: ["id", "name", "images", "note", "location", "role", "url", "isActive"],
+    });
+
+    if (!user || user.isActive === false) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const [summary, postsPayload, recentFollowers] = await Promise.all([
+      getCommunityRelationshipSummary(targetUserId, req.user.id),
+      buildPaginatedPostsPayload({
+        currentUserId: req.user.id,
+        page: req.query.page,
+        limit: req.query.limit,
+        where: { userId: targetUserId },
+      }),
+      CommunityFollow.findAll({
+        where: { followingId: targetUserId },
+        include: [
+          {
+            model: User,
+            as: "follower",
+            attributes: ["id", "name", "images", "role"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: 4,
+      }),
+    ]);
+
+    res.json({
+      user: {
+        id: user.id,
+        name: user.name || "",
+        image: extractImage(user.images),
+        bio: String(user.note || "").trim(),
+        location: String(user.location || "").trim(),
+        role: user.role || "user",
+        url: String(user.url || "").trim(),
+        isMe: Number(req.user.id) === Number(user.id),
+        isFollowing: summary.isFollowing,
+        postsCount: summary.postsCount,
+        followersCount: summary.followersCount,
+        followingCount: summary.followingCount,
+        recentFollowers: recentFollowers
+          .map((follow) => serializeAuthor(follow.follower))
+          .filter(Boolean),
+      },
+      posts: postsPayload.posts,
+      pagination: postsPayload.pagination,
+    });
+  } catch (error) {
+    console.error("Error fetching community user profile:", error);
+    res.status(500).json({ error: "خطأ في جلب ملف المستخدم" });
+  }
+});
+
+router.post("/community/users/:userId/follow-toggle", authenticateTokenUser, async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.userId);
+    const currentUserId = Number(req.user.id);
+
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    if (targetUserId === currentUserId) {
+      return res.status(400).json({ error: "لا يمكنك متابعة نفسك" });
+    }
+
+    const targetUser = await User.findByPk(targetUserId, {
+      attributes: ["id", "isActive"],
+    });
+    if (!targetUser || targetUser.isActive === false) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const existing = await CommunityFollow.findOne({
+      where: {
+        followerId: currentUserId,
+        followingId: targetUserId,
+      },
+    });
+
+    let isFollowing = false;
+    if (existing) {
+      await existing.destroy();
+    } else {
+      await CommunityFollow.create({
+        followerId: currentUserId,
+        followingId: targetUserId,
+      });
+      isFollowing = true;
+    }
+
+    const [followersCount, followingCount] = await Promise.all([
+      CommunityFollow.count({ where: { followingId: targetUserId } }),
+      CommunityFollow.count({ where: { followerId: targetUserId } }),
+    ]);
+
+    res.json({
+      success: true,
+      isFollowing,
+      followersCount,
+      followingCount,
+    });
+  } catch (error) {
+    console.error("Error toggling community follow:", error);
+    res.status(500).json({ error: "خطأ في تحديث المتابعة" });
   }
 });
 
