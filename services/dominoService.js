@@ -7,6 +7,10 @@ const TURN_SECONDS = 7;
 const matches = new Map();
 const timers = new Map();
 
+function clearMatchState(matchId) {
+  matches.delete(String(matchId));
+}
+
 async function persistFinish(matchId, winnerId, state) {
   await DominoMatch.update(
     {
@@ -493,16 +497,17 @@ async function handleBlockedIfAny(io, matchId, state) {
     await payoutWinner(matchId, blocked.winnerId);
     await persistFinish(matchId, blocked.winnerId, state);
 
-    io.to(`match:${matchId}`).emit('domino:match_finished', {
-      matchId,
-      winnerId: blocked.winnerId,
-      finalScores: state.scores,
-      reason: 'reached_target_score',
-      statePublicP1: await  publicState(state, state.players.p1),
-      statePublicP2: await publicState(state, state.players.p2),
-    });
-    return true;
-  }
+      io.to(`match:${matchId}`).emit('domino:match_finished', {
+        matchId,
+        winnerId: blocked.winnerId,
+        finalScores: state.scores,
+        reason: 'reached_target_score',
+        statePublicP1: await  publicState(state, state.players.p1),
+        statePublicP2: await publicState(state, state.players.p2),
+      });
+      clearMatchState(matchId);
+      return true;
+    }
 
   startNewRound(matchId, state);
   io.to(`match:${matchId}`).emit('domino:new_round_started', {
@@ -576,6 +581,7 @@ async function autoMove(io, matchId) {
               statePublicP1: await publicState(state, state.players.p1),
               statePublicP2: await publicState(state, state.players.p2),
             });
+            clearMatchState(matchId);
             return;
           }
           
@@ -636,6 +642,7 @@ async function autoMove(io, matchId) {
               statePublicP1: await publicState(state, state.players.p1),
               statePublicP2: await publicState(state, state.players.p2),
             });
+            clearMatchState(matchId);
             return;
           }
           
@@ -691,6 +698,7 @@ async function autoMove(io, matchId) {
               statePublicP1: await publicState(state, state.players.p1),
               statePublicP2: await publicState(state, state.players.p2),
             });
+            clearMatchState(matchId);
             return;
           }
           
@@ -788,6 +796,7 @@ async function onPlayerMove(io, matchId, userId, move) {
         statePublicP1: await publicState(state, state.players.p1),
         statePublicP2: await publicState(state, state.players.p2),
       });
+      clearMatchState(matchId);
       return { ok: true, finished: true, winnerId: userId };
     }
     
@@ -849,6 +858,7 @@ async function onPlayerMove(io, matchId, userId, move) {
         statePublicP1: await publicState(state, state.players.p1),
         statePublicP2: await publicState(state, state.players.p2),
       });
+      clearMatchState(matchId);
       return { ok: true, finished: true, winnerId: blocked.winnerId };
     }
     
@@ -910,6 +920,7 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
     statePublicP1: await publicState(state, state.players.p1),
     statePublicP2: await publicState(state, state.players.p2),
   });
+  clearMatchState(matchId);
 }
 
 module.exports = {

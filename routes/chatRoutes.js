@@ -327,14 +327,34 @@ async function loadAdminSupportMessages({ userId, limit }) {
 
 async function buildConversationListForUser(currentUser) {
   const attributes = await getChatMessageAttributes();
+  const whereClause = {
+    [Op.or]: [{ senderId: currentUser.id }, { receiverId: currentUser.id }],
+  };
   const messages = await ChatMessage.findAll({
     attributes,
-    where: {
-      [Op.or]: [{ senderId: currentUser.id }, { receiverId: currentUser.id }],
-    },
+    where: whereClause,
     include: getMessageIncludes(),
     order: [["createdAt", "DESC"]],
   });
+
+  const unreadRows = await ChatMessage.findAll({
+    attributes: [
+      "senderId",
+      [
+        ChatMessage.sequelize.fn("COUNT", ChatMessage.sequelize.col("id")),
+        "count",
+      ],
+    ],
+    where: {
+      receiverId: currentUser.id,
+      read: false,
+    },
+    group: ["senderId"],
+    raw: true,
+  });
+  const unreadBySenderId = new Map(
+    unreadRows.map((row) => [Number(row.senderId), Number(row.count || 0)]),
+  );
 
   const conversations = new Map();
 
@@ -355,18 +375,10 @@ async function buildConversationListForUser(currentUser) {
     }
 
     if (!conversations.has(peer.id)) {
-      const unreadCount = await ChatMessage.count({
-        where: {
-          senderId: peer.id,
-          receiverId: currentUser.id,
-          read: false,
-        },
-      });
-
       conversations.set(peer.id, {
         user: peer,
         lastMessage: normalizedMessage,
-        unreadCount,
+        unreadCount: unreadBySenderId.get(Number(peer.id)) ?? 0,
       });
     }
   }
@@ -484,10 +496,13 @@ function initChatSocket(io) {
 
     socket.on("disconnect", () => {
       const sockets = userSocketsById.get(userId) || [];
-      userSocketsById.set(
-        userId,
-        sockets.filter((socketId) => socketId !== socket.id)
-      );
+      const nextSockets = sockets.filter((socketId) => socketId !== socket.id);
+      if (nextSockets.length === 0) {
+        userSocketsById.delete(userId);
+        return;
+      }
+
+      userSocketsById.set(userId, nextSockets);
     });
   });
 }

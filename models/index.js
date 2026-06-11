@@ -37,6 +37,9 @@ const AdminBalanceLog = require("./AdminBalanceLog");
 const RoomJoinSubscription = require("./RoomJoinSubscription");
 const PremiumFrame = require("./PremiumFrame");
 const UserPremiumFrame = require("./UserPremiumFrame");
+const CommunityPost = require("./CommunityPost");
+const CommunityPostLike = require("./CommunityPostLike");
+const CommunityPostComment = require("./CommunityPostComment");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -60,6 +63,35 @@ PremiumFrame.hasMany(UserPremiumFrame, { foreignKey: "frameId", as: "subscriptio
 UserPremiumFrame.belongsTo(PremiumFrame, { foreignKey: "frameId", as: "frame", onDelete: "CASCADE" });
 User.hasMany(UserPremiumFrame, { foreignKey: "userId", as: "premiumFrames", onDelete: "CASCADE" });
 UserPremiumFrame.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+
+User.hasMany(CommunityPost, { foreignKey: "userId", as: "communityPosts", onDelete: "CASCADE" });
+CommunityPost.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+
+CommunityPost.hasMany(CommunityPostLike, { foreignKey: "postId", as: "likes", onDelete: "CASCADE" });
+CommunityPostLike.belongsTo(CommunityPost, { foreignKey: "postId", as: "post", onDelete: "CASCADE" });
+User.hasMany(CommunityPostLike, { foreignKey: "userId", as: "communityLikes", onDelete: "CASCADE" });
+CommunityPostLike.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+
+CommunityPost.hasMany(CommunityPostComment, {
+  foreignKey: "postId",
+  as: "comments",
+  onDelete: "CASCADE",
+});
+CommunityPostComment.belongsTo(CommunityPost, {
+  foreignKey: "postId",
+  as: "post",
+  onDelete: "CASCADE",
+});
+User.hasMany(CommunityPostComment, {
+  foreignKey: "userId",
+  as: "communityComments",
+  onDelete: "CASCADE",
+});
+CommunityPostComment.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+  onDelete: "CASCADE",
+});
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
 UserCounter.belongsTo(User, { foreignKey: 'userId', constraints: false });
@@ -189,5 +221,8 @@ module.exports = {
   AdminBalanceLog,
   RoomJoinSubscription,
   PremiumFrame,
-  UserPremiumFrame
+  UserPremiumFrame,
+  CommunityPost,
+  CommunityPostLike,
+  CommunityPostComment
 };

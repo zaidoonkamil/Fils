@@ -271,6 +271,97 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "CommunityPosts", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    content: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "CommunityPostLikes", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    postId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "CommunityPostComments", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    postId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    content: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   const userPremiumFrameIndexes = await queryInterface.showIndex("UserPremiumFrames");
   const hasUserFrameIndex = userPremiumFrameIndexes.some((index) => {
     const fields = (index.fields || []).map((field) => field.attribute || field.name);
@@ -299,6 +390,52 @@ async function ensureSchema() {
     await queryInterface.addIndex("RoomJoinSubscriptions", ["roomId", "userId"], {
       unique: true,
       name: "room_join_subscriptions_room_user_unique",
+    });
+  }
+
+  const communityPostsIndexes = await queryInterface.showIndex("CommunityPosts");
+  const hasCommunityPostsCreatedAtIndex = communityPostsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "community_posts_created_at_idx" || (
+      fields.length === 1 && fields[0] === "createdAt"
+    );
+  });
+
+  if (!hasCommunityPostsCreatedAtIndex) {
+    await queryInterface.addIndex("CommunityPosts", ["createdAt"], {
+      name: "community_posts_created_at_idx",
+    });
+  }
+
+  const communityLikesIndexes = await queryInterface.showIndex("CommunityPostLikes");
+  const hasCommunityLikesUniqueIndex = communityLikesIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === true &&
+      fields.length === 2 &&
+      fields.includes("postId") &&
+      fields.includes("userId");
+  });
+
+  if (!hasCommunityLikesUniqueIndex) {
+    await queryInterface.addIndex("CommunityPostLikes", ["postId", "userId"], {
+      unique: true,
+      name: "community_post_likes_post_user_unique",
+    });
+  }
+
+  const communityCommentsIndexes = await queryInterface.showIndex("CommunityPostComments");
+  const hasCommunityCommentsPostIndex = communityCommentsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "community_comments_post_created_idx" || (
+      fields.length === 2 &&
+      fields[0] === "postId" &&
+      fields[1] === "createdAt"
+    );
+  });
+
+  if (!hasCommunityCommentsPostIndex) {
+    await queryInterface.addIndex("CommunityPostComments", ["postId", "createdAt"], {
+      name: "community_comments_post_created_idx",
     });
   }
 

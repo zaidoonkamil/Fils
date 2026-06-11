@@ -11,9 +11,23 @@ const canManageRoom = roomsRouter.canManageRoom;
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
 
-// userId -> socketId
+// userId -> latest socketId
 const connectedUsers = new Map();
 const kickedUsers = new Map();
+
+function pruneExpiredKickedUsers(now = Date.now()) {
+  for (const [roomId, kickedMap] of kickedUsers.entries()) {
+    for (const [userId, expireAt] of kickedMap.entries()) {
+      if (!expireAt || expireAt <= now) {
+        kickedMap.delete(userId);
+      }
+    }
+
+    if (kickedMap.size === 0) {
+      kickedUsers.delete(roomId);
+    }
+  }
+}
 
 async function normalizeUserPayload(user) {
   if (!user) return null;
@@ -136,12 +150,14 @@ function initializeSocketIO(io) {
 
   io.on("connection", (socket) => {
     console.log(`User ${socket.userName} connected (${socket.id})`);
+    socket.data.joinedRoomIds = new Set();
 
     // âœ… register online user
     connectedUsers.set(String(socket.userId), socket.id);
 
     socket.on("join-room", async (roomId) => {
       try {
+        pruneExpiredKickedUsers();
         const room = await Room.findByPk(roomId);
         if (!room || !room.isActive) {
           socket.emit("error", { message: "الغرفة غير موجودة أو غير نشطة" });
@@ -169,6 +185,7 @@ function initializeSocketIO(io) {
         }
 
         socket.join(`room-${roomId}`);
+        socket.data.joinedRoomIds.add(String(roomId));
 
         if (!roomUsers.has(roomId)) roomUsers.set(roomId, new Set());
         const usersSet = roomUsers.get(roomId);
@@ -218,6 +235,7 @@ function initializeSocketIO(io) {
     socket.on("send-message", async (data) => {
       try {
         const { roomId, content, messageType = "text", replyToId } = data;
+        pruneExpiredKickedUsers();
 
         if (messageType === "text" && isBlockedRoomShortcutMessage(content)) {
           socket.emit("error", {
@@ -328,6 +346,7 @@ function initializeSocketIO(io) {
     socket.on("leave-room", async (roomId) => {
       try {
         socket.leave(`room-${roomId}`);
+        socket.data.joinedRoomIds?.delete(String(roomId));
         await cleanupRoomVoiceParticipant(io, roomId, socket.userId);
 
         if (roomUsers.has(roomId)) {
@@ -398,9 +417,10 @@ function initializeSocketIO(io) {
           return;
         }
 
-        const DURATION_SECONDS = 400 * 60 * 60;
+        const DURATION_SECONDS = 6 * 60 * 60;
         const expireAt = Date.now() + DURATION_SECONDS * 1000;
 
+        pruneExpiredKickedUsers();
         if (!kickedUsers.has(roomId)) kickedUsers.set(roomId, new Map());
         kickedUsers.get(roomId).set(String(userId), expireAt);
 
@@ -418,6 +438,7 @@ function initializeSocketIO(io) {
 
         if (targetSocket) {
           targetSocket.leave(`room-${roomId}`);
+          targetSocket.data?.joinedRoomIds?.delete(String(roomId));
           targetSocket.emit("kicked", {
             roomId,
             message: "تم طردك من الغرفة لمدة 6 ساعات",
@@ -459,10 +480,17 @@ function initializeSocketIO(io) {
           console.log(`User ${socket.userName} disconnected`);
 
           // âœ… remove from online map
-          connectedUsers.delete(String(socket.userId));
+          if (connectedUsers.get(String(socket.userId)) === socket.id) {
+            connectedUsers.delete(String(socket.userId));
+          }
 
           // remove from rooms
-          for (const [roomId, usersSet] of roomUsers.entries()) {
+          const joinedRoomIds = Array.from(socket.data.joinedRoomIds || []);
+          for (const roomId of joinedRoomIds) {
+            const usersSet = roomUsers.get(roomId);
+            if (!usersSet) {
+              continue;
+            }
             let removed = false;
 
             for (const u of usersSet) {
@@ -492,10 +520,9 @@ function initializeSocketIO(io) {
                 activeFrame: u.activeFrame ?? null,
               }));
               io.to(`room-${roomId}`).emit("room-users", currentUsers);
+              await syncRoomAudioPlaybackPresence(io, roomId, usersSet.size > 0);
+              if (usersSet.size === 0) roomUsers.delete(roomId);
             }
-
-            await syncRoomAudioPlaybackPresence(io, roomId, usersSet.size > 0);
-            if (usersSet.size === 0) roomUsers.delete(roomId);
           }
         });
       });
