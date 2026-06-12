@@ -362,6 +362,42 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "ads", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    images: {
+      type: DataTypes.JSON,
+      allowNull: false,
+    },
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    placement: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "home",
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   await ensureTable(queryInterface, "CommunityFollows", {
     id: {
       type: DataTypes.INTEGER,
