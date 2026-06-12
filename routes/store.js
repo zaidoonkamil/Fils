@@ -14,6 +14,14 @@ if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "used
   digitalProductCodeAttributes.push("usedAt");
 }
 
+class StorePurchaseError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.name = "StorePurchaseError";
+    this.statusCode = statusCode;
+  }
+}
+
 // ==================== أقسام المتجر ====================
 
 // إضافة قسم جديد (Admin فقط)
@@ -469,36 +477,71 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
     const userId = req.user.id;
 
     if (!userId || !productId) {
-      return res.status(400).json({ error: "userId و productId مطلوبة" });
+      return res.status(400).json({ error: "userId \u0648 productId \u0645\u0637\u0644\u0648\u0628\u0629" });
     }
 
     const user = await User.findByPk(userId);
-    if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+    if (!user) {
+      return res.status(404).json({ error: "\u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645 \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f" });
+    }
 
     const product = await DigitalProduct.findByPk(productId);
-    if (!product) return res.status(404).json({ error: "المنتج غير موجود" });
+    if (!product) {
+      return res.status(404).json({ error: "\u0627\u0644\u0645\u0646\u062a\u062c \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f" });
+    }
 
     if (product.stock <= 0) {
-      return res.status(400).json({ error: "المنتج غير متوفر حالياً" });
+      return res.status(400).json({ error: "\u0627\u0644\u0645\u0646\u062a\u062c \u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631 \u062d\u0627\u0644\u064a\u0627\u064b" });
     }
 
     const result = await sequelize.transaction(async (t) => {
-      const prod = await DigitalProduct.findByPk(productId, { transaction: t });
-      if (!prod) throw new Error("المنتج غير موجود أثناء المعاملة");
+      const lockedUser = await User.findByPk(userId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (!lockedUser) {
+        throw new StorePurchaseError("\u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645 \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f \u0623\u062b\u0646\u0627\u0621 \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0629", 404);
+      }
 
-      if (prod.stock <= 0) throw new Error("المنتج غير متوفر حالياً");
+      const prod = await DigitalProduct.findByPk(productId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (!prod) {
+        throw new StorePurchaseError("\u0627\u0644\u0645\u0646\u062a\u062c \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f \u0623\u062b\u0646\u0627\u0621 \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0629", 404);
+      }
 
-      if (user.sawa < prod.price) throw new Error("رصيد المستخدم غير كافي");
+      const productPrice = Number(prod.price || 0);
+      const userBalance = Number(lockedUser.sawa || 0);
+
+      if (prod.stock <= 0) {
+        throw new StorePurchaseError("\u0627\u0644\u0645\u0646\u062a\u062c \u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631 \u062d\u0627\u0644\u064a\u0627\u064b");
+      }
+
+      if (!Number.isFinite(productPrice) || productPrice < 0) {
+        throw new StorePurchaseError("\u0633\u0639\u0631 \u0627\u0644\u0645\u0646\u062a\u062c \u063a\u064a\u0631 \u0635\u0627\u0644\u062d", 500);
+      }
+
+      if (!Number.isFinite(userBalance)) {
+        throw new StorePurchaseError("\u0631\u0635\u064a\u062f \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d", 500);
+      }
+
+      if (userBalance < productPrice) {
+        throw new StorePurchaseError("\u0631\u0635\u064a\u062f \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645 \u063a\u064a\u0631 \u0643\u0627\u0641\u064a");
+      }
 
       const codeRow = await DigitalProductCode.findOne({
         where: { productId: prod.id, used: false },
         transaction: t,
+        lock: t.LOCK.UPDATE,
       });
 
-      if (!codeRow) throw new Error("لا توجد أكواد متاحة حالياً");
+      if (!codeRow) {
+        throw new StorePurchaseError("\u0644\u0627 \u062a\u0648\u062c\u062f \u0623\u0643\u0648\u0627\u062f \u0645\u062a\u0627\u062d\u0629 \u062d\u0627\u0644\u064a\u0627\u064b");
+      }
 
-      user.sawa -= prod.price;
-      await user.save({ transaction: t });
+      lockedUser.sawa = Math.max(0, Math.floor(userBalance - productPrice));
+      await lockedUser.save({ transaction: t });
 
       codeRow.used = true;
       if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedBy")) {
@@ -511,7 +554,7 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
 
       const remaining = await DigitalProductCode.count({
         where: { productId: prod.id, used: false },
-        transaction: t
+        transaction: t,
       });
 
       await DigitalProduct.update(
@@ -523,21 +566,21 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
         userId,
         productId,
         cardCode: codeRow.code,
-        price: prod.price,
+        price: productPrice,
       }, { transaction: t });
 
-      return { purchase, prod, code: codeRow };
+      return { purchase, prod, code: codeRow, userBalance: lockedUser.sawa };
     });
 
     await sendNotificationToUser(
       userId,
-      `تم شراء "${result.prod.title}" بنجاح. كود البطاقة: ${result.code.code}`,
-      "شراء منتج رقمي"
+      `\u062a\u0645 \u0634\u0631\u0627\u0621 "${result.prod.title}" \u0628\u0646\u062c\u0627\u062d. \u0643\u0648\u062f \u0627\u0644\u0628\u0637\u0627\u0642\u0629: ${result.code.code}`,
+      "\u0634\u0631\u0627\u0621 \u0645\u0646\u062a\u062c \u0631\u0642\u0645\u064a"
     );
 
     res.status(200).json({
       success: true,
-      message: "تم الشراء بنجاح",
+      message: "\u062a\u0645 \u0627\u0644\u0634\u0631\u0627\u0621 \u0628\u0646\u062c\u0627\u062d",
       purchase: {
         id: result.purchase.id,
         productTitle: result.prod.title,
@@ -545,16 +588,17 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
         price: result.purchase.price,
         purchasedAt: result.purchase.createdAt,
       },
-      userBalance: user.sawa,
+      userBalance: result.userBalance,
     });
-
   } catch (error) {
-    console.error("❌ خطأ في عملية الشراء:", error);
-    res.status(500).json({ error: "حدث خطأ في الخادم" });
+    console.error("? ??? ?? ????? ??????:", error);
+    if (error instanceof StorePurchaseError) {
+      return res.status(error.statusCode || 400).json({ error: error.message });
+    }
+    res.status(500).json({ error: "\u062d\u062f\u062b \u062e\u0637\u0623 \u0641\u064a \u0627\u0644\u062e\u0627\u062f\u0645" });
   }
 });
 
-// جلب أبرز المنتجات بشكل عشوائي (حد أقصى 20 منتج)
 router.get("/store/featured-products", async (req, res) => {
   try {
     const products = await DigitalProduct.findAll({
