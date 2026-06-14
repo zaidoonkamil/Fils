@@ -15,7 +15,7 @@ const Ads = sequelize.define("ads", {
         allowNull: false
     },
     placement: {
-        type: DataTypes.ENUM("home", "store"),
+        type: DataTypes.STRING,
         allowNull: false,
         defaultValue: "home",
     },

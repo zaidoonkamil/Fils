@@ -398,6 +398,12 @@ async function ensureSchema() {
     },
   });
 
+  await queryInterface.changeColumn("ads", "placement", {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: "home",
+  });
+
   await ensureTable(queryInterface, "CommunityFollows", {
     id: {
       type: DataTypes.INTEGER,

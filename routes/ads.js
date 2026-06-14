@@ -6,7 +6,9 @@ const { sendNotificationToRole } = require("../services/notifications");
 const { requireAdmin } = require("../middlewares/auth");
 
 function normalizePlacement(value) {
-  return value === "store" ? "store" : "home";
+  if (value === "store") return "store";
+  if (value === "counter") return "counter";
+  return "home";
 }
 
 router.post("/ads", requireAdmin, upload.array("images", 5), async (req, res) => {
@@ -43,7 +45,11 @@ router.get("/ads", async (req, res) => {
     const requestedPlacement = req.query.placement;
     const where = {};
 
-    if (requestedPlacement === "home" || requestedPlacement === "store") {
+    if (
+      requestedPlacement === "home" ||
+      requestedPlacement === "store" ||
+      requestedPlacement === "counter"
+    ) {
       where.placement = requestedPlacement;
     }
 
@@ -68,6 +74,19 @@ router.get("/ads/store", async (req, res) => {
     res.json(ads);
   } catch (err) {
     console.error("Error fetching store ads:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/ads/counter", async (req, res) => {
+  try {
+    const ads = await Ads.findAll({
+      where: { placement: "counter" },
+      order: [["createdAt", "DESC"]],
+    });
+    res.json(ads);
+  } catch (err) {
+    console.error("Error fetching counter ads:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
