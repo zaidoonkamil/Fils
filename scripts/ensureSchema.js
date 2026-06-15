@@ -404,6 +404,88 @@ async function ensureSchema() {
     defaultValue: "home",
   });
 
+  await ensureTable(queryInterface, "NotificationLogs", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    title: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    message: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    target_type: {
+      type: DataTypes.ENUM("all", "role", "user"),
+      allowNull: false,
+    },
+    target_value: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "sent",
+    },
+    category: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "system",
+    },
+    subcategory: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "NotificationReads", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    notificationId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    readAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   await ensureTable(queryInterface, "CommunityFollows", {
     id: {
       type: DataTypes.INTEGER,
@@ -533,6 +615,34 @@ async function ensureSchema() {
   if (!hasCommunityFollowingIndex) {
     await queryInterface.addIndex("CommunityFollows", ["followingId"], {
       name: "community_follows_following_idx",
+    });
+  }
+
+  const notificationReadsIndexes = await queryInterface.showIndex("NotificationReads");
+  const hasNotificationReadUniqueIndex = notificationReadsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === true &&
+      fields.length === 2 &&
+      fields.includes("notificationId") &&
+      fields.includes("userId");
+  });
+
+  if (!hasNotificationReadUniqueIndex) {
+    await queryInterface.addIndex("NotificationReads", ["notificationId", "userId"], {
+      unique: true,
+      name: "notification_reads_notification_user_unique",
+    });
+  }
+
+  const hasNotificationReadUserIndex = notificationReadsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "notification_reads_user_idx" ||
+      (fields.length === 1 && fields[0] === "userId");
+  });
+
+  if (!hasNotificationReadUserIndex) {
+    await queryInterface.addIndex("NotificationReads", ["userId"], {
+      name: "notification_reads_user_idx",
     });
   }
 

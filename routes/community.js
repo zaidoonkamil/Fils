@@ -11,6 +11,7 @@ const {
   CommunityPostComment,
   CommunityFollow,
 } = require("../models");
+const { sendNotificationToUser } = require("../services/notifications");
 
 const router = express.Router();
 const uploadsDir = path.resolve(process.cwd(), "uploads");
@@ -334,6 +335,23 @@ router.post("/community/users/:userId/follow-toggle", authenticateTokenUser, asy
         followingId: targetUserId,
       });
       isFollowing = true;
+
+      try {
+        const follower = await User.findByPk(currentUserId, {
+          attributes: ["id", "name"],
+        });
+        await sendNotificationToUser(
+          targetUserId,
+          `${String(follower?.name || "مستخدم").trim()} بدأ بمتابعتك`,
+          "متابع جديد",
+          {
+            category: "community",
+            subcategory: "follow",
+          },
+        );
+      } catch (notificationError) {
+        console.error("Error sending community follow notification:", notificationError);
+      }
     }
 
     const [followersCount, followingCount] = await Promise.all([
@@ -521,6 +539,25 @@ router.post("/community/posts/:postId/likes/toggle", authenticateTokenUser, asyn
         userId: req.user.id,
       });
       isLiked = true;
+
+      if (Number(post.userId) != Number(req.user.id)) {
+        try {
+          const actor = await User.findByPk(req.user.id, {
+            attributes: ["id", "name"],
+          });
+          await sendNotificationToUser(
+            post.userId,
+            `${String(actor?.name || "مستخدم").trim()} أعجب بمنشورك`,
+            "إعجاب جديد",
+            {
+              category: "community",
+              subcategory: "like",
+            },
+          );
+        } catch (notificationError) {
+          console.error("Error sending community like notification:", notificationError);
+        }
+      }
     }
 
     const likesCount = await CommunityPostLike.count({
@@ -584,6 +621,25 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
       userId: req.user.id,
       content,
     });
+
+    if (Number(post.userId) != Number(req.user.id)) {
+      try {
+        const actor = await User.findByPk(req.user.id, {
+          attributes: ["id", "name"],
+        });
+        await sendNotificationToUser(
+          post.userId,
+          `${String(actor?.name || "مستخدم").trim()} علّق على منشورك`,
+          "تعليق جديد",
+          {
+            category: "community",
+            subcategory: "comment",
+          },
+        );
+      } catch (notificationError) {
+        console.error("Error sending community comment notification:", notificationError);
+      }
+    }
 
     const hydrated = await CommunityPostComment.findByPk(comment.id, {
       include: [

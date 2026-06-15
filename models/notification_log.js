@@ -27,6 +27,16 @@ const NotificationLog = sequelize.define("NotificationLog", {
     type: DataTypes.STRING,
     allowNull: false,
     defaultValue: "sent"
+  },
+  category: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: "system",
+  },
+  subcategory: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
   }
 }, {
   timestamps: true,

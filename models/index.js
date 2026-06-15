@@ -21,6 +21,7 @@ const Tearms = require("./TermsAndConditions");
 const AgentRequest = require('./AgentRequest');
 const OtpCode = require("./OtpCode");
 const NotificationLog = require("./notification_log");
+const NotificationRead = require("./NotificationRead");
 const StoreCategory = require("./StoreCategory");
 const DigitalProduct = require("./DigitalProduct");
 const DigitalProductCode = require("./DigitalProductCode");
@@ -164,6 +165,27 @@ AdminBalanceLog.belongsTo(User, { foreignKey: "adminId", as: "admin", onDelete: 
 User.hasMany(AdminBalanceLog, { foreignKey: "targetUserId", as: "receivedAdminBalanceActions", onDelete: "CASCADE" });
 AdminBalanceLog.belongsTo(User, { foreignKey: "targetUserId", as: "targetUser", onDelete: "CASCADE" });
 
+NotificationLog.hasMany(NotificationRead, {
+  foreignKey: "notificationId",
+  as: "reads",
+  onDelete: "CASCADE",
+});
+NotificationRead.belongsTo(NotificationLog, {
+  foreignKey: "notificationId",
+  as: "notification",
+  onDelete: "CASCADE",
+});
+User.hasMany(NotificationRead, {
+  foreignKey: "userId",
+  as: "notificationReads",
+  onDelete: "CASCADE",
+});
+NotificationRead.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+  onDelete: "CASCADE",
+});
+
 // علاقات المتجر الرقمي
 StoreCategory.hasMany(DigitalProduct, { foreignKey: 'categoryId', as: 'products', onDelete: 'CASCADE' });
 DigitalProduct.belongsTo(StoreCategory, { foreignKey: 'categoryId', as: 'category', onDelete: 'CASCADE' });
@@ -221,6 +243,7 @@ module.exports = {
   DeviceFingerprint,
   DeviceFingerprintUser,
   NotificationLog,
+  NotificationRead,
   GameRoom,
   GameRoomUser,
   GameResult,
