@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { Op } = require("sequelize");
 const Room = require("../models/room");
 const Message = require("../models/message");
 const User = require("../models/user");
@@ -24,6 +25,8 @@ const ROOM_AUDIO_ALLOWED_EXTENSIONS = new Set([
     ".wav",
     ".webm",
 ]);
+
+const ROOM_VOICE_PACKAGE_COUNTS = [4, 8];
 
 const ROOM_SUPERVISOR_SLOT_META = {
     gold: {
@@ -341,15 +344,14 @@ function ensureUserPresentInRoomSocket(req, res, roomId) {
 }
 
 async function getRoomVoicePackageSettings() {
-    const packageCounts = [3, 6, 9, 12];
     const settingsList = await Promise.all(
-        packageCounts.flatMap((micCount) => ([
+        ROOM_VOICE_PACKAGE_COUNTS.flatMap((micCount) => ([
             Settings.findOne({ where: { key: `room_voice_mic_${micCount}_price` } }),
             Settings.findOne({ where: { key: `room_voice_mic_${micCount}_hours` } }),
         ])),
     );
 
-    const packages = packageCounts.map((micCount, index) => {
+    const packages = ROOM_VOICE_PACKAGE_COUNTS.map((micCount, index) => {
         const priceSetting = settingsList[index * 2];
         const hoursSetting = settingsList[(index * 2) + 1];
 
@@ -363,6 +365,33 @@ async function getRoomVoicePackageSettings() {
     return {
         packages,
     };
+}
+
+function isSupportedRoomVoiceMicCount(micCount) {
+    return ROOM_VOICE_PACKAGE_COUNTS.includes(Number(micCount));
+}
+
+async function cleanupUnsupportedRoomVoicePackages() {
+    try {
+        await Room.update(
+            {
+                voiceMicCount: 0,
+                voicePackageExpiresAt: null,
+                voiceActiveSpeakerIds: [],
+                voicePendingRequestIds: [],
+            },
+            {
+                where: {
+                    voiceMicCount: {
+                        [Op.gt]: 0,
+                        [Op.notIn]: ROOM_VOICE_PACKAGE_COUNTS,
+                    },
+                },
+            },
+        );
+    } catch (error) {
+        console.error("Error cleaning unsupported room voice packages:", error);
+    }
 }
 
 async function getRoomSupportAgentSettings() {
@@ -555,9 +584,10 @@ async function normalizeRoomVoiceState(room, { persist = false } = {}) {
         .filter((id) => !voiceActiveSpeakerIds.includes(id));
 
     let changed = false;
+    const hasUnsupportedPackage = voiceMicCount > 0 && !isSupportedRoomVoiceMicCount(voiceMicCount);
     const isActive = voiceMicCount > 0 && voicePackageExpiresAt && voicePackageExpiresAt.getTime() > Date.now();
 
-    if (!isActive) {
+    if (hasUnsupportedPackage || !isActive) {
         if (voiceMicCount !== 0 || voicePackageExpiresAt || voiceActiveSpeakerIds.length > 0 || voicePendingRequestIds.length > 0) {
             voiceMicCount = 0;
             voicePackageExpiresAt = null;
@@ -2344,8 +2374,8 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
             return res.status(403).json({ error: "هذه الميزة لصاحب الغرفة فقط" });
         }
 
-        const micCount = Number(req.body?.micCount ?? 3);
-        if (![3, 6, 9, 12].includes(micCount)) {
+        const micCount = Number(req.body?.micCount ?? 4);
+        if (!isSupportedRoomVoiceMicCount(micCount)) {
             return res.status(400).json({ error: "باقة المايكات المطلوبة غير مدعومة" });
         }
 
@@ -3053,14 +3083,10 @@ router.get("/room-settings", async (req, res) => {
     const maxUsersSetting = await Settings.findOne({ where: { key: "room_max_users" } });
     const roomBackgroundChangeCostSetting = await Settings.findOne({ where: { key: "room_background_change_cost" } });
     const roomNameChangeCostSetting = await Settings.findOne({ where: { key: "room_name_change_cost" } });
-    const roomVoiceMic3PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_price" } });
-    const roomVoiceMic3HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_3_hours" } });
-    const roomVoiceMic6PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_6_price" } });
-    const roomVoiceMic6HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_6_hours" } });
-    const roomVoiceMic9PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_9_price" } });
-    const roomVoiceMic9HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_9_hours" } });
-    const roomVoiceMic12PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_12_price" } });
-    const roomVoiceMic12HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_12_hours" } });
+    const roomVoiceMic4PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_4_price" } });
+    const roomVoiceMic4HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_4_hours" } });
+    const roomVoiceMic8PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_8_price" } });
+    const roomVoiceMic8HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_8_hours" } });
     const roomAudioPriceSetting = await Settings.findOne({ where: { key: "room_audio_price" } });
     const roomAudioHoursSetting = await Settings.findOne({ where: { key: "room_audio_hours" } });
     const roomAudioMaxTotalMinutesSetting = await Settings.findOne({ where: { key: "room_audio_max_total_minutes" } });
@@ -3073,14 +3099,10 @@ router.get("/room-settings", async (req, res) => {
       room_max_users: maxUsersSetting ? parseInt(maxUsersSetting.value) : 50,
       room_background_change_cost: roomBackgroundChangeCostSetting ? parseInt(roomBackgroundChangeCostSetting.value) : 0,
       room_name_change_cost: roomNameChangeCostSetting ? parseInt(roomNameChangeCostSetting.value) : 0,
-      room_voice_mic_3_price: roomVoiceMic3PriceSetting ? parseInt(roomVoiceMic3PriceSetting.value, 10) || 0 : 0,
-      room_voice_mic_3_hours: roomVoiceMic3HoursSetting ? parseInt(roomVoiceMic3HoursSetting.value, 10) || 0 : 0,
-      room_voice_mic_6_price: roomVoiceMic6PriceSetting ? parseInt(roomVoiceMic6PriceSetting.value, 10) || 0 : 0,
-      room_voice_mic_6_hours: roomVoiceMic6HoursSetting ? parseInt(roomVoiceMic6HoursSetting.value, 10) || 0 : 0,
-      room_voice_mic_9_price: roomVoiceMic9PriceSetting ? parseInt(roomVoiceMic9PriceSetting.value, 10) || 0 : 0,
-      room_voice_mic_9_hours: roomVoiceMic9HoursSetting ? parseInt(roomVoiceMic9HoursSetting.value, 10) || 0 : 0,
-      room_voice_mic_12_price: roomVoiceMic12PriceSetting ? parseInt(roomVoiceMic12PriceSetting.value, 10) || 0 : 0,
-      room_voice_mic_12_hours: roomVoiceMic12HoursSetting ? parseInt(roomVoiceMic12HoursSetting.value, 10) || 0 : 0,
+      room_voice_mic_4_price: roomVoiceMic4PriceSetting ? parseInt(roomVoiceMic4PriceSetting.value, 10) || 0 : 0,
+      room_voice_mic_4_hours: roomVoiceMic4HoursSetting ? parseInt(roomVoiceMic4HoursSetting.value, 10) || 0 : 0,
+      room_voice_mic_8_price: roomVoiceMic8PriceSetting ? parseInt(roomVoiceMic8PriceSetting.value, 10) || 0 : 0,
+      room_voice_mic_8_hours: roomVoiceMic8HoursSetting ? parseInt(roomVoiceMic8HoursSetting.value, 10) || 0 : 0,
       room_audio_price: roomAudioPriceSetting ? parseInt(roomAudioPriceSetting.value, 10) || 0 : 0,
       room_audio_hours: roomAudioHoursSetting ? parseInt(roomAudioHoursSetting.value, 10) || 0 : 0,
       room_audio_max_total_minutes: roomAudioMaxTotalMinutesSetting ? parseInt(roomAudioMaxTotalMinutesSetting.value, 10) || 60 : 60,
@@ -3114,4 +3136,5 @@ router.syncRoomAudioPlaybackPresence = syncRoomAudioPlaybackPresence;
 router.processRoomChallengeGift = processRoomChallengeGift;
 router.buildRoomChallengePayload = buildRoomChallengePayload;
 router.canManageRoom = canManageRoom;
+cleanupUnsupportedRoomVoicePackages();
 module.exports = router;
