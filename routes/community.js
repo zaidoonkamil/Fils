@@ -338,6 +338,57 @@ async function getCommunityRelationshipSummary(targetUserId, currentUserId) {
   };
 }
 
+async function buildCommunityConnectionList({
+  targetUserId,
+  currentUserId,
+  mode,
+}) {
+  const isFollowersMode = mode === "followers";
+  const relations = await CommunityFollow.findAll({
+    where: isFollowersMode
+        ? { followingId: targetUserId }
+        : { followerId: targetUserId },
+    include: [
+      {
+        model: User,
+        as: isFollowersMode ? "follower" : "following",
+        attributes: ["id", "name", "images", "role"],
+      },
+    ],
+    order: [["createdAt", "DESC"]],
+  });
+
+  const relationUsers = relations
+    .map((relation) => relation[isFollowersMode ? "follower" : "following"])
+    .filter(Boolean);
+
+  const relationUserIds = relationUsers
+    .map((user) => Number(user.id))
+    .filter(Boolean);
+
+  const followingSet = new Set();
+  if (relationUserIds.length > 0 && Number.isFinite(Number(currentUserId)) && Number(currentUserId) > 0) {
+    const currentUserRelations = await CommunityFollow.findAll({
+      where: {
+        followerId: currentUserId,
+        followingId: {
+          [Op.in]: relationUserIds,
+        },
+      },
+      attributes: ["followingId"],
+    });
+    for (const relation of currentUserRelations) {
+      followingSet.add(Number(relation.followingId));
+    }
+  }
+
+  return relationUsers.map((user) => ({
+    ...serializeAuthor(user),
+    isFollowing: followingSet.has(Number(user.id)),
+    isMe: Number(user.id) === Number(currentUserId),
+  }));
+}
+
 router.get("/community/posts", authenticateTokenUser, async (req, res) => {
   try {
     const targetUserId = req.query.userId ? Number(req.query.userId) : null;
@@ -415,6 +466,52 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
   } catch (error) {
     console.error("Error fetching community user profile:", error);
     res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ù…Ù„Ù Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…" });
+  }
+});
+
+router.get("/community/users/:userId/followers", authenticateTokenUser, async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.userId);
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const users = await buildCommunityConnectionList({
+      targetUserId,
+      currentUserId: req.user.id,
+      mode: "followers",
+    });
+
+    res.json({
+      users,
+      count: users.length,
+    });
+  } catch (error) {
+    console.error("Error fetching community followers:", error);
+    res.status(500).json({ error: "خطأ في جلب المتابعين" });
+  }
+});
+
+router.get("/community/users/:userId/following", authenticateTokenUser, async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.userId);
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const users = await buildCommunityConnectionList({
+      targetUserId,
+      currentUserId: req.user.id,
+      mode: "following",
+    });
+
+    res.json({
+      users,
+      count: users.length,
+    });
+  } catch (error) {
+    console.error("Error fetching community following list:", error);
+    res.status(500).json({ error: "خطأ في جلب الذين يتابعهم" });
   }
 });
 
