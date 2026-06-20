@@ -1,4 +1,4 @@
-const { DataTypes } = require("sequelize");
+﻿const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const User = require("../models/user");
 const Room = require("../models/room");
@@ -288,6 +288,11 @@ async function ensureSchema() {
       defaultValue: null,
     },
     image: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    video: {
       type: DataTypes.STRING,
       allowNull: true,
       defaultValue: null,
@@ -891,3 +896,4 @@ async function ensureSchema() {
 }
 
 module.exports = ensureSchema;
+

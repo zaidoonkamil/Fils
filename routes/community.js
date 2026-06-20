@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const fs = require("fs/promises");
 const path = require("path");
 const { Op } = require("sequelize");
@@ -68,6 +68,18 @@ function isImageFile(file) {
   return String(file.mimetype || "").startsWith("image/");
 }
 
+function isVideoFile(file) {
+  if (!file) return false;
+  return String(file.mimetype || "").startsWith("video/");
+}
+
+function extractSingleUpload(files, fieldName) {
+  if (!files || !Array.isArray(files[fieldName]) || files[fieldName].length === 0) {
+    return null;
+  }
+  return files[fieldName][0] || null;
+}
+
 function serializeAuthor(user) {
   if (!user) return null;
 
@@ -101,6 +113,7 @@ function serializePost(post, currentUserId, likesMap, commentsMap) {
     id: plain.id,
     content: plain.content || "",
     image: normalizeStoredPath(plain.image || ""),
+    video: normalizeStoredPath(plain.video || ""),
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
     isMine: Number(plain.userId) === Number(currentUserId),
@@ -231,7 +244,7 @@ router.get("/community/posts", authenticateTokenUser, async (req, res) => {
     res.json(payload);
   } catch (error) {
     console.error("Error fetching community posts:", error);
-    res.status(500).json({ error: "خطأ في جلب منشورات المجتمع" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ù…Ù†Ø´ÙˆØ±Ø§Øª Ø§Ù„Ù…Ø¬ØªÙ…Ø¹" });
   }
 });
 
@@ -239,7 +252,7 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
   try {
     const targetUserId = Number(req.params.userId);
     if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
-      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+      return res.status(400).json({ error: "Ù…Ø¹Ø±Ù Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± ØµØ§Ù„Ø­" });
     }
 
     const user = await User.findByPk(targetUserId, {
@@ -247,7 +260,7 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
     });
 
     if (!user || user.isActive === false) {
-      return res.status(404).json({ error: "المستخدم غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     const [summary, postsPayload, recentFollowers] = await Promise.all([
@@ -295,7 +308,7 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
     });
   } catch (error) {
     console.error("Error fetching community user profile:", error);
-    res.status(500).json({ error: "خطأ في جلب ملف المستخدم" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ù…Ù„Ù Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…" });
   }
 });
 
@@ -305,18 +318,18 @@ router.post("/community/users/:userId/follow-toggle", authenticateTokenUser, asy
     const currentUserId = Number(req.user.id);
 
     if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
-      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+      return res.status(400).json({ error: "Ù…Ø¹Ø±Ù Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± ØµØ§Ù„Ø­" });
     }
 
     if (targetUserId === currentUserId) {
-      return res.status(400).json({ error: "لا يمكنك متابعة نفسك" });
+      return res.status(400).json({ error: "Ù„Ø§ ÙŠÙ…ÙƒÙ†Ùƒ Ù…ØªØ§Ø¨Ø¹Ø© Ù†ÙØ³Ùƒ" });
     }
 
     const targetUser = await User.findByPk(targetUserId, {
       attributes: ["id", "isActive"],
     });
     if (!targetUser || targetUser.isActive === false) {
-      return res.status(404).json({ error: "المستخدم غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     const existing = await CommunityFollow.findOne({
@@ -342,8 +355,8 @@ router.post("/community/users/:userId/follow-toggle", authenticateTokenUser, asy
         });
         await sendNotificationToUser(
           targetUserId,
-          `${String(follower?.name || "مستخدم").trim()} بدأ بمتابعتك`,
-          "متابع جديد",
+          `${String(follower?.name || "Ù…Ø³ØªØ®Ø¯Ù…").trim()} Ø¨Ø¯Ø£ Ø¨Ù…ØªØ§Ø¨Ø¹ØªÙƒ`,
+          "Ù…ØªØ§Ø¨Ø¹ Ø¬Ø¯ÙŠØ¯",
           {
             category: "community",
             subcategory: "follow",
@@ -367,35 +380,47 @@ router.post("/community/users/:userId/follow-toggle", authenticateTokenUser, asy
     });
   } catch (error) {
     console.error("Error toggling community follow:", error);
-    res.status(500).json({ error: "خطأ في تحديث المتابعة" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©" });
   }
 });
 
 router.post(
   "/community/posts",
   authenticateTokenUser,
-  upload.single("image"),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+  ]),
   async (req, res) => {
+    const imageFile = extractSingleUpload(req.files, "image");
+    const videoFile = extractSingleUpload(req.files, "video");
+
     try {
-      if (req.file && !isImageFile(req.file)) {
-        await deleteUploadedFile(req.file.path);
-        return res.status(400).json({ error: "يسمح فقط برفع الصور داخل المنشور" });
+      if ((imageFile && !isImageFile(imageFile)) || (videoFile && !isVideoFile(videoFile))) {
+        await Promise.all([
+          deleteUploadedFile(imageFile?.path),
+          deleteUploadedFile(videoFile?.path),
+        ]);
+        return res.status(400).json({ error: "ÙŠØ³Ù…Ø­ ÙÙ‚Ø· Ø¨Ø±ÙØ¹ Ø§Ù„ØµÙˆØ± Ø£Ùˆ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
       }
 
       const content = sanitizeText(req.body.content);
-      const image = req.file?.path ? normalizeStoredPath(req.file.path) : null;
+      const image = imageFile?.path ? normalizeStoredPath(imageFile.path) : null;
+      const video = videoFile?.path ? normalizeStoredPath(videoFile.path) : null;
 
-      if (!content && !image) {
-        if (image) {
-          await deleteUploadedFile(image);
-        }
-        return res.status(400).json({ error: "يجب إضافة نص أو صورة على الأقل" });
+      if (!content && !image && !video) {
+        await Promise.all([
+          deleteUploadedFile(image),
+          deleteUploadedFile(video),
+        ]);
+        return res.status(400).json({ error: "ÙŠØ¬Ø¨ Ø¥Ø¶Ø§ÙØ© Ù†Øµ Ø£Ùˆ ØµÙˆØ±Ø© Ø£Ùˆ ÙÙŠØ¯ÙŠÙˆ Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„" });
       }
 
       const post = await CommunityPost.create({
         userId: req.user.id,
         content: content || null,
         image,
+        video,
       });
 
       const hydrated = await CommunityPost.findByPk(post.id, {
@@ -411,8 +436,12 @@ router.post(
       const posts = await buildPostsPayload([hydrated], req.user.id);
       res.status(201).json(posts[0]);
     } catch (error) {
+      await Promise.all([
+        deleteUploadedFile(imageFile?.path),
+        deleteUploadedFile(videoFile?.path),
+      ]);
       console.error("Error creating community post:", error);
-      res.status(500).json({ error: "خطأ في إنشاء المنشور" });
+      res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
     }
   }
 );
@@ -420,8 +449,14 @@ router.post(
 router.patch(
   "/community/posts/:postId",
   authenticateTokenUser,
-  upload.single("image"),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+  ]),
   async (req, res) => {
+    const imageFile = extractSingleUpload(req.files, "image");
+    const videoFile = extractSingleUpload(req.files, "video");
+
     try {
       const post = await CommunityPost.findByPk(req.params.postId, {
         include: [
@@ -434,56 +469,79 @@ router.patch(
       });
 
       if (!post) {
-        if (req.file?.path) {
-          await deleteUploadedFile(req.file.path);
-        }
-        return res.status(404).json({ error: "المنشور غير موجود" });
+        await Promise.all([
+          deleteUploadedFile(imageFile?.path),
+          deleteUploadedFile(videoFile?.path),
+        ]);
+        return res.status(404).json({ error: "Ø§Ù„Ù…Ù†Ø´ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
       }
 
       if (Number(post.userId) !== Number(req.user.id)) {
-        if (req.file?.path) {
-          await deleteUploadedFile(req.file.path);
-        }
-        return res.status(403).json({ error: "لا تملك صلاحية تعديل هذا المنشور" });
+        await Promise.all([
+          deleteUploadedFile(imageFile?.path),
+          deleteUploadedFile(videoFile?.path),
+        ]);
+        return res.status(403).json({ error: "Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ¹Ø¯ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
       }
 
-      if (req.file && !isImageFile(req.file)) {
-        await deleteUploadedFile(req.file.path);
-        return res.status(400).json({ error: "يسمح فقط برفع الصور داخل المنشور" });
+      if ((imageFile && !isImageFile(imageFile)) || (videoFile && !isVideoFile(videoFile))) {
+        await Promise.all([
+          deleteUploadedFile(imageFile?.path),
+          deleteUploadedFile(videoFile?.path),
+        ]);
+        return res.status(400).json({ error: "ÙŠØ³Ù…Ø­ ÙÙ‚Ø· Ø¨Ø±ÙØ¹ Ø§Ù„ØµÙˆØ± Ø£Ùˆ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
       }
 
       const nextContent =
         req.body.content !== undefined ? sanitizeText(req.body.content) : sanitizeText(post.content);
       const shouldRemoveImage = String(req.body.removeImage || "").trim() === "true";
+      const shouldRemoveVideo = String(req.body.removeVideo || "").trim() === "true";
       const previousImage = post.image;
+      const previousVideo = post.video;
 
-      if (req.file?.path) {
-        post.image = normalizeStoredPath(req.file.path);
+      if (imageFile?.path) {
+        post.image = normalizeStoredPath(imageFile.path);
       } else if (shouldRemoveImage) {
         post.image = null;
       }
 
+      if (videoFile?.path) {
+        post.video = normalizeStoredPath(videoFile.path);
+      } else if (shouldRemoveVideo) {
+        post.video = null;
+      }
+
       post.content = nextContent || null;
 
-      if (!post.content && !post.image) {
-        if (req.file?.path) {
-          await deleteUploadedFile(req.file.path);
-        }
+      if (!post.content && !post.image && !post.video) {
+        await Promise.all([
+          deleteUploadedFile(imageFile?.path),
+          deleteUploadedFile(videoFile?.path),
+        ]);
         post.image = previousImage;
-        return res.status(400).json({ error: "يجب أن يبقى في المنشور نص أو صورة" });
+        post.video = previousVideo;
+        return res.status(400).json({ error: "ÙŠØ¬Ø¨ Ø£Ù† ÙŠØ¨Ù‚Ù‰ ÙÙŠ Ø§Ù„Ù…Ù†Ø´ÙˆØ± Ù†Øµ Ø£Ùˆ ØµÙˆØ±Ø© Ø£Ùˆ ÙÙŠØ¯ÙŠÙˆ" });
       }
 
       await post.save();
 
-      if ((req.file?.path || shouldRemoveImage) && previousImage && previousImage !== post.image) {
+      if ((imageFile?.path || shouldRemoveImage) && previousImage && previousImage !== post.image) {
         await deleteUploadedFile(previousImage);
+      }
+
+      if ((videoFile?.path || shouldRemoveVideo) && previousVideo && previousVideo !== post.video) {
+        await deleteUploadedFile(previousVideo);
       }
 
       const posts = await buildPostsPayload([post], req.user.id);
       res.json(posts[0]);
     } catch (error) {
+      await Promise.all([
+        deleteUploadedFile(imageFile?.path),
+        deleteUploadedFile(videoFile?.path),
+      ]);
       console.error("Error updating community post:", error);
-      res.status(500).json({ error: "خطأ في تعديل المنشور" });
+      res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
     }
   }
 );
@@ -492,14 +550,15 @@ router.delete("/community/posts/:postId", authenticateTokenUser, async (req, res
   try {
     const post = await CommunityPost.findByPk(req.params.postId);
     if (!post) {
-      return res.status(404).json({ error: "المنشور غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„Ù…Ù†Ø´ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     if (Number(post.userId) !== Number(req.user.id)) {
-      return res.status(403).json({ error: "لا تملك صلاحية حذف هذا المنشور" });
+      return res.status(403).json({ error: "Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
     }
 
     const imagePath = post.image;
+    const videoPath = post.video;
 
     await Promise.all([
       CommunityPostLike.destroy({ where: { postId: post.id } }),
@@ -507,12 +566,15 @@ router.delete("/community/posts/:postId", authenticateTokenUser, async (req, res
       post.destroy(),
     ]);
 
-    await deleteUploadedFile(imagePath);
+    await Promise.all([
+      deleteUploadedFile(imagePath),
+      deleteUploadedFile(videoPath),
+    ]);
 
-    res.json({ success: true, message: "تم حذف المنشور" });
+    res.json({ success: true, message: "ØªÙ… Ø­Ø°Ù Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
   } catch (error) {
     console.error("Error deleting community post:", error);
-    res.status(500).json({ error: "خطأ في حذف المنشور" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø­Ø°Ù Ø§Ù„Ù…Ù†Ø´ÙˆØ±" });
   }
 });
 
@@ -520,7 +582,7 @@ router.post("/community/posts/:postId/likes/toggle", authenticateTokenUser, asyn
   try {
     const post = await CommunityPost.findByPk(req.params.postId);
     if (!post) {
-      return res.status(404).json({ error: "المنشور غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„Ù…Ù†Ø´ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     const existingLike = await CommunityPostLike.findOne({
@@ -547,8 +609,8 @@ router.post("/community/posts/:postId/likes/toggle", authenticateTokenUser, asyn
           });
           await sendNotificationToUser(
             post.userId,
-            `${String(actor?.name || "مستخدم").trim()} أعجب بمنشورك`,
-            "إعجاب جديد",
+            `${String(actor?.name || "Ù…Ø³ØªØ®Ø¯Ù…").trim()} Ø£Ø¹Ø¬Ø¨ Ø¨Ù…Ù†Ø´ÙˆØ±Ùƒ`,
+            "Ø¥Ø¹Ø¬Ø§Ø¨ Ø¬Ø¯ÙŠØ¯",
             {
               category: "community",
               subcategory: "like",
@@ -571,7 +633,7 @@ router.post("/community/posts/:postId/likes/toggle", authenticateTokenUser, asyn
     });
   } catch (error) {
     console.error("Error toggling community post like:", error);
-    res.status(500).json({ error: "خطأ في تحديث الإعجاب" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¥Ø¹Ø¬Ø§Ø¨" });
   }
 });
 
@@ -579,7 +641,7 @@ router.get("/community/posts/:postId/comments", authenticateTokenUser, async (re
   try {
     const post = await CommunityPost.findByPk(req.params.postId);
     if (!post) {
-      return res.status(404).json({ error: "المنشور غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„Ù…Ù†Ø´ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     const comments = await CommunityPostComment.findAll({
@@ -600,7 +662,7 @@ router.get("/community/posts/:postId/comments", authenticateTokenUser, async (re
     });
   } catch (error) {
     console.error("Error fetching community comments:", error);
-    res.status(500).json({ error: "خطأ في جلب التعليقات" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚Ø§Øª" });
   }
 });
 
@@ -608,12 +670,12 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
   try {
     const post = await CommunityPost.findByPk(req.params.postId);
     if (!post) {
-      return res.status(404).json({ error: "المنشور غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„Ù…Ù†Ø´ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     const content = sanitizeText(req.body.content);
     if (!content) {
-      return res.status(400).json({ error: "نص التعليق مطلوب" });
+      return res.status(400).json({ error: "Ù†Øµ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ Ù…Ø·Ù„ÙˆØ¨" });
     }
 
     const comment = await CommunityPostComment.create({
@@ -629,8 +691,8 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
         });
         await sendNotificationToUser(
           post.userId,
-          `${String(actor?.name || "مستخدم").trim()} علّق على منشورك`,
-          "تعليق جديد",
+          `${String(actor?.name || "Ù…Ø³ØªØ®Ø¯Ù…").trim()} Ø¹Ù„Ù‘Ù‚ Ø¹Ù„Ù‰ Ù…Ù†Ø´ÙˆØ±Ùƒ`,
+          "ØªØ¹Ù„ÙŠÙ‚ Ø¬Ø¯ÙŠØ¯",
           {
             category: "community",
             subcategory: "comment",
@@ -661,7 +723,7 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
     });
   } catch (error) {
     console.error("Error creating community comment:", error);
-    res.status(500).json({ error: "خطأ في إضافة التعليق" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
   }
 });
 
@@ -678,16 +740,16 @@ router.patch("/community/comments/:commentId", authenticateTokenUser, async (req
     });
 
     if (!comment) {
-      return res.status(404).json({ error: "التعليق غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     if (Number(comment.userId) !== Number(req.user.id)) {
-      return res.status(403).json({ error: "لا تملك صلاحية تعديل هذا التعليق" });
+      return res.status(403).json({ error: "Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ¹Ø¯ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
     }
 
     const content = sanitizeText(req.body.content);
     if (!content) {
-      return res.status(400).json({ error: "نص التعليق مطلوب" });
+      return res.status(400).json({ error: "Ù†Øµ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ Ù…Ø·Ù„ÙˆØ¨" });
     }
 
     comment.content = content;
@@ -698,7 +760,7 @@ router.patch("/community/comments/:commentId", authenticateTokenUser, async (req
     });
   } catch (error) {
     console.error("Error updating community comment:", error);
-    res.status(500).json({ error: "خطأ في تعديل التعليق" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
   }
 });
 
@@ -706,11 +768,11 @@ router.delete("/community/comments/:commentId", authenticateTokenUser, async (re
   try {
     const comment = await CommunityPostComment.findByPk(req.params.commentId);
     if (!comment) {
-      return res.status(404).json({ error: "التعليق غير موجود" });
+      return res.status(404).json({ error: "Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
 
     if (Number(comment.userId) !== Number(req.user.id)) {
-      return res.status(403).json({ error: "لا تملك صلاحية حذف هذا التعليق" });
+      return res.status(403).json({ error: "Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
     }
 
     const postId = comment.postId;
@@ -723,12 +785,17 @@ router.delete("/community/comments/:commentId", authenticateTokenUser, async (re
     res.json({
       success: true,
       count,
-      message: "تم حذف التعليق",
+      message: "ØªÙ… Ø­Ø°Ù Ø§Ù„ØªØ¹Ù„ÙŠÙ‚",
     });
   } catch (error) {
     console.error("Error deleting community comment:", error);
-    res.status(500).json({ error: "خطأ في حذف التعليق" });
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø­Ø°Ù Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
   }
 });
 
 module.exports = router;
+
+
+
+
+

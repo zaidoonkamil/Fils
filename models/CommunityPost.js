@@ -1,4 +1,4 @@
-const { DataTypes } = require("sequelize");
+﻿const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
 const CommunityPost = sequelize.define(
@@ -23,6 +23,11 @@ const CommunityPost = sequelize.define(
       allowNull: true,
       defaultValue: null,
     },
+    video: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     timestamps: true,
@@ -30,3 +35,4 @@ const CommunityPost = sequelize.define(
 );
 
 module.exports = CommunityPost;
+
