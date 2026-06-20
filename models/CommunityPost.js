@@ -28,6 +28,11 @@ const CommunityPost = sequelize.define(
       allowNull: true,
       defaultValue: null,
     },
+    commentsEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
   },
   {
     timestamps: true,

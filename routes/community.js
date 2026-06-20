@@ -219,6 +219,7 @@ function serializePost(post, currentUserId, likesMap, commentsMap) {
     content: plain.content || "",
     image: normalizeStoredPath(plain.image || ""),
     video: normalizeStoredPath(plain.video || ""),
+    commentsEnabled: plain.commentsEnabled !== false,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
     isMine: Number(plain.userId) === Number(currentUserId),
@@ -781,6 +782,9 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
     if (!post) {
       return res.status(404).json({ error: "Ø§Ù„Ù…Ù†Ø´ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
     }
+    if (post.commentsEnabled === false) {
+      return res.status(403).json({ error: "تم إيقاف التعليقات على هذا المنشور" });
+    }
 
     const content = sanitizeText(req.body.content);
     if (!content) {
@@ -871,6 +875,33 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
   } catch (error) {
     console.error("Error creating community comment:", error);
     res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
+  }
+});
+
+router.post("/community/posts/:postId/comments/toggle", authenticateTokenUser, async (req, res) => {
+  try {
+    const post = await CommunityPost.findByPk(req.params.postId);
+    if (!post) {
+      return res.status(404).json({ error: "المنشور غير موجود" });
+    }
+
+    if (Number(post.userId) !== Number(req.user.id)) {
+      return res.status(403).json({ error: "لا تملك صلاحية تعديل هذا المنشور" });
+    }
+
+    post.commentsEnabled = post.commentsEnabled === false;
+    await post.save();
+
+    res.json({
+      success: true,
+      commentsEnabled: post.commentsEnabled === true,
+      message: post.commentsEnabled === true
+          ? "تم تفعيل التعليقات"
+          : "تم إيقاف التعليقات",
+    });
+  } catch (error) {
+    console.error("Error toggling community post comments:", error);
+    res.status(500).json({ error: "خطأ في تحديث حالة التعليقات" });
   }
 });
 
