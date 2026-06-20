@@ -9,6 +9,7 @@ const {
   CommunityPost,
   CommunityPostLike,
   CommunityPostComment,
+  CommunityCommentLike,
   CommunityFollow,
 } = require("../models");
 const { sendNotificationToUser } = require("../services/notifications");
@@ -91,16 +92,120 @@ function serializeAuthor(user) {
   };
 }
 
-function serializeComment(comment, currentUserId) {
+function serializeComment(
+  comment,
+  currentUserId,
+  likesMap = new Map(),
+  {
+    replies = [],
+    replyToUser = null,
+  } = {}
+) {
   const plain = typeof comment.toJSON === "function" ? comment.toJSON() : comment;
+  const likes = likesMap.get(Number(plain.id)) || [];
   return {
     id: plain.id,
+    postId: plain.postId,
+    parentCommentId: plain.parentCommentId ? Number(plain.parentCommentId) : null,
     content: plain.content || "",
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
     isMine: Number(plain.userId) === Number(currentUserId),
+    likesCount: likes.length,
+    isLiked: likes.some((like) => Number(like.userId) === Number(currentUserId)),
     user: serializeAuthor(plain.user),
+    replyToUser: replyToUser ? serializeAuthor(replyToUser) : null,
+    replies,
   };
+}
+
+function buildNestedComments(comments, currentUserId, likesMap = new Map()) {
+  const plainComments = comments.map((comment) =>
+    typeof comment.toJSON === "function" ? comment.toJSON() : comment
+  );
+  const rawById = new Map(
+    plainComments.map((comment) => [Number(comment.id), comment])
+  );
+  const serializedById = new Map();
+
+  for (const comment of plainComments) {
+    const parentComment = comment.parentCommentId
+      ? rawById.get(Number(comment.parentCommentId)) || null
+      : null;
+    serializedById.set(
+      Number(comment.id),
+      serializeComment(comment, currentUserId, likesMap, {
+        replyToUser: parentComment?.user || null,
+        replies: [],
+      })
+    );
+  }
+
+  const roots = [];
+  for (const comment of plainComments) {
+    const serialized = serializedById.get(Number(comment.id));
+    const parentId = comment.parentCommentId ? Number(comment.parentCommentId) : null;
+    if (parentId && serializedById.has(parentId)) {
+      serializedById.get(parentId).replies.push(serialized);
+    } else {
+      roots.push(serialized);
+    }
+  }
+
+  return roots;
+}
+
+async function buildCommentLikesMap(commentIds) {
+  const likesMap = new Map();
+  if (commentIds.length === 0) {
+    return likesMap;
+  }
+
+  const likes = await CommunityCommentLike.findAll({
+    where: {
+      commentId: {
+        [Op.in]: commentIds,
+      },
+    },
+    attributes: ["id", "commentId", "userId"],
+  });
+
+  for (const like of likes) {
+    const commentId = Number(like.commentId);
+    const list = likesMap.get(commentId) || [];
+    list.push(like);
+    likesMap.set(commentId, list);
+  }
+
+  return likesMap;
+}
+
+async function collectCommunityCommentDescendantIds(rootCommentId) {
+  const collectedIds = new Set([Number(rootCommentId)]);
+  let frontier = [Number(rootCommentId)];
+
+  while (frontier.length > 0) {
+    const replies = await CommunityPostComment.findAll({
+      where: {
+        parentCommentId: {
+          [Op.in]: frontier,
+        },
+      },
+      attributes: ["id"],
+    });
+
+    const nextFrontier = [];
+    for (const reply of replies) {
+      const replyId = Number(reply.id);
+      if (!collectedIds.has(replyId)) {
+        collectedIds.add(replyId);
+        nextFrontier.push(replyId);
+      }
+    }
+    frontier = nextFrontier;
+  }
+
+  return Array.from(collectedIds);
 }
 
 function serializePost(post, currentUserId, likesMap, commentsMap) {
@@ -656,8 +761,12 @@ router.get("/community/posts/:postId/comments", authenticateTokenUser, async (re
       order: [["createdAt", "ASC"]],
     });
 
+    const likesMap = await buildCommentLikesMap(
+      comments.map((comment) => Number(comment.id)).filter(Boolean)
+    );
+
     res.json({
-      comments: comments.map((comment) => serializeComment(comment, req.user.id)),
+      comments: buildNestedComments(comments, req.user.id, likesMap),
       count: comments.length,
     });
   } catch (error) {
@@ -678,13 +787,48 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
       return res.status(400).json({ error: "Ù†Øµ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ Ù…Ø·Ù„ÙˆØ¨" });
     }
 
+    let parentComment = null;
+    if (req.body.parentCommentId !== undefined && req.body.parentCommentId !== null && String(req.body.parentCommentId).trim() !== "") {
+      parentComment = await CommunityPostComment.findByPk(req.body.parentCommentId, {
+        include: [
+          {
+            model: User,
+            as: "user",
+            attributes: ["id", "name", "images", "role"],
+          },
+        ],
+      });
+
+      if (!parentComment || Number(parentComment.postId) !== Number(post.id)) {
+        return res.status(400).json({ error: "Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ù…Ø±Ø§Ø¯ Ø§Ù„Ø±Ø¯ Ø¹Ù„ÙŠÙ‡ ØºÙŠØ± ØµØ§Ù„Ø­" });
+      }
+    }
+
     const comment = await CommunityPostComment.create({
       postId: post.id,
       userId: req.user.id,
+      parentCommentId: parentComment ? parentComment.id : null,
       content,
     });
 
-    if (Number(post.userId) != Number(req.user.id)) {
+    if (parentComment && Number(parentComment.userId) !== Number(req.user.id)) {
+      try {
+        const actor = await User.findByPk(req.user.id, {
+          attributes: ["id", "name"],
+        });
+        await sendNotificationToUser(
+          parentComment.userId,
+          `${String(actor?.name || "Ù…Ø³ØªØ®Ø¯Ù…").trim()} Ø±Ø¯ Ø¹Ù„Ù‰ ØªØ¹Ù„ÙŠÙ‚Ùƒ`,
+          "Ø±Ø¯ Ø¬Ø¯ÙŠØ¯",
+          {
+            category: "community",
+            subcategory: "reply",
+          },
+        );
+      } catch (notificationError) {
+        console.error("Error sending community reply notification:", notificationError);
+      }
+    } else if (Number(post.userId) != Number(req.user.id)) {
       try {
         const actor = await User.findByPk(req.user.id, {
           attributes: ["id", "name"],
@@ -718,12 +862,74 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
     });
 
     res.status(201).json({
-      comment: serializeComment(hydrated, req.user.id),
+      comment: serializeComment(hydrated, req.user.id, new Map(), {
+        replyToUser: parentComment?.user || null,
+        replies: [],
+      }),
       count,
     });
   } catch (error) {
     console.error("Error creating community comment:", error);
     res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
+  }
+});
+
+router.post("/community/comments/:commentId/likes/toggle", authenticateTokenUser, async (req, res) => {
+  try {
+    const comment = await CommunityPostComment.findByPk(req.params.commentId);
+    if (!comment) {
+      return res.status(404).json({ error: "Ø§Ù„ØªØ¹Ù„ÙŠÙ‚ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" });
+    }
+
+    const existingLike = await CommunityCommentLike.findOne({
+      where: {
+        commentId: comment.id,
+        userId: req.user.id,
+      },
+    });
+
+    let isLiked = false;
+    if (existingLike) {
+      await existingLike.destroy();
+    } else {
+      await CommunityCommentLike.create({
+        commentId: comment.id,
+        userId: req.user.id,
+      });
+      isLiked = true;
+
+      if (Number(comment.userId) !== Number(req.user.id)) {
+        try {
+          const actor = await User.findByPk(req.user.id, {
+            attributes: ["id", "name"],
+          });
+          await sendNotificationToUser(
+            comment.userId,
+            `${String(actor?.name || "Ù…Ø³ØªØ®Ø¯Ù…").trim()} Ø£Ø¹Ø¬Ø¨ Ø¨ØªØ¹Ù„ÙŠÙ‚Ùƒ`,
+            "Ø¥Ø¹Ø¬Ø§Ø¨ Ø¨ØªØ¹Ù„ÙŠÙ‚",
+            {
+              category: "community",
+              subcategory: "comment_like",
+            },
+          );
+        } catch (notificationError) {
+          console.error("Error sending community comment like notification:", notificationError);
+        }
+      }
+    }
+
+    const likesCount = await CommunityCommentLike.count({
+      where: { commentId: comment.id },
+    });
+
+    res.json({
+      success: true,
+      isLiked,
+      likesCount,
+    });
+  } catch (error) {
+    console.error("Error toggling community comment like:", error);
+    res.status(500).json({ error: "Ø®Ø·Ø£ ÙÙŠ ØªØ­Ø¯ÙŠØ« Ø¥Ø¹Ø¬Ø§Ø¨ Ø§Ù„ØªØ¹Ù„ÙŠÙ‚" });
   }
 });
 
@@ -756,7 +962,9 @@ router.patch("/community/comments/:commentId", authenticateTokenUser, async (req
     await comment.save();
 
     res.json({
-      comment: serializeComment(comment, req.user.id),
+      comment: serializeComment(comment, req.user.id, new Map(), {
+        replies: [],
+      }),
     });
   } catch (error) {
     console.error("Error updating community comment:", error);
@@ -776,7 +984,24 @@ router.delete("/community/comments/:commentId", authenticateTokenUser, async (re
     }
 
     const postId = comment.postId;
-    await comment.destroy();
+    const relatedCommentIds = await collectCommunityCommentDescendantIds(comment.id);
+
+    await Promise.all([
+      CommunityCommentLike.destroy({
+        where: {
+          commentId: {
+            [Op.in]: relatedCommentIds,
+          },
+        },
+      }),
+      CommunityPostComment.destroy({
+        where: {
+          id: {
+            [Op.in]: relatedCommentIds,
+          },
+        },
+      }),
+    ]);
 
     const count = await CommunityPostComment.count({
       where: { postId },

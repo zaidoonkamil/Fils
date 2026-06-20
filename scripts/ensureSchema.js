@@ -351,8 +351,40 @@ async function ensureSchema() {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    parentCommentId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
     content: {
       type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "CommunityCommentLikes", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    commentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
     createdAt: {
@@ -592,6 +624,35 @@ async function ensureSchema() {
   if (!hasCommunityCommentsPostIndex) {
     await queryInterface.addIndex("CommunityPostComments", ["postId", "createdAt"], {
       name: "community_comments_post_created_idx",
+    });
+  }
+
+  const hasCommunityCommentsParentIndex = communityCommentsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "community_comments_parent_idx" || (
+      fields.length === 1 && fields[0] === "parentCommentId"
+    );
+  });
+
+  if (!hasCommunityCommentsParentIndex) {
+    await queryInterface.addIndex("CommunityPostComments", ["parentCommentId"], {
+      name: "community_comments_parent_idx",
+    });
+  }
+
+  const communityCommentLikesIndexes = await queryInterface.showIndex("CommunityCommentLikes");
+  const hasCommunityCommentLikesUniqueIndex = communityCommentLikesIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === true &&
+      fields.length === 2 &&
+      fields.includes("commentId") &&
+      fields.includes("userId");
+  });
+
+  if (!hasCommunityCommentLikesUniqueIndex) {
+    await queryInterface.addIndex("CommunityCommentLikes", ["commentId", "userId"], {
+      unique: true,
+      name: "community_comment_likes_comment_user_unique",
     });
   }
 

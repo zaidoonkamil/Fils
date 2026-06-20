@@ -1,29 +1,20 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-const CommunityPostComment = sequelize.define(
-  "CommunityPostComment",
+const CommunityCommentLike = sequelize.define(
+  "CommunityCommentLike",
   {
     id: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
     },
-    postId: {
+    commentId: {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
     userId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-    parentCommentId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      defaultValue: null,
-    },
-    content: {
-      type: DataTypes.TEXT,
       allowNull: false,
     },
   },
@@ -32,4 +23,4 @@ const CommunityPostComment = sequelize.define(
   }
 );
 
-module.exports = CommunityPostComment;
+module.exports = CommunityCommentLike;
