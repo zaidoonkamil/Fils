@@ -26,8 +26,19 @@ function extractImage(images) {
     return String(images[0] || "").trim();
   }
 
-  if (typeof images === "string") {
-    return images.trim();
+  if (typeof images === "string" && images.trim().length > 0) {
+    const normalized = images.trim();
+    if (normalized.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(normalized);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return String(parsed[0] || "").trim();
+        }
+      } catch (_) {
+        // ignore invalid JSON and fall through to raw string
+      }
+    }
+    return normalized;
   }
 
   return "";
