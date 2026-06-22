@@ -173,7 +173,7 @@ function initializeSocketIO(io) {
 
             socket.emit("kicked-block", {
               roomId,
-              message: `Ø§Ù†Øª Ù…Ø·Ø±ÙˆØ¯ Ù…Ù† Ù‡Ø°Ù‡ Ø§Ù„ØºØ±ÙØ©`,
+              message: `انت مطرود من هذه الغرفة`,
               secondsLeft,
               expireAt,
             });
@@ -206,7 +206,7 @@ function initializeSocketIO(io) {
 
         socket.emit("joined-room", {
           roomId,
-          message: `Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ùƒ ÙÙŠ ØºØ±ÙØ© ${room.name}`,
+          message: `مرحباً بك في غرفة ${room.name}`,
         });
 
         if (!alreadyJoined) {

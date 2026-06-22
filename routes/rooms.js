@@ -1710,7 +1710,7 @@ router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
         const currentBalance = Number(req.user.sawa ?? 0);
         if (currentBalance < roomNameChangeCost) {
             return res.status(400).json({
-                error: "Ù†Ù‚Ø§Ø· ØºÙŠØ± ÙƒØ§ÙÙŠØ© Ù„ØªØºÙŠÙŠØ± Ø§Ø³Ù… Ø§Ù„Ø±ÙˆÙ…",
+                error: "نقاط غير كافية لتغيير اسم الروم",
                 requiredPoints: roomNameChangeCost,
                 availablePoints: currentBalance,
             });

@@ -257,16 +257,16 @@ async function canOpenDirectChat(senderId, receiverId) {
   ]);
 
   if (!sender || !receiver || sender.isActive === false || receiver.isActive === false) {
-    return { allowed: false, error: "Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯" };
+    return { allowed: false, error: "المستخدم غير موجود" };
   }
 
   if (sender.id === receiver.id) {
-    return { allowed: false, error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ù…Ø±Ø§Ø³Ù„Ø© Ù†ÙØ³ Ø§Ù„Ø­Ø³Ø§Ø¨" };
+    return { allowed: false, error: "لا يمكن مراسلة نفس الحساب" };
   }
 
   const allowedRoles = new Set(["admin", "agent"]);
   if (!allowedRoles.has(sender.role) && !allowedRoles.has(receiver.role)) {
-    return { allowed: false, error: "Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø© Ù…ØªØ§Ø­Ø© ÙÙ‚Ø· Ù…Ø¹ Ø§Ù„ÙˆÙƒÙŠÙ„ Ø£Ùˆ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©" };
+    return { allowed: false, error: "المحادثة متاحة فقط مع الوكيل أو الإدارة" };
   }
 
   return { allowed: true, sender, receiver };
@@ -479,13 +479,13 @@ function initChatSocket(io) {
           await sendNotificationToRole(
             "admin",
             buildNotificationMessage(fullMessage),
-            `رسالة جديدة من ${fullMessage.sender?.name || "مستخدم"}`
+            `   ${fullMessage.sender?.name || ""}`
           );
         } else if (normalizedSenderId !== normalizedReceiverId) {
           await sendNotificationToUser(
             normalizedReceiverId,
             buildNotificationMessage(fullMessage),
-            `رسالة جديدة من ${fullMessage.sender?.name || "مستخدم"}`
+            `   ${fullMessage.sender?.name || ""}`
           );
         }
       } catch (error) {
@@ -680,7 +680,7 @@ router.post(
       await sendNotificationToUser(
         receiverId,
         "تم إرسال صورة",
-        `رسالة جديدة من ${fullMessage.sender?.name || "مستخدم"}`
+        `   ${fullMessage.sender?.name || ""}`
       );
 
       return res.status(201).json({
@@ -747,7 +747,7 @@ router.post(
       await sendNotificationToUser(
         receiverId,
         "تم إرسال بصمة صوتية",
-        `رسالة جديدة من ${fullMessage.sender?.name || "مستخدم"}`
+        `   ${fullMessage.sender?.name || ""}`
       );
 
       return res.status(201).json({
