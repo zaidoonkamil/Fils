@@ -555,6 +555,37 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "CommunityStories", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    expiresAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   const userPremiumFrameIndexes = await queryInterface.showIndex("UserPremiumFrames");
   const hasUserFrameIndex = userPremiumFrameIndexes.some((index) => {
     const fields = (index.fields || []).map((field) => field.attribute || field.name);
@@ -686,6 +717,29 @@ async function ensureSchema() {
   if (!hasCommunityFollowingIndex) {
     await queryInterface.addIndex("CommunityFollows", ["followingId"], {
       name: "community_follows_following_idx",
+    });
+  }
+
+  const communityStoriesIndexes = await queryInterface.showIndex("CommunityStories");
+  const hasCommunityStoriesUserExpiresIndex = communityStoriesIndexes.some((index) => {
+    return index.name === "community_stories_user_expires_idx" || (
+      index.fields || []
+    ).map((field) => field.attribute || field.name).join(",") === "userId,expiresAt";
+  });
+  if (!hasCommunityStoriesUserExpiresIndex) {
+    await queryInterface.addIndex("CommunityStories", ["userId", "expiresAt"], {
+      name: "community_stories_user_expires_idx",
+    });
+  }
+
+  const hasCommunityStoriesExpiresIndex = communityStoriesIndexes.some((index) => {
+    return index.name === "community_stories_expires_idx" || (
+      index.fields || []
+    ).map((field) => field.attribute || field.name).join(",") === "expiresAt";
+  });
+  if (!hasCommunityStoriesExpiresIndex) {
+    await queryInterface.addIndex("CommunityStories", ["expiresAt"], {
+      name: "community_stories_expires_idx",
     });
   }
 

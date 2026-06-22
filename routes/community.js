@@ -11,11 +11,13 @@ const {
   CommunityPostComment,
   CommunityCommentLike,
   CommunityFollow,
+  CommunityStory,
 } = require("../models");
 const { sendNotificationToUser } = require("../services/notifications");
 
 const router = express.Router();
 const uploadsDir = path.resolve(process.cwd(), "uploads");
+const COMMUNITY_STORY_LIFETIME_HOURS = 24;
 
 function normalizeStoredPath(filePath) {
   return String(filePath || "").replace(/\\/g, "/");
@@ -92,7 +94,7 @@ function extractSingleUpload(files, fieldName) {
   return files[fieldName][0] || null;
 }
 
-function serializeAuthor(user) {
+function serializeAuthor(user, activeStoryUserIds = null) {
   if (!user) return null;
 
   return {
@@ -100,6 +102,9 @@ function serializeAuthor(user) {
     name: user.name || "",
     image: extractImage(user.images),
     role: user.role || "user",
+    hasActiveStory: activeStoryUserIds
+      ? activeStoryUserIds.has(Number(user.id))
+      : false,
   };
 }
 
@@ -107,6 +112,7 @@ function serializeComment(
   comment,
   currentUserId,
   likesMap = new Map(),
+  activeStoryUserIds = null,
   {
     replies = [],
     replyToUser = null,
@@ -124,13 +130,18 @@ function serializeComment(
     isMine: Number(plain.userId) === Number(currentUserId),
     likesCount: likes.length,
     isLiked: likes.some((like) => Number(like.userId) === Number(currentUserId)),
-    user: serializeAuthor(plain.user),
-    replyToUser: replyToUser ? serializeAuthor(replyToUser) : null,
+    user: serializeAuthor(plain.user, activeStoryUserIds),
+    replyToUser: replyToUser ? serializeAuthor(replyToUser, activeStoryUserIds) : null,
     replies,
   };
 }
 
-function buildNestedComments(comments, currentUserId, likesMap = new Map()) {
+function buildNestedComments(
+  comments,
+  currentUserId,
+  likesMap = new Map(),
+  activeStoryUserIds = null
+) {
   const plainComments = comments.map((comment) =>
     typeof comment.toJSON === "function" ? comment.toJSON() : comment
   );
@@ -145,7 +156,7 @@ function buildNestedComments(comments, currentUserId, likesMap = new Map()) {
       : null;
     serializedById.set(
       Number(comment.id),
-      serializeComment(comment, currentUserId, likesMap, {
+      serializeComment(comment, currentUserId, likesMap, activeStoryUserIds, {
         replyToUser: parentComment?.user || null,
         replies: [],
       })
@@ -219,7 +230,36 @@ async function collectCommunityCommentDescendantIds(rootCommentId) {
   return Array.from(collectedIds);
 }
 
-function serializePost(post, currentUserId, likesMap, commentsMap) {
+async function buildActiveStoryUserSet(userIds) {
+  const normalizedIds = Array.from(
+    new Set(
+      (userIds || [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    )
+  );
+
+  if (normalizedIds.length === 0) {
+    return new Set();
+  }
+
+  const activeStories = await CommunityStory.findAll({
+    where: {
+      userId: {
+        [Op.in]: normalizedIds,
+      },
+      expiresAt: {
+        [Op.gt]: new Date(),
+      },
+    },
+    attributes: ["userId"],
+    group: ["userId"],
+  });
+
+  return new Set(activeStories.map((story) => Number(story.userId)));
+}
+
+function serializePost(post, currentUserId, likesMap, commentsMap, activeStoryUserIds) {
   const plain = typeof post.toJSON === "function" ? post.toJSON() : post;
   const likes = likesMap.get(plain.id) || [];
   const comments = commentsMap.get(plain.id) || [];
@@ -237,8 +277,10 @@ function serializePost(post, currentUserId, likesMap, commentsMap) {
     isLiked: likes.some((like) => Number(like.userId) === Number(currentUserId)),
     likesCount: likes.length,
     commentsCount: comments.length,
-    user: serializeAuthor(plain.user),
-    commentsPreview: commentsPreview.map((comment) => serializeComment(comment, currentUserId)),
+    user: serializeAuthor(plain.user, activeStoryUserIds),
+    commentsPreview: commentsPreview.map((comment) =>
+      serializeComment(comment, currentUserId, new Map(), activeStoryUserIds)
+    ),
   };
 }
 
@@ -286,7 +328,21 @@ async function buildPostsPayload(posts, currentUserId) {
     commentsMap.set(postId, list);
   }
 
-  return posts.map((post) => serializePost(post, currentUserId, likesMap, commentsMap));
+  const relatedUserIds = [];
+  for (const post of posts) {
+    if (post.userId) relatedUserIds.push(post.userId);
+    if (post.user?.id) relatedUserIds.push(post.user.id);
+  }
+  for (const comment of comments) {
+    if (comment.userId) relatedUserIds.push(comment.userId);
+    if (comment.user?.id) relatedUserIds.push(comment.user.id);
+  }
+
+  const activeStoryUserIds = await buildActiveStoryUserSet(relatedUserIds);
+
+  return posts.map((post) =>
+    serializePost(post, currentUserId, likesMap, commentsMap, activeStoryUserIds)
+  );
 }
 
 async function buildPaginatedPostsPayload({
@@ -393,8 +449,10 @@ async function buildCommunityConnectionList({
     }
   }
 
+  const activeStoryUserIds = await buildActiveStoryUserSet(relationUserIds);
+
   return relationUsers.map((user) => ({
-    ...serializeAuthor(user),
+    ...serializeAuthor(user, activeStoryUserIds),
     isFollowing: followingSet.has(Number(user.id)),
     isMe: Number(user.id) === Number(currentUserId),
   }));
@@ -462,13 +520,82 @@ async function buildCommunitySearchResults({
     }
   }
 
+  const activeStoryUserIds = await buildActiveStoryUserSet(userIds);
+
   return users.map((user) => ({
-    ...serializeAuthor(user),
+    ...serializeAuthor(user, activeStoryUserIds),
     location: String(user.location || "").trim(),
     bio: String(user.note || "").trim(),
     isFollowing: followingSet.has(Number(user.id)),
     isMe: Number(user.id) === Number(currentUserId),
   }));
+}
+
+function serializeStory(story, activeStoryUserIds = null) {
+  const plain = typeof story.toJSON === "function" ? story.toJSON() : story;
+  return {
+    id: plain.id,
+    image: normalizeStoredPath(plain.image || ""),
+    createdAt: plain.createdAt,
+    expiresAt: plain.expiresAt,
+    user: serializeAuthor(plain.user, activeStoryUserIds),
+  };
+}
+
+async function buildCommunityStoriesFeed(currentUserId) {
+  const stories = await CommunityStory.findAll({
+    where: {
+      expiresAt: {
+        [Op.gt]: new Date(),
+      },
+    },
+    include: [
+      {
+        model: User,
+        as: "user",
+        attributes: ["id", "name", "images", "role", "isActive"],
+        where: {
+          isActive: true,
+        },
+      },
+    ],
+    order: [
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
+  });
+
+  const grouped = new Map();
+  for (const story of stories) {
+    const userId = Number(story.userId);
+    if (!grouped.has(userId)) {
+      grouped.set(userId, []);
+    }
+    grouped.get(userId).push(story);
+  }
+
+  const activeStoryUserIds = await buildActiveStoryUserSet([...grouped.keys()]);
+
+  const previews = Array.from(grouped.entries())
+    .map(([userId, userStories]) => {
+      const latestStory = userStories[0];
+      return {
+        user: serializeAuthor(latestStory.user, activeStoryUserIds),
+        storiesCount: userStories.length,
+        latestCreatedAt: latestStory.createdAt,
+        isMe: Number(userId) === Number(currentUserId),
+      };
+    })
+    .sort((left, right) => {
+      if (left.isMe && !right.isMe) return -1;
+      if (!left.isMe && right.isMe) return 1;
+      return new Date(right.latestCreatedAt).getTime() - new Date(left.latestCreatedAt).getTime();
+    });
+
+  return {
+    stories: previews,
+    myHasStory: previews.some((item) => item.isMe),
+  };
 }
 
 router.get("/community/posts", authenticateTokenUser, async (req, res) => {
@@ -486,6 +613,110 @@ router.get("/community/posts", authenticateTokenUser, async (req, res) => {
     res.status(500).json({ error: "خطأ في جلب منشورات المجتمع" });
   }
 });
+
+router.get("/community/stories", authenticateTokenUser, async (req, res) => {
+  try {
+    const payload = await buildCommunityStoriesFeed(req.user.id);
+    res.json(payload);
+  } catch (error) {
+    console.error("Error fetching community stories feed:", error);
+    res.status(500).json({ error: "خطأ في جلب الستوري" });
+  }
+});
+
+router.get("/community/users/:userId/stories", authenticateTokenUser, async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.userId);
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const stories = await CommunityStory.findAll({
+      where: {
+        userId: targetUserId,
+        expiresAt: {
+          [Op.gt]: new Date(),
+        },
+      },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "images", "role", "isActive"],
+          where: {
+            isActive: true,
+          },
+        },
+      ],
+      order: [
+        ["createdAt", "ASC"],
+        ["id", "ASC"],
+      ],
+    });
+
+    if (stories.length === 0) {
+      return res.status(404).json({ error: "لا توجد ستوري فعالة لهذا المستخدم" });
+    }
+
+    const activeStoryUserIds = await buildActiveStoryUserSet([targetUserId]);
+
+    res.json({
+      user: serializeAuthor(stories[0].user, activeStoryUserIds),
+      stories: stories.map((story) => serializeStory(story, activeStoryUserIds)),
+      count: stories.length,
+    });
+  } catch (error) {
+    console.error("Error fetching community user stories:", error);
+    res.status(500).json({ error: "خطأ في جلب الستوري" });
+  }
+});
+
+router.post(
+  "/community/stories",
+  authenticateTokenUser,
+  upload.single("image"),
+  async (req, res) => {
+    const imageFile = req.file || null;
+
+    try {
+      if (!imageFile || !isImageFile(imageFile)) {
+        await deleteUploadedFile(imageFile?.path);
+        return res.status(400).json({ error: "يرجى اختيار صورة صالحة للستوري" });
+      }
+
+      const expiresAt = new Date(
+        Date.now() + COMMUNITY_STORY_LIFETIME_HOURS * 60 * 60 * 1000
+      );
+
+      const story = await CommunityStory.create({
+        userId: req.user.id,
+        image: normalizeStoredPath(imageFile.path),
+        expiresAt,
+      });
+
+      const hydrated = await CommunityStory.findByPk(story.id, {
+        include: [
+          {
+            model: User,
+            as: "user",
+            attributes: ["id", "name", "images", "role"],
+          },
+        ],
+      });
+      const activeStoryUserIds = await buildActiveStoryUserSet([req.user.id]);
+
+      res.status(201).json({
+        success: true,
+        message: "تمت إضافة الستوري بنجاح",
+        story: serializeStory(hydrated, activeStoryUserIds),
+      });
+    } catch (error) {
+      await deleteUploadedFile(imageFile?.path);
+      console.error("Error creating community story:", error);
+      res.status(500).json({ error: "خطأ في إضافة الستوري" });
+    }
+  }
+);
 
 router.get("/community/users/search", authenticateTokenUser, async (req, res) => {
   try {
@@ -542,11 +773,17 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
       }),
     ]);
 
+    const activeStoryUserIds = await buildActiveStoryUserSet([
+      targetUserId,
+      ...recentFollowers.map((follow) => Number(follow.follower?.id)).filter(Boolean),
+    ]);
+
     res.json({
       user: {
         id: user.id,
         name: user.name || "",
         image: extractImage(user.images),
+        hasActiveStory: activeStoryUserIds.has(Number(user.id)),
         bio: String(user.note || "").trim(),
         location: String(user.location || "").trim(),
         role: user.role || "user",
@@ -557,7 +794,7 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
         followersCount: summary.followersCount,
         followingCount: summary.followingCount,
         recentFollowers: recentFollowers
-          .map((follow) => serializeAuthor(follow.follower))
+          .map((follow) => serializeAuthor(follow.follower, activeStoryUserIds))
           .filter(Boolean),
       },
       posts: postsPayload.posts,
@@ -959,12 +1196,20 @@ router.get("/community/posts/:postId/comments", authenticateTokenUser, async (re
       order: [["createdAt", "ASC"]],
     });
 
+    const activeStoryUserIds = await buildActiveStoryUserSet(
+      comments.map((comment) => Number(comment.userId)).filter(Boolean)
+    );
     const likesMap = await buildCommentLikesMap(
       comments.map((comment) => Number(comment.id)).filter(Boolean)
     );
 
     res.json({
-      comments: buildNestedComments(comments, req.user.id, likesMap),
+      comments: buildNestedComments(
+        comments,
+        req.user.id,
+        likesMap,
+        activeStoryUserIds
+      ),
       count: comments.length,
     });
   } catch (error) {
@@ -1061,9 +1306,13 @@ router.post("/community/posts/:postId/comments", authenticateTokenUser, async (r
     const count = await CommunityPostComment.count({
       where: { postId: post.id },
     });
+    const activeStoryUserIds = await buildActiveStoryUserSet([
+      req.user.id,
+      parentComment?.user?.id,
+    ]);
 
     res.status(201).json({
-      comment: serializeComment(hydrated, req.user.id, new Map(), {
+      comment: serializeComment(hydrated, req.user.id, new Map(), activeStoryUserIds, {
         replyToUser: parentComment?.user || null,
         replies: [],
       }),
@@ -1188,9 +1437,13 @@ router.patch("/community/comments/:commentId", authenticateTokenUser, async (req
 
     comment.content = content;
     await comment.save();
+    const activeStoryUserIds = await buildActiveStoryUserSet([
+      req.user.id,
+      comment.user?.id,
+    ]);
 
     res.json({
-      comment: serializeComment(comment, req.user.id, new Map(), {
+      comment: serializeComment(comment, req.user.id, new Map(), activeStoryUserIds, {
         replies: [],
       }),
     });
