@@ -12,6 +12,8 @@ const {
   CommunityCommentLike,
   CommunityFollow,
   CommunityStory,
+  CommunityHighlight,
+  CommunityHighlightItem,
 } = require("../models");
 const { sendNotificationToUser } = require("../services/notifications");
 
@@ -542,6 +544,28 @@ function serializeStory(story, activeStoryUserIds = null) {
   };
 }
 
+function serializeHighlightItem(item) {
+  const plain = typeof item.toJSON === "function" ? item.toJSON() : item;
+  return {
+    id: plain.id,
+    image: normalizeStoredPath(plain.image || ""),
+    createdAt: plain.createdAt,
+  };
+}
+
+function serializeHighlight(highlight) {
+  const plain = typeof highlight.toJSON === "function" ? highlight.toJSON() : highlight;
+  const items = Array.isArray(plain.items) ? plain.items : [];
+  return {
+    id: plain.id,
+    title: String(plain.title || "").trim(),
+    coverImage: normalizeStoredPath(plain.coverImage || items[0]?.image || ""),
+    itemsCount: items.length,
+    createdAt: plain.createdAt,
+    items: items.map((item) => serializeHighlightItem(item)),
+  };
+}
+
 async function buildCommunityStoriesFeed(currentUserId) {
   const stories = await CommunityStory.findAll({
     where: {
@@ -671,6 +695,257 @@ router.get("/community/users/:userId/stories", authenticateTokenUser, async (req
   }
 });
 
+router.get("/community/users/:userId/highlights", authenticateTokenUser, async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.userId);
+    if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const highlights = await CommunityHighlight.findAll({
+      where: { userId: targetUserId },
+      include: [
+        {
+          model: CommunityHighlightItem,
+          as: "items",
+          attributes: ["id", "image", "createdAt"],
+        },
+      ],
+      order: [
+        ["createdAt", "DESC"],
+        [{ model: CommunityHighlightItem, as: "items" }, "createdAt", "ASC"],
+      ],
+    });
+
+    res.json({
+      highlights: highlights.map((highlight) => serializeHighlight(highlight)),
+      count: highlights.length,
+    });
+  } catch (error) {
+    console.error("Error fetching community highlights:", error);
+    res.status(500).json({ error: "خطأ في جلب الهايلايتات" });
+  }
+});
+
+router.post(
+  "/community/highlights",
+  authenticateTokenUser,
+  upload.single("image"),
+  async (req, res) => {
+    const imageFile = req.file || null;
+
+    try {
+      const title = sanitizeText(req.body.title);
+      if (!title) {
+        await deleteUploadedFile(imageFile?.path);
+        return res.status(400).json({ error: "اسم الهايلايت مطلوب" });
+      }
+
+      if (!imageFile || !isImageFile(imageFile)) {
+        await deleteUploadedFile(imageFile?.path);
+        return res.status(400).json({ error: "يرجى اختيار صورة صالحة للهايلايت" });
+      }
+
+      const imagePath = normalizeStoredPath(imageFile.path);
+      const highlight = await CommunityHighlight.create({
+        userId: req.user.id,
+        title,
+        coverImage: imagePath,
+      });
+      await CommunityHighlightItem.create({
+        highlightId: highlight.id,
+        image: imagePath,
+      });
+
+      const hydrated = await CommunityHighlight.findByPk(highlight.id, {
+        include: [
+          {
+            model: CommunityHighlightItem,
+            as: "items",
+            attributes: ["id", "image", "createdAt"],
+          },
+        ],
+        order: [[{ model: CommunityHighlightItem, as: "items" }, "createdAt", "ASC"]],
+      });
+
+      res.status(201).json({
+        success: true,
+        message: "تم إنشاء الهايلايت بنجاح",
+        highlight: serializeHighlight(hydrated),
+      });
+    } catch (error) {
+      await deleteUploadedFile(imageFile?.path);
+      console.error("Error creating community highlight:", error);
+      res.status(500).json({ error: "خطأ في إنشاء الهايلايت" });
+    }
+  }
+);
+
+router.post(
+  "/community/highlights/:highlightId/items",
+  authenticateTokenUser,
+  upload.single("image"),
+  async (req, res) => {
+    const imageFile = req.file || null;
+
+    try {
+      const highlight = await CommunityHighlight.findByPk(req.params.highlightId);
+      if (!highlight) {
+        await deleteUploadedFile(imageFile?.path);
+        return res.status(404).json({ error: "الهايلايت غير موجود" });
+      }
+
+      if (Number(highlight.userId) !== Number(req.user.id)) {
+        await deleteUploadedFile(imageFile?.path);
+        return res.status(403).json({ error: "لا تملك صلاحية التعديل على هذا الهايلايت" });
+      }
+
+      if (!imageFile || !isImageFile(imageFile)) {
+        await deleteUploadedFile(imageFile?.path);
+        return res.status(400).json({ error: "يرجى اختيار صورة صالحة" });
+      }
+
+      const imagePath = normalizeStoredPath(imageFile.path);
+      await CommunityHighlightItem.create({
+        highlightId: highlight.id,
+        image: imagePath,
+      });
+
+      if (!sanitizeText(highlight.coverImage)) {
+        highlight.coverImage = imagePath;
+        await highlight.save();
+      }
+
+      const hydrated = await CommunityHighlight.findByPk(highlight.id, {
+        include: [
+          {
+            model: CommunityHighlightItem,
+            as: "items",
+            attributes: ["id", "image", "createdAt"],
+          },
+        ],
+        order: [[{ model: CommunityHighlightItem, as: "items" }, "createdAt", "ASC"]],
+      });
+
+      res.json({
+        success: true,
+        message: "تمت إضافة قصة جديدة إلى الهايلايت",
+        highlight: serializeHighlight(hydrated),
+      });
+    } catch (error) {
+      await deleteUploadedFile(imageFile?.path);
+      console.error("Error adding highlight item:", error);
+      res.status(500).json({ error: "خطأ في إضافة القصة إلى الهايلايت" });
+    }
+  }
+);
+
+router.delete("/community/highlights/:highlightId", authenticateTokenUser, async (req, res) => {
+  try {
+    const highlight = await CommunityHighlight.findByPk(req.params.highlightId, {
+      include: [
+        {
+          model: CommunityHighlightItem,
+          as: "items",
+          attributes: ["id", "image"],
+        },
+      ],
+    });
+
+    if (!highlight) {
+      return res.status(404).json({ error: "الهايلايت غير موجود" });
+    }
+
+    if (Number(highlight.userId) !== Number(req.user.id)) {
+      return res.status(403).json({ error: "لا تملك صلاحية حذف هذا الهايلايت" });
+    }
+
+    const imagesToDelete = Array.from(
+      new Set(
+        (highlight.items || [])
+          .map((item) => normalizeStoredPath(item.image || ""))
+          .filter((value) => value.length > 0)
+      )
+    );
+
+    await CommunityHighlightItem.destroy({
+      where: { highlightId: highlight.id },
+    });
+    await highlight.destroy();
+
+    await Promise.all(imagesToDelete.map((item) => deleteUploadedFile(item)));
+
+    res.json({
+      success: true,
+      message: "تم حذف الهايلايت",
+    });
+  } catch (error) {
+    console.error("Error deleting community highlight:", error);
+    res.status(500).json({ error: "خطأ في حذف الهايلايت" });
+  }
+});
+
+router.delete(
+  "/community/highlights/items/:itemId",
+  authenticateTokenUser,
+  async (req, res) => {
+    try {
+      const item = await CommunityHighlightItem.findByPk(req.params.itemId, {
+        include: [
+          {
+            model: CommunityHighlight,
+            as: "highlight",
+            attributes: ["id", "userId", "coverImage"],
+          },
+        ],
+      });
+
+      if (!item || !item.highlight) {
+        return res.status(404).json({ error: "عنصر الهايلايت غير موجود" });
+      }
+
+      if (Number(item.highlight.userId) !== Number(req.user.id)) {
+        return res.status(403).json({ error: "لا تملك صلاحية حذف هذه القصة" });
+      }
+
+      const imagePath = normalizeStoredPath(item.image || "");
+      const highlightId = Number(item.highlight.id);
+
+      await item.destroy();
+
+      const remainingItems = await CommunityHighlightItem.findAll({
+        where: { highlightId },
+        attributes: ["id", "image", "createdAt"],
+        order: [["createdAt", "ASC"]],
+      });
+
+      if (remainingItems.length == 0) {
+        await item.highlight.destroy();
+      } else {
+        const nextCover = normalizeStoredPath(remainingItems[0].image || "");
+        if (normalizeStoredPath(item.highlight.coverImage || "") !== nextCover) {
+          item.highlight.coverImage = nextCover;
+          await item.highlight.save();
+        }
+      }
+
+      await deleteUploadedFile(imagePath);
+
+      res.json({
+        success: true,
+        deletedHighlight: remainingItems.length === 0,
+        highlightId,
+        message: remainingItems.length === 0
+          ? "تم حذف آخر قصة وتمت إزالة الهايلايت"
+          : "تم حذف القصة من الهايلايت",
+      });
+    } catch (error) {
+      console.error("Error deleting community highlight item:", error);
+      res.status(500).json({ error: "خطأ في حذف قصة الهايلايت" });
+    }
+  }
+);
+
 router.post(
   "/community/stories",
   authenticateTokenUser,
@@ -772,6 +1047,20 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
         limit: 4,
       }),
     ]);
+    const highlights = await CommunityHighlight.findAll({
+      where: { userId: targetUserId },
+      include: [
+        {
+          model: CommunityHighlightItem,
+          as: "items",
+          attributes: ["id", "image", "createdAt"],
+        },
+      ],
+      order: [
+        ["createdAt", "DESC"],
+        [{ model: CommunityHighlightItem, as: "items" }, "createdAt", "ASC"],
+      ],
+    });
 
     const activeStoryUserIds = await buildActiveStoryUserSet([
       targetUserId,
@@ -796,6 +1085,7 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
         recentFollowers: recentFollowers
           .map((follow) => serializeAuthor(follow.follower, activeStoryUserIds))
           .filter(Boolean),
+        highlights: highlights.map((highlight) => serializeHighlight(highlight)),
       },
       posts: postsPayload.posts,
       pagination: postsPayload.pagination,

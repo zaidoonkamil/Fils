@@ -586,6 +586,65 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "CommunityHighlights", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    coverImage: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "CommunityHighlightItems", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    highlightId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   const userPremiumFrameIndexes = await queryInterface.showIndex("UserPremiumFrames");
   const hasUserFrameIndex = userPremiumFrameIndexes.some((index) => {
     const fields = (index.fields || []).map((field) => field.attribute || field.name);
@@ -740,6 +799,30 @@ async function ensureSchema() {
   if (!hasCommunityStoriesExpiresIndex) {
     await queryInterface.addIndex("CommunityStories", ["expiresAt"], {
       name: "community_stories_expires_idx",
+    });
+  }
+
+  const communityHighlightsIndexes = await queryInterface.showIndex("CommunityHighlights");
+  const hasCommunityHighlightsUserIndex = communityHighlightsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "community_highlights_user_idx" ||
+      (fields.length === 1 && fields[0] === "userId");
+  });
+  if (!hasCommunityHighlightsUserIndex) {
+    await queryInterface.addIndex("CommunityHighlights", ["userId"], {
+      name: "community_highlights_user_idx",
+    });
+  }
+
+  const communityHighlightItemsIndexes = await queryInterface.showIndex("CommunityHighlightItems");
+  const hasCommunityHighlightItemsHighlightIndex = communityHighlightItemsIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.name === "community_highlight_items_highlight_idx" ||
+      (fields.length === 1 && fields[0] === "highlightId");
+  });
+  if (!hasCommunityHighlightItemsHighlightIndex) {
+    await queryInterface.addIndex("CommunityHighlightItems", ["highlightId"], {
+      name: "community_highlight_items_highlight_idx",
     });
   }
 
