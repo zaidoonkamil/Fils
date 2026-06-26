@@ -46,6 +46,7 @@ const CommunityFollow = require("./CommunityFollow");
 const CommunityStory = require("./CommunityStory");
 const CommunityHighlight = require("./CommunityHighlight");
 const CommunityHighlightItem = require("./CommunityHighlightItem");
+const UserReport = require("./UserReport");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -180,6 +181,27 @@ CommunityHighlightItem.belongsTo(CommunityHighlight, {
   foreignKey: "highlightId",
   as: "highlight",
   onDelete: "CASCADE",
+});
+
+User.hasMany(UserReport, {
+  foreignKey: "reporterId",
+  as: "submittedReports",
+  onDelete: "CASCADE",
+});
+UserReport.belongsTo(User, {
+  foreignKey: "reporterId",
+  as: "reporter",
+  onDelete: "CASCADE",
+});
+User.hasMany(UserReport, {
+  foreignKey: "reportedUserId",
+  as: "receivedReports",
+  onDelete: "SET NULL",
+});
+UserReport.belongsTo(User, {
+  foreignKey: "reportedUserId",
+  as: "reportedUser",
+  onDelete: "SET NULL",
 });
 
 User.hasMany(UserCounter, { foreignKey: 'userId', constraints: false });
@@ -340,5 +362,6 @@ module.exports = {
   CommunityFollow,
   CommunityStory,
   CommunityHighlight,
-  CommunityHighlightItem
+  CommunityHighlightItem,
+  UserReport
 };

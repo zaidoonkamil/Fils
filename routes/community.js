@@ -96,6 +96,18 @@ function extractSingleUpload(files, fieldName) {
   return files[fieldName][0] || null;
 }
 
+function extractUploadList(files, fieldNames) {
+  if (!files) return [];
+  const names = Array.isArray(fieldNames) ? fieldNames : [fieldNames];
+  const result = [];
+  for (const fieldName of names) {
+    if (Array.isArray(files[fieldName])) {
+      result.push(...files[fieldName]);
+    }
+  }
+  return result;
+}
+
 function serializeAuthor(user, activeStoryUserIds = null) {
   if (!user) return null;
 
@@ -730,32 +742,40 @@ router.get("/community/users/:userId/highlights", authenticateTokenUser, async (
 router.post(
   "/community/highlights",
   authenticateTokenUser,
-  upload.single("image"),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "images", maxCount: 20 },
+  ]),
   async (req, res) => {
-    const imageFile = req.file || null;
+    const imageFiles = [
+      ...extractUploadList(req.files, "images"),
+      ...extractUploadList(req.files, "image"),
+    ];
 
     try {
       const title = sanitizeText(req.body.title);
       if (!title) {
-        await deleteUploadedFile(imageFile?.path);
+        await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
         return res.status(400).json({ error: "اسم الهايلايت مطلوب" });
       }
 
-      if (!imageFile || !isImageFile(imageFile)) {
-        await deleteUploadedFile(imageFile?.path);
-        return res.status(400).json({ error: "يرجى اختيار صورة صالحة للهايلايت" });
+      if (imageFiles.length === 0 || imageFiles.some((file) => !isImageFile(file))) {
+        await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
+        return res.status(400).json({ error: "يرجى اختيار صورة واحدة أو أكثر بشكل صالح" });
       }
 
-      const imagePath = normalizeStoredPath(imageFile.path);
+      const normalizedPaths = imageFiles.map((file) => normalizeStoredPath(file.path));
       const highlight = await CommunityHighlight.create({
         userId: req.user.id,
         title,
-        coverImage: imagePath,
+        coverImage: normalizedPaths[0],
       });
-      await CommunityHighlightItem.create({
-        highlightId: highlight.id,
-        image: imagePath,
-      });
+      await CommunityHighlightItem.bulkCreate(
+        normalizedPaths.map((imagePath) => ({
+          highlightId: highlight.id,
+          image: imagePath,
+        }))
+      );
 
       const hydrated = await CommunityHighlight.findByPk(highlight.id, {
         include: [
@@ -774,7 +794,7 @@ router.post(
         highlight: serializeHighlight(hydrated),
       });
     } catch (error) {
-      await deleteUploadedFile(imageFile?.path);
+      await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
       console.error("Error creating community highlight:", error);
       res.status(500).json({ error: "خطأ في إنشاء الهايلايت" });
     }
@@ -784,35 +804,43 @@ router.post(
 router.post(
   "/community/highlights/:highlightId/items",
   authenticateTokenUser,
-  upload.single("image"),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "images", maxCount: 20 },
+  ]),
   async (req, res) => {
-    const imageFile = req.file || null;
+    const imageFiles = [
+      ...extractUploadList(req.files, "images"),
+      ...extractUploadList(req.files, "image"),
+    ];
 
     try {
       const highlight = await CommunityHighlight.findByPk(req.params.highlightId);
       if (!highlight) {
-        await deleteUploadedFile(imageFile?.path);
+        await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
         return res.status(404).json({ error: "الهايلايت غير موجود" });
       }
 
       if (Number(highlight.userId) !== Number(req.user.id)) {
-        await deleteUploadedFile(imageFile?.path);
+        await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
         return res.status(403).json({ error: "لا تملك صلاحية التعديل على هذا الهايلايت" });
       }
 
-      if (!imageFile || !isImageFile(imageFile)) {
-        await deleteUploadedFile(imageFile?.path);
-        return res.status(400).json({ error: "يرجى اختيار صورة صالحة" });
+      if (imageFiles.length === 0 || imageFiles.some((file) => !isImageFile(file))) {
+        await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
+        return res.status(400).json({ error: "يرجى اختيار صورة واحدة أو أكثر بشكل صالح" });
       }
 
-      const imagePath = normalizeStoredPath(imageFile.path);
-      await CommunityHighlightItem.create({
-        highlightId: highlight.id,
-        image: imagePath,
-      });
+      const normalizedPaths = imageFiles.map((file) => normalizeStoredPath(file.path));
+      await CommunityHighlightItem.bulkCreate(
+        normalizedPaths.map((imagePath) => ({
+          highlightId: highlight.id,
+          image: imagePath,
+        }))
+      );
 
       if (!sanitizeText(highlight.coverImage)) {
-        highlight.coverImage = imagePath;
+        highlight.coverImage = normalizedPaths[0];
         await highlight.save();
       }
 
@@ -833,7 +861,7 @@ router.post(
         highlight: serializeHighlight(hydrated),
       });
     } catch (error) {
-      await deleteUploadedFile(imageFile?.path);
+      await Promise.all(imageFiles.map((file) => deleteUploadedFile(file?.path)));
       console.error("Error adding highlight item:", error);
       res.status(500).json({ error: "خطأ في إضافة القصة إلى الهايلايت" });
     }

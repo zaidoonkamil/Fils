@@ -25,6 +25,7 @@ const giftSystemRouter = require("./routes/giftSystem");
 const premiumFramesRouter = require("./routes/premiumFrames");
 const communityRouter = require("./routes/community");
 const chat = require("./routes/chatRoutes");
+const reportsRouter = require("./routes/reports");
 const { initializeSocketIO } = require("./socket/socketHandler.js");
 const { initDominoSocket } = require("./socket/dominoHandler");
 const ensureSchema = require("./scripts/ensureSchema");
@@ -147,6 +148,7 @@ app.use("/", premiumFramesRouter);
 app.use("/", communityRouter);
 app.use("/", stateCounterRouter);
 app.use("/", chat.router);
+app.use("/", reportsRouter);
 
 const chatNamespace = io.of("/chat");
 chat.initChatSocket(chatNamespace);
