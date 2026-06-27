@@ -386,6 +386,70 @@ async function buildConversationListForUser(currentUser) {
   return Array.from(conversations.values());
 }
 
+async function loadAdminSupportConversationBuckets(limit = 100) {
+  const attributes = await getChatMessageAttributes();
+  const admins = await User.findAll({
+    where: { role: "admin" },
+    attributes: ["id"],
+  });
+  const adminIds = admins.map((admin) => admin.id);
+
+  const messages = await ChatMessage.findAll({
+    attributes,
+    where: {
+      [Op.or]: [
+        { senderId: { [Op.notIn]: adminIds }, receiverId: { [Op.in]: adminIds } },
+        { senderId: { [Op.in]: adminIds }, receiverId: { [Op.notIn]: adminIds } },
+        { senderId: { [Op.notIn]: adminIds }, receiverId: null },
+      ],
+    },
+    include: [
+      { model: User, as: "sender", attributes: CHAT_USER_ATTRIBUTES },
+      { model: User, as: "receiver", attributes: CHAT_USER_ATTRIBUTES },
+    ],
+    order: [["createdAt", "DESC"]],
+    limit,
+  });
+
+  const usersMap = new Map();
+  const agentsMap = new Map();
+
+  for (const message of messages) {
+    const normalizedMessage = normalizeChatMessage(message);
+    const candidates = [];
+
+    if (
+      normalizedMessage.sender &&
+      !adminIds.includes(normalizedMessage.senderId)
+    ) {
+      candidates.push(normalizedMessage.sender);
+    }
+
+    if (
+      normalizedMessage.receiver &&
+      normalizedMessage.receiverId &&
+      !adminIds.includes(normalizedMessage.receiverId)
+    ) {
+      candidates.push(normalizedMessage.receiver);
+    }
+
+    for (const peer of candidates) {
+      const targetMap = peer.role === "agent" ? agentsMap : usersMap;
+      if (!targetMap.has(peer.id)) {
+        targetMap.set(peer.id, {
+          user: peer,
+          lastMessage: normalizedMessage,
+        });
+      }
+    }
+  }
+
+  return {
+    users: Array.from(usersMap.values()),
+    agents: Array.from(agentsMap.values()),
+  };
+}
+
 function initChatSocket(io) {
   const userSocketsById = new Map();
 
@@ -592,6 +656,24 @@ router.get("/admin/agents/:agentId/conversations/:userId/messages", authenticate
   } catch (error) {
     console.error("خطأ في جلب رسائل الوكيل:", error);
     return res.status(500).json({ error: "تعذر جلب الرسائل" });
+  }
+});
+
+router.get("/admin/support/conversations", authenticateTokenUser, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Admins only" });
+    }
+
+    const { users, agents } = await loadAdminSupportConversationBuckets(100);
+
+    return res.status(200).json({
+      users,
+      agents,
+    });
+  } catch (error) {
+    console.error("خطأ في جلب محادثات الدعم للإدارة:", error);
+    return res.status(500).json({ error: "تعذر جلب محادثات الدعم" });
   }
 });
 
