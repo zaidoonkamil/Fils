@@ -1773,12 +1773,24 @@ router.patch("/community/comments/:commentId", authenticateTokenUser, async (req
 
 router.delete("/community/comments/:commentId", authenticateTokenUser, async (req, res) => {
   try {
-    const comment = await CommunityPostComment.findByPk(req.params.commentId);
+    const comment = await CommunityPostComment.findByPk(req.params.commentId, {
+      include: [
+        {
+          model: CommunityPost,
+          as: "post",
+          attributes: ["id", "userId"],
+        },
+      ],
+    });
     if (!comment) {
       return res.status(404).json({ error: "التعليق غير موجود" });
     }
 
-    if (Number(comment.userId) !== Number(req.user.id)) {
+    const isCommentOwner = Number(comment.userId) === Number(req.user.id);
+    const isPostOwner =
+      Number(comment.post?.userId ?? 0) === Number(req.user.id);
+
+    if (!isCommentOwner && !isPostOwner) {
       return res.status(403).json({ error: "لا تملك صلاحية حذف هذا التعليق" });
     }
 
