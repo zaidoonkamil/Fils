@@ -271,6 +271,89 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "EntryEffects", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    image: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    price: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    durationHours: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  await ensureTable(queryInterface, "UserEntryEffects", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    effectId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    activatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    expiresAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   await ensureTable(queryInterface, "CommunityPosts", {
     id: {
       type: DataTypes.INTEGER,
@@ -739,6 +822,21 @@ async function ensureSchema() {
   if (!hasUserFrameIndex) {
     await queryInterface.addIndex("UserPremiumFrames", ["userId", "isActive"], {
       name: "user_premium_frames_user_active_idx",
+    });
+  }
+
+  const userEntryEffectIndexes = await queryInterface.showIndex("UserEntryEffects");
+  const hasUserEntryEffectIndex = userEntryEffectIndexes.some((index) => {
+    const fields = (index.fields || []).map((field) => field.attribute || field.name);
+    return index.unique === false &&
+      fields.length === 2 &&
+      fields.includes("userId") &&
+      fields.includes("isActive");
+  });
+
+  if (!hasUserEntryEffectIndex) {
+    await queryInterface.addIndex("UserEntryEffects", ["userId", "isActive"], {
+      name: "user_entry_effects_user_active_idx",
     });
   }
 
