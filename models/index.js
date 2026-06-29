@@ -38,6 +38,8 @@ const AdminBalanceLog = require("./AdminBalanceLog");
 const RoomJoinSubscription = require("./RoomJoinSubscription");
 const PremiumFrame = require("./PremiumFrame");
 const UserPremiumFrame = require("./UserPremiumFrame");
+const EntryEffect = require("./EntryEffect");
+const UserEntryEffect = require("./UserEntryEffect");
 const CommunityPost = require("./CommunityPost");
 const CommunityPostLike = require("./CommunityPostLike");
 const CommunityPostComment = require("./CommunityPostComment");
@@ -70,6 +72,11 @@ PremiumFrame.hasMany(UserPremiumFrame, { foreignKey: "frameId", as: "subscriptio
 UserPremiumFrame.belongsTo(PremiumFrame, { foreignKey: "frameId", as: "frame", onDelete: "CASCADE" });
 User.hasMany(UserPremiumFrame, { foreignKey: "userId", as: "premiumFrames", onDelete: "CASCADE" });
 UserPremiumFrame.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+
+EntryEffect.hasMany(UserEntryEffect, { foreignKey: "effectId", as: "subscriptions", onDelete: "CASCADE" });
+UserEntryEffect.belongsTo(EntryEffect, { foreignKey: "effectId", as: "effect", onDelete: "CASCADE" });
+User.hasMany(UserEntryEffect, { foreignKey: "userId", as: "entryEffects", onDelete: "CASCADE" });
+UserEntryEffect.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
 
 User.hasMany(CommunityPost, { foreignKey: "userId", as: "communityPosts", onDelete: "CASCADE" });
 CommunityPost.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
@@ -355,6 +362,8 @@ module.exports = {
   RoomJoinSubscription,
   PremiumFrame,
   UserPremiumFrame,
+  EntryEffect,
+  UserEntryEffect,
   CommunityPost,
   CommunityPostLike,
   CommunityPostComment,
