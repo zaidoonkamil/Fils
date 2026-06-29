@@ -1,5 +1,5 @@
 ﻿const jwt = require("jsonwebtoken");
-const { User, Message, Room } = require("../models");
+const { User, Message, Room, EntryEffect, UserEntryEffect } = require("../models");
 const { maskArabicProfanity } = require("../services/profanityFilter");
 const { attachActiveUserFrames } = require("../services/roomLeaderboard");
 const roomsRouter = require("../routes/rooms");
@@ -27,6 +27,28 @@ function pruneExpiredKickedUsers(now = Date.now()) {
       kickedUsers.delete(roomId);
     }
   }
+}
+
+async function getActiveEntryEffectImage(userId) {
+  if (!userId) return null;
+
+  const activeSubscription = await UserEntryEffect.findOne({
+    where: {
+      userId,
+      isActive: true,
+      expiresAt: { [require("sequelize").Op.gt]: new Date() },
+    },
+    include: [
+      {
+        model: EntryEffect,
+        as: "effect",
+        required: true,
+      },
+    ],
+    order: [["expiresAt", "DESC"], ["updatedAt", "DESC"]],
+  });
+
+  return activeSubscription?.effect?.image ?? null;
 }
 
 async function normalizeUserPayload(user) {
@@ -141,6 +163,7 @@ function initializeSocketIO(io) {
       socket.userName = user.name;
       socket.userImage = normalizedUser?.image ?? null;
       socket.userFrame = normalizedUser?.activeFrame ?? null;
+      socket.userEntryEffectImage = await getActiveEntryEffectImage(user.id);
 
       next();
     } catch (error) {
@@ -158,6 +181,7 @@ function initializeSocketIO(io) {
     socket.on("join-room", async (roomId) => {
       try {
         pruneExpiredKickedUsers();
+        socket.userEntryEffectImage = await getActiveEntryEffectImage(socket.userId);
         const room = await Room.findByPk(roomId);
         if (!room || !room.isActive) {
           socket.emit("error", { message: "الغرفة غير موجودة أو غير نشطة" });
@@ -215,6 +239,7 @@ function initializeSocketIO(io) {
             userName: socket.userName,
             userImage: socket.userImage,
             activeFrame: socket.userFrame,
+            entryEffectImage: socket.userEntryEffectImage,
           message: `${socket.userName} انضم إلى الغرفة`,
           });
         }
