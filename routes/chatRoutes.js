@@ -703,6 +703,33 @@ router.get("/admin/support/conversations", authenticateTokenUser, async (req, re
   }
 });
 
+router.get("/chat/support/target", authenticateTokenUser, async (req, res) => {
+  try {
+    const currentUserId = Number(req.user.id);
+
+    const admin = await User.findOne({
+      where: {
+        role: "admin",
+        isActive: { [Op.not]: false },
+        id: { [Op.ne]: currentUserId },
+      },
+      attributes: ["id", "name", "role", "images"],
+      order: [["id", "ASC"]],
+    });
+
+    if (!admin) {
+      return res.status(404).json({ error: "لا يوجد أدمن متاح حالياً" });
+    }
+
+    return res.status(200).json({
+      supportTarget: admin,
+    });
+  } catch (error) {
+    console.error("خطأ في جلب جهة الدعم:", error);
+    return res.status(500).json({ error: "تعذر جلب جهة الدعم" });
+  }
+});
+
 router.post("/chat/conversations/:peerId/read", authenticateTokenUser, async (req, res) => {
   try {
     const viewerId = Number(req.user.id);
