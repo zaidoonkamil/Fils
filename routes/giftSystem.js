@@ -963,11 +963,15 @@ router.get("/rooms/top-supporters", authenticateTokenUser, async (req, res) => {
 router.get("/leaderboards/supporters/history", authenticateTokenUser, async (req, res) => {
   try {
     const limit = parsePositiveInteger(req.query.limit) || 10;
-    const history = await getSupportLeaderboardHistory({ limit });
+    const page = parsePositiveInteger(req.query.page) || 1;
+    const result = await getSupportLeaderboardHistory({ limit, page });
     return res.json({
       success: true,
-      totalCycles: history.length,
-      history,
+      totalCycles: result.totalCycles,
+      page: result.page,
+      limit: result.limit,
+      hasMore: result.hasMore,
+      history: result.history,
     });
   } catch (error) {
     console.error("Error fetching supporters leaderboard history:", error);
@@ -978,11 +982,15 @@ router.get("/leaderboards/supporters/history", authenticateTokenUser, async (req
 router.get("/leaderboards/rooms/history", authenticateTokenUser, async (req, res) => {
   try {
     const limit = parsePositiveInteger(req.query.limit) || 10;
-    const history = await getRoomsLeaderboardHistory({ limit });
+    const page = parsePositiveInteger(req.query.page) || 1;
+    const result = await getRoomsLeaderboardHistory({ limit, page });
     return res.json({
       success: true,
-      totalCycles: history.length,
-      history,
+      totalCycles: result.totalCycles,
+      page: result.page,
+      limit: result.limit,
+      hasMore: result.hasMore,
+      history: result.history,
     });
   } catch (error) {
     console.error("Error fetching rooms leaderboard history:", error);

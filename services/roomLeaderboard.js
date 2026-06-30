@@ -690,18 +690,39 @@ async function attachActiveRoomFrames(rooms, options = {}) {
 async function getSupportLeaderboardHistory(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const limit = Math.min(Math.max(Number(options.limit) || 10, 1), 20);
+  const page = Math.max(Number(options.page) || 1, 1);
   const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
   const cycle = buildCycleMeta(anchorAt, now);
 
   if (cycle.cycleIndex <= 0) {
-    return [];
+    return {
+      totalCycles: 0,
+      page,
+      limit,
+      hasMore: false,
+      history: [],
+    };
   }
 
   const history = [];
   const latestCompletedCycleIndex = cycle.cycleIndex - 1;
-  const earliestCycleIndex = Math.max(0, latestCompletedCycleIndex - limit + 1);
+  const totalCycles = latestCompletedCycleIndex + 1;
+  const startOffset = (page - 1) * limit;
 
-  for (let targetCycleIndex = latestCompletedCycleIndex; targetCycleIndex >= earliestCycleIndex; targetCycleIndex -= 1) {
+  if (startOffset >= totalCycles) {
+    return {
+      totalCycles,
+      page,
+      limit,
+      hasMore: false,
+      history: [],
+    };
+  }
+
+  const pageLatestCycleIndex = latestCompletedCycleIndex - startOffset;
+  const pageEarliestCycleIndex = Math.max(0, pageLatestCycleIndex - limit + 1);
+
+  for (let targetCycleIndex = pageLatestCycleIndex; targetCycleIndex >= pageEarliestCycleIndex; targetCycleIndex -= 1) {
     const range = resolveHistoricalCycleRange(anchorAt, targetCycleIndex, carryoverStartAt);
     const topSupporters = await queryTopSupporters({
       start: range.start,
@@ -716,24 +737,51 @@ async function getSupportLeaderboardHistory(options = {}) {
     });
   }
 
-  return history;
+  return {
+    totalCycles,
+    page,
+    limit,
+    hasMore: startOffset + history.length < totalCycles,
+    history,
+  };
 }
 
 async function getRoomsLeaderboardHistory(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const limit = Math.min(Math.max(Number(options.limit) || 10, 1), 20);
+  const page = Math.max(Number(options.page) || 1, 1);
   const { anchorAt, carryoverStartAt } = await ensureCycleAnchor();
   const cycle = buildCycleMeta(anchorAt, now);
 
   if (cycle.cycleIndex <= 0) {
-    return [];
+    return {
+      totalCycles: 0,
+      page,
+      limit,
+      hasMore: false,
+      history: [],
+    };
   }
 
   const history = [];
   const latestCompletedCycleIndex = cycle.cycleIndex - 1;
-  const earliestCycleIndex = Math.max(0, latestCompletedCycleIndex - limit + 1);
+  const totalCycles = latestCompletedCycleIndex + 1;
+  const startOffset = (page - 1) * limit;
 
-  for (let targetCycleIndex = latestCompletedCycleIndex; targetCycleIndex >= earliestCycleIndex; targetCycleIndex -= 1) {
+  if (startOffset >= totalCycles) {
+    return {
+      totalCycles,
+      page,
+      limit,
+      hasMore: false,
+      history: [],
+    };
+  }
+
+  const pageLatestCycleIndex = latestCompletedCycleIndex - startOffset;
+  const pageEarliestCycleIndex = Math.max(0, pageLatestCycleIndex - limit + 1);
+
+  for (let targetCycleIndex = pageLatestCycleIndex; targetCycleIndex >= pageEarliestCycleIndex; targetCycleIndex -= 1) {
     const range = resolveHistoricalCycleRange(anchorAt, targetCycleIndex, carryoverStartAt);
     const topRooms = await queryTopRooms({
       start: range.start,
@@ -748,7 +796,13 @@ async function getRoomsLeaderboardHistory(options = {}) {
     });
   }
 
-  return history;
+  return {
+    totalCycles,
+    page,
+    limit,
+    hasMore: startOffset + history.length < totalCycles,
+    history,
+  };
 }
 
 module.exports = {
