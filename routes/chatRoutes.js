@@ -273,10 +273,36 @@ async function canOpenDirectChat(senderId, receiverId) {
 }
 
 async function loadDirectMessages({ userId, receiverId, limit }) {
+  const [currentUser, peerUser] = await Promise.all([
+    User.findByPk(userId, { attributes: ["id", "role"] }),
+    User.findByPk(receiverId, { attributes: ["id", "role"] }),
+  ]);
   const attributes = await getChatMessageAttributes();
+  let whereClause = buildDirectConversationWhere(userId, receiverId);
+
+  if (
+    currentUser?.role === "admin" &&
+    peerUser &&
+    peerUser.role !== "admin"
+  ) {
+    const admins = await User.findAll({
+      where: { role: "admin" },
+      attributes: ["id"],
+    });
+    const adminIds = admins.map((admin) => admin.id);
+
+    whereClause = {
+      [Op.or]: [
+        { senderId: peerUser.id, receiverId: null },
+        { senderId: peerUser.id, receiverId: { [Op.in]: adminIds } },
+        { senderId: { [Op.in]: adminIds }, receiverId: peerUser.id },
+      ],
+    };
+  }
+
   const messages = await ChatMessage.findAll({
     attributes,
-    where: buildDirectConversationWhere(userId, receiverId),
+    where: whereClause,
     order: [["createdAt", "DESC"]],
     limit,
     include: getMessageIncludes(),
@@ -711,20 +737,18 @@ router.post(
   async (req, res) => {
     try {
       const senderId = Number(req.user.id);
-      const receiverId = Number(req.body.receiverId);
+      const receiverId = req.body.receiverId ? Number(req.body.receiverId) : null;
       const caption = String(req.body.message || "").trim();
 
       if (!req.file) {
         return res.status(400).json({ error: "الصورة مطلوبة" });
       }
 
-      if (!receiverId) {
-        return res.status(400).json({ error: "معرف المستقبل مطلوب" });
-      }
-
-      const allowed = await isAllowedDirectChat(senderId, receiverId);
-      if (!allowed.allowed) {
-        return res.status(403).json({ error: allowed.error });
+      if (receiverId) {
+        const allowed = await isAllowedDirectChat(senderId, receiverId);
+        if (!allowed.allowed) {
+          return res.status(403).json({ error: allowed.error });
+        }
       }
 
       const availableColumns = await getChatMessageColumns();
@@ -745,7 +769,19 @@ router.post(
 
       const chatNamespace = req.app.get("chatNamespace");
       if (chatNamespace) {
-        [senderId, receiverId].forEach((participantId) => {
+        const adminIds = receiverId
+          ? []
+          : (
+              await User.findAll({
+                where: { role: "admin" },
+                attributes: ["id"],
+              })
+            ).map((admin) => admin.id);
+        const participantIds = receiverId
+          ? [senderId, receiverId]
+          : [senderId, ...adminIds];
+
+        participantIds.forEach((participantId) => {
           chatNamespace
             .fetchSockets()
             .then((sockets) => {
@@ -759,11 +795,19 @@ router.post(
         });
       }
 
-      await sendNotificationToUser(
-        receiverId,
-        "تم إرسال صورة",
-        `   ${fullMessage.sender?.name || ""}`
-      );
+      if (receiverId) {
+        await sendNotificationToUser(
+          receiverId,
+          "تم إرسال صورة",
+          `   ${fullMessage.sender?.name || ""}`
+        );
+      } else {
+        await sendNotificationToRole(
+          "admin",
+          "تم إرسال صورة",
+          `   ${fullMessage.sender?.name || ""}`
+        );
+      }
 
       return res.status(201).json({
         success: true,
@@ -784,20 +828,18 @@ router.post(
   async (req, res) => {
     try {
       const senderId = Number(req.user.id);
-      const receiverId = Number(req.body.receiverId);
+      const receiverId = req.body.receiverId ? Number(req.body.receiverId) : null;
       const durationInSeconds = Number(req.body.durationInSeconds || 0);
 
       if (!req.file) {
         return res.status(400).json({ error: "الملف الصوتي مطلوب" });
       }
 
-      if (!receiverId) {
-        return res.status(400).json({ error: "معرف المستقبل مطلوب" });
-      }
-
-      const allowed = await isAllowedDirectChat(senderId, receiverId);
-      if (!allowed.allowed) {
-        return res.status(403).json({ error: allowed.error });
+      if (receiverId) {
+        const allowed = await isAllowedDirectChat(senderId, receiverId);
+        if (!allowed.allowed) {
+          return res.status(403).json({ error: allowed.error });
+        }
       }
 
       const createPayload = await buildChatMessageCreatePayload({
@@ -812,7 +854,19 @@ router.post(
 
       const chatNamespace = req.app.get("chatNamespace");
       if (chatNamespace) {
-        [senderId, receiverId].forEach((participantId) => {
+        const adminIds = receiverId
+          ? []
+          : (
+              await User.findAll({
+                where: { role: "admin" },
+                attributes: ["id"],
+              })
+            ).map((admin) => admin.id);
+        const participantIds = receiverId
+          ? [senderId, receiverId]
+          : [senderId, ...adminIds];
+
+        participantIds.forEach((participantId) => {
           chatNamespace
             .fetchSockets()
             .then((sockets) => {
@@ -826,11 +880,19 @@ router.post(
         });
       }
 
-      await sendNotificationToUser(
-        receiverId,
-        "تم إرسال بصمة صوتية",
-        `   ${fullMessage.sender?.name || ""}`
-      );
+      if (receiverId) {
+        await sendNotificationToUser(
+          receiverId,
+          "تم إرسال بصمة صوتية",
+          `   ${fullMessage.sender?.name || ""}`
+        );
+      } else {
+        await sendNotificationToRole(
+          "admin",
+          "تم إرسال بصمة صوتية",
+          `   ${fullMessage.sender?.name || ""}`
+        );
+      }
 
       return res.status(201).json({
         success: true,
