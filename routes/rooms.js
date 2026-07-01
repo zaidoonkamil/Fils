@@ -197,7 +197,7 @@ async function buildRoomSupervisorsPayload(room, currentUserId = null, currentUs
         : [];
 
     const userMap = new Map(
-        users.map((user) => [
+        usersWithFrames.map((user) => [
             String(user.id),
             {
                 id: Number(user.id),
@@ -719,14 +719,17 @@ async function hydrateVoiceUsers(userIds) {
         attributes: ["id", "name", "images", "role"],
     });
 
+    const usersWithFrames = await attachActiveUserFrames(users);
+
     const byId = new Map(
-        users.map((user) => [
+        usersWithFrames.map((user) => [
             Number(user.id),
             {
                 id: Number(user.id),
                 name: user.name || "مستخدم",
                 image: extractImage(user.images),
                 role: user.role || "user",
+                activeFrame: user.activeFrame ?? null,
             },
         ]),
     );
