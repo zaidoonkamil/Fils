@@ -3018,6 +3018,7 @@ router.get("/admin/settings/:key", authorizeSettingRead, async (req, res) => {
   }
 });
 
+/*
 router.post("/admin/settings/rebalance-sawa-currency", requireAdmin, upload.none(), async (req, res) => {
   const parsedDivisor = Number(req.body?.divisor ?? 3.8);
   const parsedRate = Number(req.body?.newRate ?? 1);
@@ -3094,6 +3095,7 @@ router.post("/admin/settings/rebalance-sawa-currency", requireAdmin, upload.none
     return res.status(500).json({ error: "فشل في إعادة موازنة النقاط" });
   }
 });
+*/
 
 router.get("/terms", async (req, res) => {
     try {
