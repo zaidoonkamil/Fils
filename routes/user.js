@@ -3041,10 +3041,10 @@ router.post("/admin/settings/rebalance-sawa-currency", requireAdmin, upload.none
     await User.update(
       {
         sawa: sequelize.literal(
-          `FLOOR(COALESCE(sawa, 0) / ${normalizedDivisor})`
+          `GREATEST(0, FLOOR(COALESCE(sawa, 0) / ${normalizedDivisor}))`
         ),
         dolar: sequelize.literal(
-          `ROUND(FLOOR(COALESCE(sawa, 0) / ${normalizedDivisor}) * ${normalizedRate}, 2)`
+          `ROUND(GREATEST(0, FLOOR(COALESCE(sawa, 0) / ${normalizedDivisor})) * ${normalizedRate}, 2)`
         ),
       },
       {
