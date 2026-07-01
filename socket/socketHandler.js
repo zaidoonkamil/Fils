@@ -238,14 +238,16 @@ function initializeSocketIO(io) {
           entryEffectImage: socket.userEntryEffectImage,
         });
 
-        socket.to(`room-${roomId}`).emit("user-joined", {
-          userId: socket.userId,
-          userName: socket.userName,
-          userImage: socket.userImage,
-          activeFrame: socket.userFrame,
-          entryEffectImage: socket.userEntryEffectImage,
-          message: `${socket.userName} انضم إلى الغرفة`,
-        });
+        if (!alreadyJoined) {
+          socket.to(`room-${roomId}`).emit("user-joined", {
+            userId: socket.userId,
+            userName: socket.userName,
+            userImage: socket.userImage,
+            activeFrame: socket.userFrame,
+            entryEffectImage: socket.userEntryEffectImage,
+            message: `${socket.userName} انضم إلى الغرفة`,
+          });
+        }
 
         const currentUsers = Array.from(usersSet).map((u) => ({
           id: u.id,
