@@ -447,6 +447,17 @@ function initializeSocketIO(io) {
           return;
         }
 
+        const isTargetRoomOwner =
+          String(room.creatorId) === String(userId);
+        const isRequesterAdmin = me?.role === "admin";
+
+        if (isTargetRoomOwner && !isRequesterAdmin) {
+          socket.emit("error", {
+            message: "لا يمكن للمشرف حظر مالك الغرفة",
+          });
+          return;
+        }
+
         const DURATION_SECONDS = 6 * 60 * 60;
         const expireAt = Date.now() + DURATION_SECONDS * 1000;
 
