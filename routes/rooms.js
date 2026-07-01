@@ -2484,6 +2484,80 @@ router.post("/room/:roomId/audio/purchase", authenticateToken, async (req, res) 
     }
 });
 
+router.post("/admin/rooms/reset-voice-audio-packages", authenticateToken, async (req, res) => {
+    try {
+        if (req.user?.role !== "admin") {
+            return res.status(403).json({ error: "غير مصرح لك بهذا الإجراء" });
+        }
+
+        const affectedRooms = await Room.findAll({
+            where: {
+                [Op.or]: [
+                    { voiceMicCount: { [Op.gt]: 0 } },
+                    { voicePackageExpiresAt: { [Op.ne]: null } },
+                    { roomAudioExpiresAt: { [Op.ne]: null } },
+                    { roomAudioCurrentTrackId: { [Op.ne]: null } },
+                    { roomAudioPlaybackStartedAt: { [Op.ne]: null } },
+                ],
+            },
+        });
+
+        if (affectedRooms.length == 0) {
+            return res.status(200).json({
+                message: "لا توجد باقات مايكات أو صوتيات مفعلة حالياً",
+                affectedRoomsCount: 0,
+                affectedRoomIds: [],
+            });
+        }
+
+        const roomIds = affectedRooms
+            .map((room) => Number(room.id))
+            .filter((roomId) => Number.isFinite(roomId));
+
+        await Room.update(
+            {
+                voiceMicCount: 0,
+                voicePackageExpiresAt: null,
+                voiceActiveSpeakerIds: [],
+                voicePendingRequestIds: [],
+                roomAudioExpiresAt: null,
+                roomAudioCurrentTrackId: null,
+                roomAudioPlaybackStartedAt: null,
+            },
+            {
+                where: {
+                    id: {
+                        [Op.in]: roomIds,
+                    },
+                },
+            },
+        );
+
+        const refreshedRooms = await Room.findAll({
+            where: {
+                id: {
+                    [Op.in]: roomIds,
+                },
+            },
+        });
+
+        for (const room of refreshedRooms) {
+            await emitRoomVoiceUpdated(req.app, room);
+            await emitRoomAudioUpdated(req.app, room);
+            await emitSerializedRoomUpdated(req.app, room.id);
+        }
+
+        return res.status(200).json({
+            message: "تم تصفير أوقات المايكات والصوتيات وإلغاء التفعيل الحالي بنجاح",
+            affectedRoomsCount: refreshedRooms.length,
+            affectedRoomIds: roomIds,
+        });
+    } catch (error) {
+        console.error("Error resetting room voice/audio packages:", error);
+        return res.status(500).json({ error: "تعذر تصفير باقات المايكات والصوتيات" });
+    }
+});
+
 router.post("/room/:roomId/audio/upload", authenticateToken, upload.single("audio"), async (req, res) => {
     try {
         const room = await Room.findByPk(req.params.roomId);
