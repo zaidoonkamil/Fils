@@ -2217,7 +2217,7 @@ router.get("/profile", authenticateTokenUser, async (req, res) => {
 
     const conversionRate = conversionRateSetting
       ? parseFloat(conversionRateSetting.value)
-      : 1.25;
+      : 1;
 
     userData.dolar = Number((userData.sawa * conversionRate).toFixed(2));
 
@@ -2324,11 +2324,11 @@ router.get("/users/:id", authenticateTokenUser, async (req, res) => {
       }
     });
 
-    // Get conversion rate from settings, default to 1.25 if not found
-    const conversionRateSetting2 = await Settings.findOne({ 
+    // Get conversion rate from settings, default to 1 if not found
+    const conversionRateSetting2 = await Settings.findOne({
       where: { key: 'sawa_to_dollar_rate', isActive: true } 
     });
-    const conversionRate2 = conversionRateSetting2 ? parseFloat(conversionRateSetting2.value) : 1.25;
+    const conversionRate2 = conversionRateSetting2 ? parseFloat(conversionRateSetting2.value) : 1;
     
     userData.dolar = Number((userData.sawa * conversionRate2).toFixed(2))
 
@@ -3018,6 +3018,83 @@ router.get("/admin/settings/:key", authorizeSettingRead, async (req, res) => {
   }
 });
 
+router.post("/admin/settings/rebalance-sawa-currency", requireAdmin, upload.none(), async (req, res) => {
+  const parsedDivisor = Number(req.body?.divisor ?? 3.8);
+  const parsedRate = Number(req.body?.newRate ?? 1);
+
+  if (!Number.isFinite(parsedDivisor) || parsedDivisor <= 0) {
+    return res.status(400).json({ error: "قيمة القسمة غير صالحة" });
+  }
+
+  if (!Number.isFinite(parsedRate) || parsedRate < 0) {
+    return res.status(400).json({ error: "سعر التحويل الجديد غير صالح" });
+  }
+
+  const transaction = await sequelize.transaction();
+
+  try {
+    const usersCount = await User.count({ transaction });
+
+    const normalizedRate = Number(parsedRate.toFixed(6));
+    const normalizedDivisor = Number(parsedDivisor.toFixed(6));
+
+    await User.update(
+      {
+        sawa: sequelize.literal(
+          `FLOOR(COALESCE(sawa, 0) / ${normalizedDivisor})`
+        ),
+        dolar: sequelize.literal(
+          `ROUND(FLOOR(COALESCE(sawa, 0) / ${normalizedDivisor}) * ${normalizedRate}, 2)`
+        ),
+      },
+      {
+        where: {},
+        transaction,
+      }
+    );
+
+    const existingSetting = await Settings.findOne({
+      where: { key: "sawa_to_dollar_rate" },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (existingSetting) {
+      await existingSetting.update(
+        {
+          value: String(normalizedRate),
+          description: "نسبة تحويل السوا إلى الدينار",
+          isActive: true,
+        },
+        { transaction }
+      );
+    } else {
+      await Settings.create(
+        {
+          key: "sawa_to_dollar_rate",
+          value: String(normalizedRate),
+          description: "نسبة تحويل السوا إلى الدينار",
+          isActive: true,
+        },
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    return res.status(200).json({
+      message: "تم تحديث سعر التحويل وإعادة موازنة نقاط المستخدمين بنجاح",
+      usersCount,
+      divisor: normalizedDivisor,
+      newRate: normalizedRate,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("❌ Error rebalancing sawa currency:", err);
+    return res.status(500).json({ error: "فشل في إعادة موازنة النقاط" });
+  }
+});
+
 router.get("/terms", async (req, res) => {
     try {
         const terms = await Tearms.findAll();
@@ -3274,7 +3351,7 @@ router.get("/leaderboard/sawa", requireAdmin, async (req, res) => {
 
     const conversionRate = conversionRateSetting
       ? parseFloat(conversionRateSetting.value)
-      : 1.25;
+      : 1;
 
     const result = users.map(u => {
       const userData = u.toJSON();

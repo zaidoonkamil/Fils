@@ -82,6 +82,93 @@ router.post("/counters", requireAdmin, upload.single("image"), async (req, res) 
   }
 });
 
+router.put("/counters/:id", requireAdmin, upload.single("image"), async (req, res) => {
+  const { id } = req.params;
+  const { type, points, price, durationDays, name, image, isVisible } = req.body;
+
+  try {
+    const counter = await Counter.findByPk(id);
+    if (!counter) {
+      return res.status(404).json({ error: "العداد غير موجود" });
+    }
+
+    const nextType = typeof type === "string" && type.trim().isNotEmpty
+      ? type.trim()
+      : counter.type;
+
+    if (!["points", "gems"].includes(nextType)) {
+      return res.status(400).json({ error: "type يجب أن يكون 'points' أو 'gems'" });
+    }
+
+    const parsedPoints = points !== undefined
+      ? parseInt(String(points).replace(/,/g, "").trim(), 10)
+      : counter.points;
+    const parsedPrice = price !== undefined
+      ? parseFloat(String(price).replace(/,/g, "").trim())
+      : counter.price;
+    const parsedDurationDays = durationDays !== undefined
+      ? parseInt(String(durationDays).trim(), 10)
+      : (counter.durationDays ?? null);
+
+    if (Number.isNaN(parsedPoints) || parsedPoints <= 0) {
+      return res.status(400).json({ error: "قيمة points غير صحيحة" });
+    }
+
+    if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+      return res.status(400).json({ error: "قيمة price غير صحيحة" });
+    }
+
+    if (parsedDurationDays !== null && (Number.isNaN(parsedDurationDays) || parsedDurationDays <= 0)) {
+      return res.status(400).json({ error: "قيمة durationDays غير صحيحة" });
+    }
+
+    const safeName = typeof name === "string" ? name.trim() : counter.name;
+    const safeBodyImage = typeof image === "string" ? image.trim() : "";
+    const nextImage = req.file?.filename
+      ? [req.file.filename]
+      : safeBodyImage.length > 0
+        ? [safeBodyImage]
+        : counter.image;
+
+    const nextVisibility = isVisible === undefined
+      ? counter.isVisible
+      : (isVisible === "true" || isVisible === true);
+
+    await sequelize.transaction(async (transaction) => {
+      await counter.update({
+        type: nextType,
+        points: parsedPoints,
+        price: parsedPrice,
+        durationDays: parsedDurationDays,
+        name: safeName && safeName.length > 0 ? safeName : null,
+        image: nextImage,
+        isVisible: nextVisibility,
+      }, { transaction });
+
+      await UserCounter.update({
+        type: nextType,
+        points: parsedPoints,
+        price: parsedPrice,
+      }, {
+        where: { counterId: counter.id },
+        transaction,
+      });
+    });
+
+    const updatedCounter = await Counter.findByPk(id);
+
+    return res.status(200).json({
+      message: "تم تعديل العداد وتحديث جميع المشتركين المرتبطين به",
+      counter: updatedCounter,
+    });
+  } catch (err) {
+    console.error("Error updating counter:", err);
+    return res.status(500).json({
+      error: err?.message || "Internal Server Error",
+    });
+  }
+});
+
 router.get("/counters", async (req, res) => {
   try {
     const counters = await Counter.findAll({

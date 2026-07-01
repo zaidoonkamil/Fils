@@ -10,7 +10,7 @@ async function initializeSettings() {
     if (!dollarRateSetting) {
           await Settings.create({
             key: 'sawa_to_dollar_rate',
-            value: '1.25',
+            value: '1',
             description: 'نسبة تحويل السوا إلى الدولار',
             isActive: true
           });

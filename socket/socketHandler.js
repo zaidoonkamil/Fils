@@ -231,6 +231,11 @@ function initializeSocketIO(io) {
         socket.emit("joined-room", {
           roomId,
           message: `مرحباً بك في غرفة ${room.name}`,
+          userId: socket.userId,
+          userName: socket.userName,
+          userImage: socket.userImage,
+          activeFrame: socket.userFrame,
+          entryEffectImage: socket.userEntryEffectImage,
         });
 
         if (!alreadyJoined) {
