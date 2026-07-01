@@ -196,6 +196,8 @@ async function buildRoomSupervisorsPayload(room, currentUserId = null, currentUs
         })
         : [];
 
+    const usersWithFrames = await attachActiveUserFrames(users);
+
     const userMap = new Map(
         usersWithFrames.map((user) => [
             String(user.id),
@@ -205,6 +207,7 @@ async function buildRoomSupervisorsPayload(room, currentUserId = null, currentUs
                 image: extractImage(user.images),
                 role: user.role || "user",
                 isActive: user.isActive !== false,
+                activeFrame: user.activeFrame ?? null,
             },
         ]),
     );
