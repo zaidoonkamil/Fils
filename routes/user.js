@@ -1549,7 +1549,7 @@ router.get("/users/:id/referrals", authenticateTokenUser, async (req, res) => {
           id: referredUser.id,
           name: referredUser.name,
           email: referredUser.email,
-          phone: referredUser.phone,
+          phone: String(referredUser.id),
           isVerified: referredUser.isVerified,
           location: referredUser.location,
           sawa: Math.floor(counterPoints),
