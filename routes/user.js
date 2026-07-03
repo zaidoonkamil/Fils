@@ -26,7 +26,8 @@ const {
   CounterSale, UserCounter, Counter, AgentRequest, Message, Room,
   DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification,
   DailyAction, TransferHistory, WithdrawalRequest, ChatMessage,
-  ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog, GiftItem
+  ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog, GiftItem,
+  DominoMatch
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -360,6 +361,146 @@ const PUBLIC_READABLE_SETTINGS = new Set([
   "withdrawal_min_amount",
   "withdrawal_commission",
 ]);
+
+function estimateDominoPrize(match) {
+  const entryFee = Number(match.entryFee ?? 0);
+  const pot = entryFee * 2;
+  const winFee = Number(match.winFee ?? 0);
+  const commission = winFee > 0 && winFee < 1 ? pot * winFee : winFee;
+  return Math.max(0, Math.floor(pot - commission));
+}
+
+function buildDominoDivision(level) {
+  if (level >= 40) return "دوري النخبة";
+  if (level >= 28) return "دوري الأبطال";
+  if (level >= 18) return "دوري المحترفين";
+  if (level >= 10) return "دوري المتقدمين";
+  return "دوري المبتدئين";
+}
+
+router.get("/domino/profile-stats", authenticateTokenUser, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "name", "images", "sawa", "Jewel"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const matches = await DominoMatch.findAll({
+      where: {
+        status: "finished",
+        [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+      },
+      attributes: [
+        "id",
+        "player1Id",
+        "player2Id",
+        "winnerId",
+        "entryFee",
+        "winFee",
+        "createdAt",
+      ],
+      order: [["createdAt", "ASC"]],
+    });
+
+    const totalMatches = matches.length;
+    const wins = matches.filter((match) => Number(match.winnerId) === Number(userId)).length;
+    const draws = matches.filter((match) => match.winnerId == null).length;
+    const losses = Math.max(0, totalMatches - wins - draws);
+    const totalSpent = matches.reduce((sum, match) => sum + Number(match.entryFee ?? 0), 0);
+    const totalEarnings = matches.reduce((sum, match) => {
+      if (Number(match.winnerId) !== Number(userId)) {
+        return sum;
+      }
+      return sum + estimateDominoPrize(match);
+    }, 0);
+
+    const winRate = totalMatches > 0
+      ? Number(((wins / totalMatches) * 100).toFixed(1))
+      : 0;
+
+    let currentWinStreak = 0;
+    for (let index = matches.length - 1; index >= 0; index -= 1) {
+      if (Number(matches[index].winnerId) === Number(userId)) {
+        currentWinStreak += 1;
+      } else {
+        break;
+      }
+    }
+
+    let bestWinStreak = 0;
+    let rollingWinStreak = 0;
+    for (const match of matches) {
+      if (Number(match.winnerId) === Number(userId)) {
+        rollingWinStreak += 1;
+        if (rollingWinStreak > bestWinStreak) {
+          bestWinStreak = rollingWinStreak;
+        }
+      } else {
+        rollingWinStreak = 0;
+      }
+    }
+
+    const experience = (wins * 120) + (draws * 40) + (losses * 25) + (totalMatches * 15);
+    const levelSize = 250;
+    const level = Math.max(1, Math.floor(experience / levelSize) + 1);
+    const currentLevelStartXp = (level - 1) * levelSize;
+    const nextLevelXp = level * levelSize;
+    const currentLevelProgress = experience - currentLevelStartXp;
+
+    const badges = [
+      {
+        key: "unstoppable",
+        title: "لا يُقهر",
+        unlocked: wins >= 10,
+      },
+      {
+        key: "fast_learner",
+        title: "متطور بسرعة",
+        unlocked: totalMatches >= 20,
+      },
+      {
+        key: "tactician",
+        title: "تكتيكي",
+        unlocked: bestWinStreak >= 3,
+      },
+    ];
+
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        images: Array.isArray(user.images) ? user.images : [],
+        sawa: Number(user.sawa ?? 0),
+        jewel: Number(user.Jewel ?? 0),
+      },
+      stats: {
+        totalMatches,
+        wins,
+        losses,
+        draws,
+        winRate,
+        totalSpent,
+        totalEarnings,
+        currentWinStreak,
+        bestWinStreak,
+        experience,
+        level,
+        currentLevelProgress,
+        nextLevelXp,
+        division: buildDominoDivision(level),
+        badges,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error fetching domino profile stats:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 const authorizeSettingRead = async (req, res, next) => {
   if (PUBLIC_READABLE_SETTINGS.has(req.params.key)) {
