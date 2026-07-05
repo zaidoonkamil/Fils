@@ -355,6 +355,10 @@ const generateToken = (user) => {
 const PUBLIC_READABLE_SETTINGS = new Set([
   "domino_win_fee",
   "domino_entry_fee",
+  "domino_classic_package_1_prize",
+  "domino_classic_package_1_entry_fee",
+  "domino_classic_package_2_prize",
+  "domino_classic_package_2_entry_fee",
   "gift_buy_commission",
   "profile_update_cost",
   "sawa_to_dollar_rate",

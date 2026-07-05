@@ -47,9 +47,10 @@ function registerDominoHandlers(io, socket) {
   socket.join(`user:${userId}`);
   socket.data.dominoMatches = new Set();
 
-  socket.on('domino:find_match', async (_, cb) => {
+  socket.on('domino:find_match', async (payload = {}, cb) => {
     try {
-      const res = await matchmaking.findOrCreateMatch(io, userId);
+      const packageKey = typeof payload?.packageKey === 'string' ? payload.packageKey : 'classic_1';
+      const res = await matchmaking.findOrCreateMatch(io, userId, packageKey);
       cb?.({ ok: true, ...res });
     } catch (e) {
       cb?.({ ok: false, error: e.message });

@@ -142,6 +142,70 @@ async function initializeSettings() {
       console.log('domino_win_fee setting already exists');
     }
 
+    const dominoClassicPackage1PrizeSetting = await Settings.findOne({
+      where: { key: 'domino_classic_package_1_prize' },
+    });
+
+    if (!dominoClassicPackage1PrizeSetting) {
+      await Settings.create({
+        key: 'domino_classic_package_1_prize',
+        value: '2000',
+        description: 'عدد نقاط الجائزة للبــاقة الأولى في الدومينو',
+        isActive: true,
+      });
+      console.log('Default domino_classic_package_1_prize setting created successfully');
+    } else {
+      console.log('domino_classic_package_1_prize setting already exists');
+    }
+
+    const dominoClassicPackage1EntrySetting = await Settings.findOne({
+      where: { key: 'domino_classic_package_1_entry_fee' },
+    });
+
+    if (!dominoClassicPackage1EntrySetting) {
+      await Settings.create({
+        key: 'domino_classic_package_1_entry_fee',
+        value: '6000',
+        description: 'رسم الدخول للبــاقة الأولى في الدومينو',
+        isActive: true,
+      });
+      console.log('Default domino_classic_package_1_entry_fee setting created successfully');
+    } else {
+      console.log('domino_classic_package_1_entry_fee setting already exists');
+    }
+
+    const dominoClassicPackage2PrizeSetting = await Settings.findOne({
+      where: { key: 'domino_classic_package_2_prize' },
+    });
+
+    if (!dominoClassicPackage2PrizeSetting) {
+      await Settings.create({
+        key: 'domino_classic_package_2_prize',
+        value: '1000',
+        description: 'عدد نقاط الجائزة للبــاقة الثانية في الدومينو',
+        isActive: true,
+      });
+      console.log('Default domino_classic_package_2_prize setting created successfully');
+    } else {
+      console.log('domino_classic_package_2_prize setting already exists');
+    }
+
+    const dominoClassicPackage2EntrySetting = await Settings.findOne({
+      where: { key: 'domino_classic_package_2_entry_fee' },
+    });
+
+    if (!dominoClassicPackage2EntrySetting) {
+      await Settings.create({
+        key: 'domino_classic_package_2_entry_fee',
+        value: '3000',
+        description: 'رسم الدخول للبــاقة الثانية في الدومينو',
+        isActive: true,
+      });
+      console.log('Default domino_classic_package_2_entry_fee setting created successfully');
+    } else {
+      console.log('domino_classic_package_2_entry_fee setting already exists');
+    }
+
     const roomGiftOwnerCutSetting = await Settings.findOne({
       where: { key: 'room_gift_owner_cut' },
     });

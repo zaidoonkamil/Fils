@@ -9,9 +9,25 @@ async function getSetting(key, fallback = '0') {
   return s ? s.value : fallback;
 }
 
-async function findOrCreateMatch(io, userId) {
-  const entryFee = Number(await getSetting('domino_entry_fee', '0'));
+async function loadClassicPackageConfig(packageKey) {
+  const normalizedKey = packageKey === 'classic_2' ? 'classic_2' : 'classic_1';
+  const index = normalizedKey === 'classic_2' ? '2' : '1';
+  const entryFee = Number(await getSetting(`domino_classic_package_${index}_entry_fee`, index === '1' ? '6000' : '3000'));
+  const prize = Number(await getSetting(`domino_classic_package_${index}_prize`, index === '1' ? '2000' : '1000'));
   const winFee = Number(await getSetting('domino_win_fee', '0'));
+  return {
+    packageKey: normalizedKey,
+    entryFee,
+    prize,
+    winFee,
+  };
+}
+
+async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
+  const packageConfig = await loadClassicPackageConfig(packageKey);
+  const entryFee = Number(packageConfig.entryFee || 0);
+  const prize = Number(packageConfig.prize || 0);
+  const winFee = Number(packageConfig.winFee || 0);
 
   // 1) إذا هو أصلًا searching لا تعيد
   const existing = await DominoQueue.findOne({ where: { userId } });
@@ -47,6 +63,7 @@ async function findOrCreateMatch(io, userId) {
       where: {
         status: 'searching',
         userId: { [Op.ne]: userId },
+        entryFee,
       },
       order: [['createdAt', 'ASC']],
       transaction: t,
@@ -96,7 +113,7 @@ async function findOrCreateMatch(io, userId) {
 
   // إذا ما انخلق ماتش => user صار waiting
   if (!createdMatch) {
-    return { status: 'waiting' };
+    return { status: 'waiting', packageKey: packageConfig.packageKey, prize, entryFee };
   }
 
   // 7) بعد الـ commit: أنشئ state وبث للطرفين
@@ -115,7 +132,7 @@ async function findOrCreateMatch(io, userId) {
 
   dominoService.startTurnTimer(io, createdMatch.id);
 
-  return { status: 'matched', matchId: createdMatch.id };
+  return { status: 'matched', matchId: createdMatch.id, packageKey: packageConfig.packageKey, prize, entryFee };
 }
 
 async function cancelSearch(userId) {
