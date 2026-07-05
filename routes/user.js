@@ -378,6 +378,149 @@ function buildDominoDivision(level) {
   return "دوري المبتدئين";
 }
 
+function normalizeUserImages(images) {
+  return Array.isArray(images) ? images.filter(Boolean) : [];
+}
+
+function buildDominoCommunitySubtitle(player) {
+  if (player.isLoggedIn) return "متصل الآن";
+  if (player.totalMatches > 0) return "نشط في جولات الدومينو";
+  return "بانتظار أول مواجهة";
+}
+
+function buildDominoCommunityAction(player) {
+  if (player.isLoggedIn) return "دعوة";
+  if (player.rank <= 6) return "مشاهدة";
+  return "متابعة";
+}
+
+async function buildDominoCommunityLeaderboard(limit = 10) {
+  const matches = await DominoMatch.findAll({
+    where: { status: "finished" },
+    attributes: [
+      "id",
+      "player1Id",
+      "player2Id",
+      "winnerId",
+      "entryFee",
+      "winFee",
+      "createdAt",
+    ],
+    order: [["createdAt", "DESC"]],
+  });
+
+  const statsMap = new Map();
+
+  const ensurePlayer = (userId) => {
+    const normalizedId = Number(userId);
+    if (!normalizedId) return null;
+    if (!statsMap.has(normalizedId)) {
+      statsMap.set(normalizedId, {
+        userId: normalizedId,
+        totalMatches: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        totalEarnings: 0,
+      });
+    }
+    return statsMap.get(normalizedId);
+  };
+
+  for (const match of matches) {
+    const player1 = ensurePlayer(match.player1Id);
+    const player2 = ensurePlayer(match.player2Id);
+    const winnerId = match.winnerId == null ? null : Number(match.winnerId);
+    const prize = estimateDominoPrize(match);
+
+    if (player1) player1.totalMatches += 1;
+    if (player2) player2.totalMatches += 1;
+
+    if (winnerId == null) {
+      if (player1) player1.draws += 1;
+      if (player2) player2.draws += 1;
+      continue;
+    }
+
+    if (player1 && Number(player1.userId) === winnerId) {
+      player1.wins += 1;
+      player1.totalEarnings += prize;
+    } else if (player1) {
+      player1.losses += 1;
+    }
+
+    if (player2 && Number(player2.userId) === winnerId) {
+      player2.wins += 1;
+      player2.totalEarnings += prize;
+    } else if (player2) {
+      player2.losses += 1;
+    }
+  }
+
+  const sortedPlayers = Array.from(statsMap.values())
+    .sort((a, b) => {
+      if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.totalMatches !== a.totalMatches) return b.totalMatches - a.totalMatches;
+      return a.userId - b.userId;
+    })
+    .slice(0, limit);
+
+  const userIds = sortedPlayers.map((player) => player.userId);
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  const users = await User.findAll({
+    where: { id: { [Op.in]: userIds } },
+    attributes: ["id", "name", "images", "isLoggedIn"],
+  });
+
+  const usersMap = new Map(
+    users.map((user) => [
+      Number(user.id),
+      {
+        id: Number(user.id),
+        name: user.name,
+        images: normalizeUserImages(user.images),
+        isLoggedIn: Boolean(user.isLoggedIn),
+      },
+    ])
+  );
+
+  return sortedPlayers
+    .map((player, index) => {
+      const user = usersMap.get(Number(player.userId));
+      if (!user) return null;
+
+      const payload = {
+        rank: index + 1,
+        userId: user.id,
+        name: user.name || "لاعب الدومينو",
+        images: user.images,
+        isLoggedIn: user.isLoggedIn,
+        subtitle: buildDominoCommunitySubtitle({
+          ...player,
+          isLoggedIn: user.isLoggedIn,
+          rank: index + 1,
+        }),
+        actionLabel: buildDominoCommunityAction({
+          ...player,
+          isLoggedIn: user.isLoggedIn,
+          rank: index + 1,
+        }),
+        score: Number(player.totalEarnings || 0),
+        totalMatches: Number(player.totalMatches || 0),
+        wins: Number(player.wins || 0),
+        losses: Number(player.losses || 0),
+        draws: Number(player.draws || 0),
+      };
+
+      return payload;
+    })
+    .filter(Boolean);
+}
+
 router.get("/domino/profile-stats", authenticateTokenUser, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -498,6 +641,18 @@ router.get("/domino/profile-stats", authenticateTokenUser, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching domino profile stats:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/domino/community", authenticateTokenUser, async (req, res) => {
+  try {
+    const leaderboard = await buildDominoCommunityLeaderboard(10);
+    return res.status(200).json({
+      players: leaderboard,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching domino community leaderboard:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
