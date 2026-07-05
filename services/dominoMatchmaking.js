@@ -10,10 +10,24 @@ async function getSetting(key, fallback = '0') {
 }
 
 async function loadClassicPackageConfig(packageKey) {
-  const normalizedKey = packageKey === 'classic_2' ? 'classic_2' : 'classic_1';
-  const index = normalizedKey === 'classic_2' ? '2' : '1';
-  const entryFee = Number(await getSetting(`domino_classic_package_${index}_entry_fee`, index === '1' ? '6000' : '3000'));
-  const prize = Number(await getSetting(`domino_classic_package_${index}_prize`, index === '1' ? '2000' : '1000'));
+  const allowedIndexes = new Set(['1', '2', '3', '4']);
+  const requestedIndex = String(packageKey || 'classic_1').replace('classic_', '');
+  const index = allowedIndexes.has(requestedIndex) ? requestedIndex : '1';
+  const normalizedKey = `classic_${index}`;
+  const defaultEntries = {
+    '1': '6000',
+    '2': '3000',
+    '3': '30000',
+    '4': '15000',
+  };
+  const defaultPrizes = {
+    '1': '2000',
+    '2': '1000',
+    '3': '10000',
+    '4': '5000',
+  };
+  const entryFee = Number(await getSetting(`domino_classic_package_${index}_entry_fee`, defaultEntries[index]));
+  const prize = Number(await getSetting(`domino_classic_package_${index}_prize`, defaultPrizes[index]));
   const winFee = Number(await getSetting('domino_win_fee', '0'));
   return {
     packageKey: normalizedKey,
