@@ -1140,11 +1140,23 @@ async function processRoomChallengeGift({
 async function emitRoomVoiceUpdated(app, room) {
     const roomsIO = app.get("roomsIO");
     if (!roomsIO) return;
-    const voiceState = await buildRoomVoicePayload(room);
-    roomsIO.to(`room-${room.id}`).emit("room-voice-updated", {
-        roomId: Number(room.id),
-        voiceState,
-    });
+    const socketIds = roomsIO.adapter.rooms.get(`room-${room.id}`);
+    if (!socketIds || socketIds.size === 0) return;
+
+    for (const socketId of socketIds) {
+        const socket = roomsIO.sockets.get(socketId);
+        if (!socket) continue;
+
+        const voiceState = await buildRoomVoicePayload(
+            room,
+            socket.userId ?? null,
+            socket.userRole ?? null,
+        );
+        roomsIO.to(socketId).emit("room-voice-updated", {
+            roomId: Number(room.id),
+            voiceState,
+        });
+    }
 }
 
 async function emitRoomAudioUpdated(app, room) {
@@ -1204,11 +1216,23 @@ async function syncRoomAudioPlaybackPresence(roomsIO, roomId, shouldPlay) {
 
 async function emitRoomVoiceUpdatedToIO(roomsIO, room) {
     if (!roomsIO || !room) return;
-    const voiceState = await buildRoomVoicePayload(room);
-    roomsIO.to(`room-${room.id}`).emit("room-voice-updated", {
-        roomId: Number(room.id),
-        voiceState,
-    });
+    const socketIds = roomsIO.adapter.rooms.get(`room-${room.id}`);
+    if (!socketIds || socketIds.size === 0) return;
+
+    for (const socketId of socketIds) {
+        const socket = roomsIO.sockets.get(socketId);
+        if (!socket) continue;
+
+        const voiceState = await buildRoomVoicePayload(
+            room,
+            socket.userId ?? null,
+            socket.userRole ?? null,
+        );
+        roomsIO.to(socketId).emit("room-voice-updated", {
+            roomId: Number(room.id),
+            voiceState,
+        });
+    }
 }
 
 async function emitSerializedRoomUpdated(app, roomId) {
