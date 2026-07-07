@@ -8,7 +8,7 @@ const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
-const { AccessToken } = require("livekit-server-sdk");
+const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { parseFile } = require("music-metadata");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
@@ -310,6 +310,62 @@ function normalizeVoiceIdArray(value) {
 
 function getLiveKitRoomName(roomId) {
     return `room-voice-${roomId}`;
+}
+
+function getLiveKitParticipantIdentity(roomId, userId) {
+    return `room-${roomId}-user-${userId}`;
+}
+
+let liveKitRoomServiceClient = null;
+
+function getLiveKitRoomServiceClient() {
+    if (liveKitRoomServiceClient) {
+        return liveKitRoomServiceClient;
+    }
+
+    const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
+    if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+        return null;
+    }
+
+    liveKitRoomServiceClient = new RoomServiceClient(
+        LIVEKIT_URL,
+        LIVEKIT_API_KEY,
+        LIVEKIT_API_SECRET,
+    );
+    return liveKitRoomServiceClient;
+}
+
+async function syncLiveKitSpeakerPermission(roomId, userId, canPublish) {
+    const client = getLiveKitRoomServiceClient();
+    if (!client) {
+        return;
+    }
+
+    try {
+        await client.updateParticipant(
+            getLiveKitRoomName(roomId),
+            getLiveKitParticipantIdentity(roomId, userId),
+            {
+                permission: {
+                    canPublish: !!canPublish,
+                    canPublishData: false,
+                    canSubscribe: true,
+                },
+            },
+        );
+    } catch (error) {
+        const message = String(error?.message || error || "");
+        if (
+            message.includes("participant does not exist")
+            || message.includes("participant not found")
+            || message.includes("could not find participant")
+            || message.includes("NOT_FOUND")
+        ) {
+            return;
+        }
+        console.error("Error syncing LiveKit speaker permission:", error);
+    }
 }
 
 function getSocketRoomName(roomId) {
@@ -2972,6 +3028,7 @@ router.post("/room/:roomId/voice/toggle-owner-speaker", authenticateToken, async
             voiceActiveSpeakerIds: nextSpeakers,
             voicePendingRequestIds: normalized.voicePendingRequestIds.filter((id) => id !== ownerId),
         });
+        await syncLiveKitSpeakerPermission(room.id, ownerId, nextSpeakers.includes(ownerId));
 
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
@@ -3013,6 +3070,7 @@ router.post("/room/:roomId/voice/approve", authenticateToken, async (req, res) =
             voiceActiveSpeakerIds: [...normalized.voiceActiveSpeakerIds, userId],
             voicePendingRequestIds: normalized.voicePendingRequestIds.filter((id) => id !== userId),
         });
+        await syncLiveKitSpeakerPermission(room.id, userId, true);
 
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
@@ -3069,6 +3127,7 @@ router.post("/room/:roomId/voice/remove-speaker", authenticateToken, async (req,
         await room.update({
             voiceActiveSpeakerIds: normalized.voiceActiveSpeakerIds.filter((id) => id !== userId),
         });
+        await syncLiveKitSpeakerPermission(room.id, userId, false);
 
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
@@ -3093,6 +3152,7 @@ router.post("/room/:roomId/voice/leave-speaker", authenticateToken, async (req, 
         await room.update({
             voiceActiveSpeakerIds: normalized.voiceActiveSpeakerIds.filter((id) => id !== userId),
         });
+        await syncLiveKitSpeakerPermission(room.id, userId, false);
 
         await emitRoomVoiceUpdated(req.app, room);
         return res.json({
@@ -3126,8 +3186,9 @@ router.post("/room/:roomId/voice/token", authenticateToken, async (req, res) => 
         }
 
         const canPublish = voiceState.currentUser.isSpeaker === true;
+        await syncLiveKitSpeakerPermission(room.id, req.user.id, canPublish);
         const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: `room-${room.id}-user-${req.user.id}`,
+            identity: getLiveKitParticipantIdentity(room.id, req.user.id),
             name: req.user.name || `user-${req.user.id}`,
             ttl: "2h",
             metadata: JSON.stringify({

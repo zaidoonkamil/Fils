@@ -32,6 +32,7 @@ const ConsumablePurchase = require("./ConsumablePurchase");
 const GiftItem = require("./GiftItem");
 const DominoMatch = require("./DominoMatch");
 const DominoQueue = require("./DominoQueue");
+const DominoPrivateRoom = require("./DominoPrivateRoom");
 const UserGift = require("./UserGift");
 const UserInternalVerification = require("./UserInternalVerification");
 const AdminBalanceLog = require("./AdminBalanceLog");
@@ -56,6 +57,11 @@ UserGift.belongsTo(Room, { foreignKey: "roomId", as: "room", onDelete: "SET NULL
 
 User.hasMany(UserGift, { foreignKey: "roomOwnerId", as: "roomOwnerGifts", onDelete: "SET NULL" });
 UserGift.belongsTo(User, { foreignKey: "roomOwnerId", as: "roomOwner", onDelete: "SET NULL" });
+
+User.hasMany(DominoPrivateRoom, { foreignKey: "hostUserId", as: "hostedDominoPrivateRooms", onDelete: "CASCADE" });
+DominoPrivateRoom.belongsTo(User, { foreignKey: "hostUserId", as: "host", onDelete: "CASCADE" });
+User.hasMany(DominoPrivateRoom, { foreignKey: "guestUserId", as: "joinedDominoPrivateRooms", onDelete: "SET NULL" });
+DominoPrivateRoom.belongsTo(User, { foreignKey: "guestUserId", as: "guest", onDelete: "SET NULL" });
 
 Room.belongsTo(User, { foreignKey: 'creatorId', as: 'creator', onDelete: 'CASCADE' });
 Room.hasMany(Message, { foreignKey: 'roomId', as: 'messages', onDelete: 'CASCADE' });
@@ -356,6 +362,7 @@ module.exports = {
   GiftItem,
   DominoMatch,
   DominoQueue,
+  DominoPrivateRoom,
   UserGift,
   UserInternalVerification,
   AdminBalanceLog,

@@ -178,4 +178,4 @@ async function cancelSearch(userId) {
 }
 
 
-module.exports = { findOrCreateMatch, cancelSearch };
+module.exports = { findOrCreateMatch, cancelSearch, loadClassicPackageConfig };

@@ -27,7 +27,7 @@ const {
   DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification,
   DailyAction, TransferHistory, WithdrawalRequest, ChatMessage,
   ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog, GiftItem,
-  DominoMatch
+  DominoMatch, DominoPrivateRoom
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -36,6 +36,8 @@ const nodemailer = require("nodemailer");
 const { sendNotificationToUser } = require('../services/notifications');
 const { requireAdmin, authenticateTokenUser } = require("../middlewares/auth");
 const { maskArabicProfanity } = require("../services/profanityFilter");
+const { loadClassicPackageConfig } = require("../services/dominoMatchmaking");
+const dominoService = require("../services/dominoService");
 
 async function findOrCreateDeviceFingerprint(installId, transaction) {
   const options = { where: { install_id: installId } };
@@ -402,6 +404,90 @@ function buildDominoCommunityAction(player) {
   return "متابعة";
 }
 
+function buildDominoPrivateRoomPayload(room, currentUserId = null) {
+  if (!room) return null;
+
+  const roomCode = String(room.code || "").trim().toUpperCase();
+  const expiresAt = room.expiresAt ? new Date(room.expiresAt) : null;
+  const remainingSeconds = expiresAt
+    ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
+    : null;
+
+  const host = room.host || room.Host || null;
+  const guest = room.guest || room.Guest || null;
+
+  const resolveImage = (user) => {
+    if (!user) return "";
+    if (Array.isArray(user.images) && user.images.length > 0) {
+      return String(user.images[0] || "").trim();
+    }
+    if (typeof user.images === "string" && user.images.trim()) {
+      return user.images.trim();
+    }
+    return "";
+  };
+
+  return {
+    id: room.id,
+    code: roomCode,
+    packageKey: String(room.packageKey || "classic_1"),
+    entryFee: Number(room.entryFee || 0),
+    prize: Number(room.prize || 0),
+    status: String(room.status || "waiting"),
+    matchId: room.matchId ? Number(room.matchId) : null,
+    isHost: currentUserId != null && Number(room.hostUserId) === Number(currentUserId),
+    isGuest: currentUserId != null && Number(room.guestUserId) === Number(currentUserId),
+    remainingSeconds,
+    expiresAt: expiresAt ? expiresAt.toISOString() : null,
+    host: host
+      ? {
+          id: Number(host.id),
+          name: host.name || "اللاعب الأول",
+          image: resolveImage(host),
+        }
+      : null,
+    guest: guest
+      ? {
+          id: Number(guest.id),
+          name: guest.name || "اللاعب الثاني",
+          image: resolveImage(guest),
+        }
+      : null,
+  };
+}
+
+function generateDominoPrivateRoomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let index = 0; index < 6; index += 1) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+async function generateUniqueDominoPrivateRoomCode() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const code = generateDominoPrivateRoomCode();
+    const exists = await DominoPrivateRoom.findOne({ where: { code } });
+    if (!exists) return code;
+  }
+  throw new Error("private_room_code_generation_failed");
+}
+
+async function closeExpiredDominoPrivateRooms() {
+  await DominoPrivateRoom.update(
+    { status: "expired" },
+    {
+      where: {
+        status: "waiting",
+        expiresAt: {
+          [Op.lt]: new Date(),
+        },
+      },
+    }
+  );
+}
+
 async function buildDominoCommunityLeaderboard(limit = 10) {
   const matches = await DominoMatch.findAll({
     where: { status: "finished" },
@@ -661,6 +747,297 @@ router.get("/domino/community", authenticateTokenUser, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching domino community leaderboard:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/domino/classic-packages", authenticateTokenUser, async (req, res) => {
+  try {
+    const packageKeys = ["classic_1", "classic_2", "classic_3", "classic_4"];
+    const defaults = {
+      classic_1: { title: "الأكثر شعبية", badge: "محترف" },
+      classic_2: { title: "الفئة الأساسية", badge: "مبتدئ" },
+      classic_3: { title: "نخبة المنافسة", badge: "أسطوري" },
+      classic_4: { title: "الأكثر توازناً", badge: "خبير" },
+    };
+
+    const packages = await Promise.all(
+      packageKeys.map(async (packageKey) => {
+        const config = await loadClassicPackageConfig(packageKey);
+        return {
+          key: packageKey,
+          title: defaults[packageKey].title,
+          badge: defaults[packageKey].badge,
+          prize: Number(config.prize || 0),
+          entryFee: Number(config.entryFee || 0),
+        };
+      })
+    );
+
+    return res.status(200).json({ packages });
+  } catch (err) {
+    console.error("❌ Error fetching domino packages:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/domino/private-room/current", authenticateTokenUser, async (req, res) => {
+  try {
+    await closeExpiredDominoPrivateRooms();
+
+    const room = await DominoPrivateRoom.findOne({
+      where: {
+        status: "waiting",
+        hostUserId: req.user.id,
+      },
+      include: [
+        { model: User, as: "host", attributes: ["id", "name", "images"] },
+        { model: User, as: "guest", attributes: ["id", "name", "images"] },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.status(200).json({
+      room: buildDominoPrivateRoomPayload(room, req.user.id),
+    });
+  } catch (err) {
+    console.error("❌ Error fetching domino private room:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/domino/private-room/create", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    await closeExpiredDominoPrivateRooms();
+
+    const packageKey = typeof req.body?.packageKey === "string" ? req.body.packageKey : "classic_1";
+    const packageConfig = await loadClassicPackageConfig(packageKey);
+
+    const existing = await DominoPrivateRoom.findOne({
+      where: {
+        hostUserId: req.user.id,
+        status: "waiting",
+      },
+      include: [
+        { model: User, as: "host", attributes: ["id", "name", "images"] },
+        { model: User, as: "guest", attributes: ["id", "name", "images"] },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    if (existing) {
+      return res.status(200).json({
+        room: buildDominoPrivateRoomPayload(existing, req.user.id),
+        reused: true,
+      });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      attributes: ["id", "sawa"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    if (Number(user.sawa || 0) < Number(packageConfig.entryFee || 0)) {
+      return res.status(400).json({
+        error: "رصيدك غير كافٍ لإنشاء الغرفة الخاصة",
+      });
+    }
+
+    const code = await generateUniqueDominoPrivateRoomCode();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    const room = await DominoPrivateRoom.create({
+      code,
+      hostUserId: req.user.id,
+      packageKey: packageConfig.packageKey,
+      entryFee: Number(packageConfig.entryFee || 0),
+      prize: Number(packageConfig.prize || 0),
+      status: "waiting",
+      expiresAt,
+    });
+
+    const hydratedRoom = await DominoPrivateRoom.findByPk(room.id, {
+      include: [
+        { model: User, as: "host", attributes: ["id", "name", "images"] },
+        { model: User, as: "guest", attributes: ["id", "name", "images"] },
+      ],
+    });
+
+    req.app.get("dominoNamespace")?.to(`user:${req.user.id}`).emit("domino:private_room_updated", {
+      room: buildDominoPrivateRoomPayload(hydratedRoom, req.user.id),
+    });
+
+    return res.status(201).json({
+      room: buildDominoPrivateRoomPayload(hydratedRoom, req.user.id),
+    });
+  } catch (err) {
+    console.error("❌ Error creating domino private room:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/domino/private-room/cancel", authenticateTokenUser, upload.none(), async (req, res) => {
+  try {
+    const room = await DominoPrivateRoom.findOne({
+      where: {
+        hostUserId: req.user.id,
+        status: "waiting",
+      },
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: "لا توجد غرفة خاصة معلقة" });
+    }
+
+    room.status = "canceled";
+    await room.save();
+
+    req.app.get("dominoNamespace")?.to(`user:${req.user.id}`).emit("domino:private_room_updated", {
+      room: null,
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("❌ Error canceling domino private room:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/domino/private-room/join", authenticateTokenUser, upload.none(), async (req, res) => {
+  let responsePayload = null;
+  let createdMatch = null;
+  let roomId = null;
+  let hostUserId = null;
+  let guestUserId = req.user.id;
+  let state = null;
+
+  try {
+    await closeExpiredDominoPrivateRooms();
+
+    const code = String(req.body?.code || "").trim().toUpperCase();
+    if (!code) {
+      return res.status(400).json({ error: "رمز الغرفة مطلوب" });
+    }
+
+    await sequelize.transaction(async (transaction) => {
+      const room = await DominoPrivateRoom.findOne({
+        where: {
+          code,
+          status: "waiting",
+        },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      if (!room) {
+        throw new Error("private_room_not_found");
+      }
+
+      if (room.expiresAt && new Date(room.expiresAt).getTime() <= Date.now()) {
+        room.status = "expired";
+        await room.save({ transaction });
+        throw new Error("private_room_expired");
+      }
+
+      if (Number(room.hostUserId) === Number(req.user.id)) {
+        throw new Error("cannot_join_own_private_room");
+      }
+
+      const [hostUser, guestUser] = await Promise.all([
+        User.findByPk(room.hostUserId, { transaction, lock: transaction.LOCK.UPDATE }),
+        User.findByPk(req.user.id, { transaction, lock: transaction.LOCK.UPDATE }),
+      ]);
+
+      if (!hostUser || !guestUser) {
+        throw new Error("player_not_found");
+      }
+
+      const entryFee = Number(room.entryFee || 0);
+      if (Number(hostUser.sawa || 0) < entryFee) {
+        throw new Error("host_insufficient_sawa");
+      }
+      if (Number(guestUser.sawa || 0) < entryFee) {
+        throw new Error("guest_insufficient_sawa");
+      }
+
+      hostUser.sawa = Number(hostUser.sawa || 0) - entryFee;
+      guestUser.sawa = Number(guestUser.sawa || 0) - entryFee;
+      await hostUser.save({ transaction });
+      await guestUser.save({ transaction });
+
+      const packageConfig = await loadClassicPackageConfig(room.packageKey);
+      createdMatch = await DominoMatch.create(
+        {
+          player1Id: room.hostUserId,
+          player2Id: req.user.id,
+          entryFee,
+          winFee: Number(packageConfig.winFee || 0),
+          status: "playing",
+        },
+        { transaction }
+      );
+
+      room.guestUserId = req.user.id;
+      room.status = "playing";
+      room.matchId = createdMatch.id;
+      await room.save({ transaction });
+
+      roomId = room.id;
+      hostUserId = room.hostUserId;
+      guestUserId = req.user.id;
+    });
+
+    state = dominoService.createNewMatchState(
+      createdMatch.id,
+      hostUserId,
+      guestUserId
+    );
+    dominoService.storeState(createdMatch.id, state);
+    dominoService.startTurnTimer(req.app.get("dominoNamespace"), createdMatch.id);
+
+    const hostPublicState = await dominoService.publicState(state, hostUserId);
+    const guestPublicState = await dominoService.publicState(state, guestUserId);
+
+    req.app.get("dominoNamespace")?.to(`user:${hostUserId}`).emit("domino:private_room_updated", {
+      room: null,
+    });
+    req.app.get("dominoNamespace")?.to(`user:${guestUserId}`).emit("domino:private_room_updated", {
+      room: null,
+    });
+
+    req.app.get("dominoNamespace")?.to(`user:${hostUserId}`).emit("domino:match_found", {
+      matchId: createdMatch.id,
+      state: hostPublicState,
+    });
+    req.app.get("dominoNamespace")?.to(`user:${guestUserId}`).emit("domino:match_found", {
+      matchId: createdMatch.id,
+      state: guestPublicState,
+    });
+
+    responsePayload = {
+      matchId: createdMatch.id,
+      roomId,
+    };
+
+    return res.status(200).json(responsePayload);
+  } catch (err) {
+    const knownErrors = {
+      private_room_not_found: "الغرفة الخاصة غير موجودة أو تم استخدامها",
+      private_room_expired: "انتهت صلاحية هذه الغرفة الخاصة",
+      cannot_join_own_private_room: "لا يمكنك الانضمام إلى غرفتك الخاصة",
+      host_insufficient_sawa: "صاحب الغرفة لا يملك رصيدًا كافيًا لبدء المباراة",
+      guest_insufficient_sawa: "رصيدك غير كافٍ للانضمام إلى هذه الغرفة",
+      player_not_found: "تعذر التحقق من بيانات اللاعبين",
+    };
+
+    if (knownErrors[err.message]) {
+      return res.status(400).json({ error: knownErrors[err.message] });
+    }
+
+    console.error("❌ Error joining domino private room:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

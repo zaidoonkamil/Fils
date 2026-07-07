@@ -158,6 +158,7 @@ app.set("chatNamespace", chatNamespace);
 
 const dominoNamespace = io.of("/domino");
 initDominoSocket(dominoNamespace);
+app.set("dominoNamespace", dominoNamespace);
 
 const roomNamespace = io.of("/rooms");
 initializeSocketIO(roomNamespace);
