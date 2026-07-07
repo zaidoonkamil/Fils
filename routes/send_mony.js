@@ -69,6 +69,13 @@ router.post("/daily-action", authenticateTokenUser, upload.none(), async (req, r
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
+    const previousJewelBalance =
+      typeof user.Jewel === "number" && !isNaN(user.Jewel) ? user.Jewel : 0;
+    const previousSawaBalance =
+      typeof user.sawa === "number" && !isNaN(user.sawa) ? user.sawa : 0;
+    const previousCardBalance =
+      typeof user.card === "number" && !isNaN(user.card) ? user.card : 0;
+
     const now = new Date();
 
     let dailyAction = await DailyAction.findOne({
@@ -188,8 +195,40 @@ router.post("/daily-action", authenticateTokenUser, upload.none(), async (req, r
       }
     }
 
+    try {
+      const rewardLines = [
+        "تم جمع المكافأة اليومية بنجاح.",
+        `رصيد النقاط السابق: ${previousSawaBalance}`,
+        `رصيد النقاط الحالي: ${user.sawa}`,
+        `رصيد الجواهر السابق: ${previousJewelBalance}`,
+        `رصيد الجواهر الحالي: ${user.Jewel}`,
+      ];
+
+      if (totalSawa > 0) {
+        rewardLines.push(`النقاط المضافة: ${totalSawa}`);
+      }
+
+      if (totalJewels > 0) {
+        rewardLines.push(`الجواهر المضافة: ${totalJewels}`);
+      }
+
+      await sendNotificationToUser(
+        user.id,
+        rewardLines.join("\n"),
+        "جمع المكافأة اليومية",
+        {
+          category: "wallet",
+          subcategory: "daily_reward",
+        }
+      );
+    } catch (notifyErr) {
+      console.warn("⚠️ فشل إرسال إشعار جمع المكافأة:", notifyErr);
+    }
     res.json({
       success: true,
+      previousJewelBalance,
+      previousCardBalance,
+      previousSawaBalance,
       message: "تم تنفيذ العملية بنجاح",
       jewelsAdded: totalJewels,
       sawaAdded: totalSawa,
