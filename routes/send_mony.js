@@ -624,6 +624,19 @@ router.post("/deposit-sawa", requireAdmin, upload.none(), async (req, res) => {
       req,
     });
 
+    if (user.role === "agent" && depositAmount > 0) {
+      await createAgentFinanceOutgoingEntry({
+        transaction: t,
+        adminId: req.user.id,
+        agentId: user.id,
+        amount: depositAmount,
+        note:
+          note && String(note).trim().isNotEmpty
+            ? `إضافة سوا للوكيل من الإدارة: ${String(note).trim()}`
+            : "إضافة سوا للوكيل من شاشة أرصدة الأدمن",
+      });
+    }
+
     await t.commit();
 
     return res.status(200).json({
