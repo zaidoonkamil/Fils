@@ -740,6 +740,19 @@ router.post("/admin/users/:userId/sawa-balance-adjustment", requireAdmin, upload
       req,
     });
 
+    if (user.role === "agent" && depositAmount > 0) {
+      await createAgentFinanceOutgoingEntry({
+        transaction: t,
+        adminId: req.user.id,
+        agentId: user.id,
+        amount: depositAmount,
+        note:
+          note && String(note).trim().length > 0
+            ? `إضافة سوا للوكيل من الإدارة: ${String(note).trim()}`
+            : "إضافة سوا للوكيل من شاشة أرصدة الأدمن",
+      });
+    }
+
     await t.commit();
 
     return res.status(200).json({
