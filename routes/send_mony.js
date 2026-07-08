@@ -114,13 +114,17 @@ async function buildAgentFinanceSummary(agentId) {
     }
   }
 
-  const outstandingBalance = Math.abs(totalOutgoingDue - totalIncomingAmount);
+  const outstandingBalance = Math.max(0, totalOutgoingDue - totalIncomingAmount);
+  const reverseBalance = Math.max(0, totalIncomingAmount - totalOutgoingDue);
+  const netBalance = totalOutgoingDue - totalIncomingAmount;
 
   return {
     totalOutgoingAmount,
     totalOutgoingDue,
     totalIncomingAmount,
     outstandingBalance,
+    reverseBalance,
+    netBalance,
     entriesCount: rows.length,
     settlementRate: AGENT_DEBT_SETTLEMENT_RATIO,
   };
