@@ -100,7 +100,6 @@ async function buildAgentFinanceSummary(agentId) {
   let totalOutgoingAmount = 0;
   let totalOutgoingDue = 0;
   let totalIncomingAmount = 0;
-  let outstandingBalance = 0;
 
   for (const row of rows) {
     const entryType = String(row.entryType || "");
@@ -113,15 +112,15 @@ async function buildAgentFinanceSummary(agentId) {
     } else if (entryType === "incoming") {
       totalIncomingAmount += amount;
     }
-
-    outstandingBalance += debtImpact;
   }
+
+  const outstandingBalance = Math.abs(totalOutgoingDue - totalIncomingAmount);
 
   return {
     totalOutgoingAmount,
     totalOutgoingDue,
     totalIncomingAmount,
-    outstandingBalance: Math.max(0, outstandingBalance),
+    outstandingBalance,
     entriesCount: rows.length,
     settlementRate: AGENT_DEBT_SETTLEMENT_RATIO,
   };
