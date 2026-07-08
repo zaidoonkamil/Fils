@@ -36,6 +36,7 @@ const DominoPrivateRoom = require("./DominoPrivateRoom");
 const UserGift = require("./UserGift");
 const UserInternalVerification = require("./UserInternalVerification");
 const AdminBalanceLog = require("./AdminBalanceLog");
+const AgentFinanceEntry = require("./AgentFinanceEntry");
 const RoomJoinSubscription = require("./RoomJoinSubscription");
 const PremiumFrame = require("./PremiumFrame");
 const UserPremiumFrame = require("./UserPremiumFrame");
@@ -266,6 +267,39 @@ AdminBalanceLog.belongsTo(User, { foreignKey: "adminId", as: "admin", onDelete: 
 User.hasMany(AdminBalanceLog, { foreignKey: "targetUserId", as: "receivedAdminBalanceActions", onDelete: "CASCADE" });
 AdminBalanceLog.belongsTo(User, { foreignKey: "targetUserId", as: "targetUser", onDelete: "CASCADE" });
 
+User.hasMany(AgentFinanceEntry, {
+  foreignKey: "adminId",
+  as: "agentFinanceActions",
+  onDelete: "CASCADE",
+});
+AgentFinanceEntry.belongsTo(User, {
+  foreignKey: "adminId",
+  as: "admin",
+  onDelete: "CASCADE",
+});
+
+User.hasMany(AgentFinanceEntry, {
+  foreignKey: "agentId",
+  as: "agentFinanceEntries",
+  onDelete: "CASCADE",
+});
+AgentFinanceEntry.belongsTo(User, {
+  foreignKey: "agentId",
+  as: "agent",
+  onDelete: "CASCADE",
+});
+
+TransferHistory.hasMany(AgentFinanceEntry, {
+  foreignKey: "transferHistoryId",
+  as: "agentFinanceEntries",
+  onDelete: "SET NULL",
+});
+AgentFinanceEntry.belongsTo(TransferHistory, {
+  foreignKey: "transferHistoryId",
+  as: "transfer",
+  onDelete: "SET NULL",
+});
+
 NotificationLog.hasMany(NotificationRead, {
   foreignKey: "notificationId",
   as: "reads",
@@ -366,6 +400,7 @@ module.exports = {
   UserGift,
   UserInternalVerification,
   AdminBalanceLog,
+  AgentFinanceEntry,
   RoomJoinSubscription,
   PremiumFrame,
   UserPremiumFrame,

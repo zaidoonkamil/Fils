@@ -11,6 +11,7 @@ const {
   WithdrawalRequest,
   Referrals,
   AdminBalanceLog,
+  AgentFinanceEntry,
 } = require("../models");
 const { Op } = require("sequelize");
 const { sendNotificationToRole } = require("../services/notifications");
@@ -19,6 +20,7 @@ const upload = require("../middlewares/uploads");
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
+const AGENT_DEBT_SETTLEMENT_RATIO = 0.89;
 
 function getRequestIp(req) {
   return (
@@ -54,6 +56,75 @@ async function createAdminBalanceLog({
     },
     { transaction }
   );
+}
+
+function calculateAgentDebtAmount(amount) {
+  const numericAmount = Number(amount) || 0;
+  return Math.max(0, Math.round(numericAmount * AGENT_DEBT_SETTLEMENT_RATIO));
+}
+
+async function createAgentFinanceOutgoingEntry({
+  transaction,
+  adminId,
+  agentId,
+  amount,
+  transferHistoryId,
+  note,
+}) {
+  const numericAmount = Number(amount) || 0;
+  const debtAmount = calculateAgentDebtAmount(numericAmount);
+
+  return AgentFinanceEntry.create(
+    {
+      adminId,
+      agentId,
+      entryType: "outgoing",
+      sourceType: "transfer",
+      amount: numericAmount,
+      debtImpact: debtAmount,
+      transferHistoryId: transferHistoryId ?? null,
+      note:
+        note ||
+        `تحويل من الإدارة إلى الوكيل. المستحق على الوكيل ${debtAmount}.`,
+    },
+    { transaction }
+  );
+}
+
+async function buildAgentFinanceSummary(agentId) {
+  const rows = await AgentFinanceEntry.findAll({
+    where: { agentId },
+    attributes: ["entryType", "amount", "debtImpact"],
+  });
+
+  let totalOutgoingAmount = 0;
+  let totalOutgoingDue = 0;
+  let totalIncomingAmount = 0;
+  let outstandingBalance = 0;
+
+  for (const row of rows) {
+    const entryType = String(row.entryType || "");
+    const amount = Number(row.amount) || 0;
+    const debtImpact = Number(row.debtImpact) || 0;
+
+    if (entryType === "outgoing") {
+      totalOutgoingAmount += amount;
+      totalOutgoingDue += Math.max(0, debtImpact);
+    } else if (entryType === "incoming") {
+      totalIncomingAmount += amount;
+    }
+
+    outstandingBalance += debtImpact;
+  }
+
+  return {
+    totalOutgoingAmount,
+    totalOutgoingDue,
+    totalIncomingAmount,
+    outstandingBalance: Math.max(0, outstandingBalance),
+    entriesCount: rows.length,
+    settlementRate: AGENT_DEBT_SETTLEMENT_RATIO,
+  };
 }
 
 
@@ -424,7 +495,20 @@ router.post("/sendmony-simple", authenticateTokenUser, upload.none(), async (req
     await sender.save({ transaction: t });
     await receiver.save({ transaction: t });
 
-    await TransferHistory.create({ senderId, receiverId, amount: transferAmount, fee: 0 }, { transaction: t });
+    const transfer = await TransferHistory.create(
+      { senderId, receiverId, amount: transferAmount, fee: 0 },
+      { transaction: t }
+    );
+
+    if (sender.role === "admin" && receiver.role === "agent") {
+      await createAgentFinanceOutgoingEntry({
+        transaction: t,
+        adminId: sender.id,
+        agentId: receiver.id,
+        amount: transferAmount,
+        transferHistoryId: transfer.id,
+      });
+    }
 
     await t.commit();
 
@@ -1014,6 +1098,130 @@ router.delete("/withdrawalRequest/:id", requireAdmin, async (req, res) => {
   } catch (error) {
     console.error("❌ خطأ أثناء حذف طلب السحب:", error);
     res.status(500).json({ message: "حدث خطأ أثناء حذف الطلب" });
+  }
+});
+
+router.get("/admin/agents/:agentId/finance", requireAdmin, async (req, res) => {
+  try {
+    const agentId = Number.parseInt(req.params.agentId, 10);
+    if (!Number.isFinite(agentId)) {
+      return res.status(400).json({ error: "معرف الوكيل غير صالح" });
+    }
+
+    const agent = await User.findByPk(agentId, {
+      attributes: ["id", "name", "phone", "location", "role"],
+    });
+
+    if (!agent || agent.role !== "agent") {
+      return res.status(404).json({ error: "الوكيل غير موجود" });
+    }
+
+    const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(Number.parseInt(req.query.limit, 10) || 30, 1),
+      100,
+    );
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await AgentFinanceEntry.findAndCountAll({
+      where: { agentId },
+      include: [
+        {
+          model: User,
+          as: "admin",
+          attributes: ["id", "name"],
+        },
+        {
+          model: TransferHistory,
+          as: "transfer",
+          attributes: ["id", "amount", "fee", "createdAt"],
+          required: false,
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+
+    const summary = await buildAgentFinanceSummary(agentId);
+
+    return res.status(200).json({
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        phone: agent.phone,
+        location: agent.location,
+      },
+      summary,
+      entries: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit),
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error fetching agent finance:", err);
+    return res.status(500).json({ error: "فشل في جلب السجل المالي للوكيل" });
+  }
+});
+
+router.post("/admin/agents/:agentId/finance/incoming", requireAdmin, upload.none(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const agentId = Number.parseInt(req.params.agentId, 10);
+    const amount = Number(req.body?.amount);
+    const note = String(req.body?.note || "").trim();
+
+    if (!Number.isFinite(agentId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "معرف الوكيل غير صالح" });
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "مبلغ التسديد غير صالح" });
+    }
+
+    const agent = await User.findByPk(agentId, {
+      attributes: ["id", "name", "role"],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!agent || agent.role !== "agent") {
+      await transaction.rollback();
+      return res.status(404).json({ error: "الوكيل غير موجود" });
+    }
+
+    const entry = await AgentFinanceEntry.create(
+      {
+        adminId: req.user.id,
+        agentId,
+        entryType: "incoming",
+        sourceType: "manual_settlement",
+        amount,
+        debtImpact: -Math.abs(amount),
+        note: note || "تسديد يدوي من الوكيل",
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    const summary = await buildAgentFinanceSummary(agentId);
+
+    return res.status(201).json({
+      message: "تم تسجيل التسديد بنجاح",
+      entry,
+      summary,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("❌ Error creating agent finance incoming entry:", err);
+    return res.status(500).json({ error: "فشل في تسجيل التسديد" });
   }
 });
 

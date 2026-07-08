@@ -1266,6 +1266,61 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "agent_finance_entries", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    adminId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    agentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    entryType: {
+      type: DataTypes.ENUM("outgoing", "incoming"),
+      allowNull: false,
+    },
+    sourceType: {
+      type: DataTypes.ENUM("transfer", "manual_settlement"),
+      allowNull: false,
+    },
+    amount: {
+      type: DataTypes.DOUBLE,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    debtImpact: {
+      type: DataTypes.DOUBLE,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    transferHistoryId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    note: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
   await ensureTable(queryInterface, "domino_private_rooms", {
     id: {
       type: DataTypes.INTEGER,
