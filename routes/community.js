@@ -364,9 +364,13 @@ async function buildPaginatedPostsPayload({
   page,
   limit,
   where = {},
+  paginationEnabled = false,
 }) {
-  const safePage = parsePositiveInteger(page, 1);
-  const safeLimit = Math.min(parsePositiveInteger(limit, 20), 100);
+  const safePage = paginationEnabled ? parsePositiveInteger(page, 1) : 1;
+  const requestedLimit = parsePositiveInteger(limit, 20);
+  const safeLimit = paginationEnabled
+    ? Math.min(requestedLimit, 100)
+    : Math.min(requestedLimit, 5);
   const offset = (safePage - 1) * safeLimit;
 
   const { rows, count } = await CommunityPost.findAndCountAll({
@@ -390,7 +394,7 @@ async function buildPaginatedPostsPayload({
       page: safePage,
       limit: safeLimit,
       total: count,
-      hasMore: offset + rows.length < count,
+      hasMore: paginationEnabled ? offset + rows.length < count : false,
     },
   };
 }
@@ -637,11 +641,14 @@ async function buildCommunityStoriesFeed(currentUserId) {
 router.get("/community/posts", authenticateTokenUser, async (req, res) => {
   try {
     const targetUserId = req.query.userId ? Number(req.query.userId) : null;
+    const paginationEnabled =
+      String(req.query.paginate || req.query.pagination || "0").trim() === "1";
     const payload = await buildPaginatedPostsPayload({
       currentUserId: req.user.id,
       page: req.query.page,
       limit: req.query.limit,
       where: targetUserId ? { userId: targetUserId } : {},
+      paginationEnabled,
     });
     res.json(payload);
   } catch (error) {
@@ -1054,6 +1061,9 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
       return res.status(404).json({ error: "المستخدم غير موجود" });
     }
 
+    const paginationEnabled =
+      String(req.query.paginate || req.query.pagination || "0").trim() === "1";
+
     const [summary, postsPayload, recentFollowers] = await Promise.all([
       getCommunityRelationshipSummary(targetUserId, req.user.id),
       buildPaginatedPostsPayload({
@@ -1061,6 +1071,7 @@ router.get("/community/users/:userId/profile", authenticateTokenUser, async (req
         page: req.query.page,
         limit: req.query.limit,
         where: { userId: targetUserId },
+        paginationEnabled,
       }),
       CommunityFollow.findAll({
         where: { followingId: targetUserId },
