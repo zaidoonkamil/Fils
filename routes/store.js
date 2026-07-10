@@ -296,34 +296,26 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
       return res.status(404).json({ error: "الفئة غير موجودة" });
     }
 
-    let products = await DigitalProduct.findAll({
+    const products = await DigitalProduct.findAll({
       where: {
         categoryId,
         isActive: true,
       },
-      include: [
-        {
-          model: DigitalProductCode,
-          as: "codes",
-          attributes: digitalProductCodeAttributes,
-          required: false,
-        },
-      ],
       order: [["createdAt", "DESC"]],
     });
 
     const filteredProducts = [];
 
     for (const product of products) {
-      const unusedCodesCount = Array.isArray(product.codes)
-        ? product.codes.filter((code) => !code.used).length
-        : await DigitalProductCode.count({
-            where: { productId: product.id, used: false }
-          });
+      const unusedCodesCount = await DigitalProductCode.count({
+        where: { productId: product.id, used: false }
+      });
 
       if (unusedCodesCount > 0) {
-        product.stock = unusedCodesCount;
-        filteredProducts.push(product);
+        filteredProducts.push({
+          ...product.toJSON(),
+          stock: unusedCodesCount,
+        });
       }
     }
 
