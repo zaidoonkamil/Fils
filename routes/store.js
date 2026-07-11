@@ -354,6 +354,7 @@ router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async 
 router.get("/store/categories/:categoryId/products", async (req, res) => {
   try {
     const { categoryId } = req.params;
+    const digitalProductCodeAttributes = await getDigitalProductCodeAttributes();
 
     const category = await StoreCategory.findByPk(categoryId);
     if (!category) {
@@ -365,6 +366,14 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
         categoryId,
         isActive: true,
       },
+      include: [
+        {
+          model: DigitalProductCode,
+          as: "codes",
+          attributes: digitalProductCodeAttributes,
+          required: false,
+        },
+      ],
       order: [["createdAt", "DESC"]],
     });
 
@@ -376,10 +385,10 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
       });
 
       if (unusedCodesCount > 0) {
-        filteredProducts.push({
+        filteredProducts.push(normalizeProductCodes({
           ...product.toJSON(),
           stock: unusedCodesCount,
-        });
+        }));
       }
     }
 
