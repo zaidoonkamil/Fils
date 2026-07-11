@@ -45,6 +45,7 @@ async function persistFinish(matchId, winnerId, state) {
       stateJson: state
         ? {
             scores: state.scores,
+            roundWins: state.roundWins,
             rounds: state.round.number,
             winner: winnerId,
             lastRound: state.lastRound,
@@ -134,6 +135,7 @@ function createNewMatchState(matchId, p1, p2) {
     turnSeconds,
     turn: { expiresAt: Date.now() + turnSeconds * 1000 },
     scores: { [p1]: 0, [p2]: 0 },
+    roundWins: { [p1]: 0, [p2]: 0 },
     matchTargetScore: 101,
     round: {
       number: 1,
@@ -536,6 +538,8 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
 
   if (!isTie && winnerId) {
     state.scores[winnerId] += points;
+    if (!state.roundWins) state.roundWins = {};
+    state.roundWins[winnerId] = (state.roundWins[winnerId] || 0) + 1;
   }
 
   io.to(`match:${matchId}`).emit('domino:round_finished', {
@@ -544,6 +548,7 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
     roundWinnerId: winnerId,
     pointsAwarded: points,
     scores: state.scores,
+    roundWins: state.roundWins,
     reason,
     isTie,
   });

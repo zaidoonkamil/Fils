@@ -1,5 +1,6 @@
 const express = require("express");
 const { Op } = require("sequelize");
+const jwt = require("jsonwebtoken");
 const { ChatMessage, User } = require("../models");
 const { authenticateTokenUser } = require("../middlewares/auth");
 const upload = require("../middlewares/uploads");
@@ -217,6 +218,45 @@ function buildNotificationMessage(message) {
   return normalized.message || "";
 }
 
+function resolveSocketToken(socket) {
+  const authToken =
+    socket.handshake?.auth?.token ||
+    socket.handshake?.auth?.accessToken ||
+    null;
+  const headerToken =
+    socket.handshake?.headers?.authorization ||
+    socket.handshake?.headers?.Authorization ||
+    null;
+  const queryToken = socket.handshake?.query?.token || null;
+
+  const rawToken = authToken || headerToken || queryToken;
+  if (!rawToken || typeof rawToken !== "string") {
+    return null;
+  }
+
+  return rawToken.startsWith("Bearer ")
+    ? rawToken.slice("Bearer ".length).trim()
+    : rawToken.trim();
+}
+
+async function authenticateSocketUser(socket) {
+  const token = resolveSocketToken(socket);
+  if (!token) {
+    throw new Error("SOCKET_TOKEN_MISSING");
+  }
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const user = await User.findByPk(decoded.id, {
+    attributes: ["id", "email", "role", "isActive", "isVerified"],
+  });
+
+  if (!user || user.isActive === false) {
+    throw new Error("SOCKET_USER_FORBIDDEN");
+  }
+
+  return user;
+}
+
 async function isAllowedDirectChat(senderId, receiverId) {
   const [sender, receiver] = await Promise.all([
     User.findByPk(senderId, { attributes: ["id", "role", "isActive"] }),
@@ -412,7 +452,7 @@ async function buildConversationListForUser(currentUser) {
   return Array.from(conversations.values());
 }
 
-async function loadAdminSupportConversationBuckets(limit = 100) {
+async function loadAdminSupportConversationBuckets(limit = null) {
   const attributes = await getChatMessageAttributes();
   const admins = await User.findAll({
     where: { role: "admin" },
@@ -420,7 +460,7 @@ async function loadAdminSupportConversationBuckets(limit = 100) {
   });
   const adminIds = admins.map((admin) => admin.id);
 
-  const messages = await ChatMessage.findAll({
+  const queryOptions = {
     attributes,
     where: {
       [Op.or]: [
@@ -434,8 +474,14 @@ async function loadAdminSupportConversationBuckets(limit = 100) {
       { model: User, as: "receiver", attributes: CHAT_USER_ATTRIBUTES },
     ],
     order: [["createdAt", "DESC"]],
-    limit,
-  });
+  };
+
+  const normalizedLimit = Number(limit);
+  if (Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
+    queryOptions.limit = normalizedLimit;
+  }
+
+  const messages = await ChatMessage.findAll(queryOptions);
 
   const usersMap = new Map();
   const agentsMap = new Map();
@@ -479,8 +525,29 @@ async function loadAdminSupportConversationBuckets(limit = 100) {
 function initChatSocket(io) {
   const userSocketsById = new Map();
 
+  io.use(async (socket, next) => {
+    try {
+      const user = await authenticateSocketUser(socket);
+      socket.data.user = {
+        id: Number(user.id),
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        isVerified: user.isVerified,
+      };
+      socket.data.userId = String(user.id);
+      next();
+    } catch (error) {
+      const code =
+        error?.name === "TokenExpiredError"
+          ? "TOKEN_EXPIRED"
+          : error?.message || "SOCKET_UNAUTHORIZED";
+      next(new Error(code));
+    }
+  });
+
   io.on("connection", (socket) => {
-    const { userId } = socket.handshake.query;
+    const userId = socket.data?.userId;
     if (!userId) return socket.disconnect(true);
 
     if (!userSocketsById.has(userId)) {
@@ -490,28 +557,42 @@ function initChatSocket(io) {
 
     socket.on("getMessages", async (payload = {}) => {
       try {
-        const { userId: payloadUserId, receiverId, limit } = payload;
-        if (!payloadUserId) return;
+        const authenticatedUser = socket.data?.user;
+        if (!authenticatedUser?.id) {
+          return socket.emit("chatError", { message: "ØºÙŠØ± Ù…ØµØ±Ø­ Ø¨Ù‡" });
+        }
+
+        const receiverId = payload.receiverId ? Number(payload.receiverId) : null;
+        const targetUserId = payload.userId ? Number(payload.userId) : null;
+        const normalizedLimit = normalizeLimit(payload.limit, 20);
 
         if (receiverId) {
-          const allowed = await canOpenDirectChat(Number(payloadUserId), Number(receiverId));
+          const allowed = await canOpenDirectChat(
+            Number(authenticatedUser.id),
+            Number(receiverId)
+          );
           if (!allowed.allowed) {
             return socket.emit("chatError", { message: allowed.error });
           }
 
-          await markConversationAsRead(Number(payloadUserId), Number(receiverId));
+          await markConversationAsRead(Number(authenticatedUser.id), Number(receiverId));
 
           const messages = await loadDirectMessages({
-            userId: Number(payloadUserId),
+            userId: Number(authenticatedUser.id),
             receiverId: Number(receiverId),
-            limit: normalizeLimit(limit, 20),
+            limit: normalizedLimit,
           });
           return socket.emit("messagesLoaded", messages);
         }
 
+        const supportOwnerId =
+          authenticatedUser.role === "admin" && targetUserId
+            ? targetUserId
+            : Number(authenticatedUser.id);
+
         const messages = await loadAdminSupportMessages({
-          userId: Number(payloadUserId),
-          limit: normalizeLimit(limit, 20),
+          userId: supportOwnerId,
+          limit: normalizedLimit,
         });
 
         socket.emit("messagesLoaded", messages);
@@ -523,13 +604,17 @@ function initChatSocket(io) {
 
     socket.on("sendMessage", async (data = {}) => {
       try {
-        const { senderId, receiverId, message, messageType, image } = data;
-        const normalizedSenderId = Number(senderId);
+        const authenticatedUser = socket.data?.user;
+        if (!authenticatedUser?.id) {
+          return socket.emit("chatError", { message: "ØºÙŠØ± Ù…ØµØ±Ø­ Ø¨Ù‡" });
+        }
+
+        const { receiverId, message, messageType, image } = data;
+        const normalizedSenderId = Number(authenticatedUser.id);
         const normalizedReceiverId = receiverId ? Number(receiverId) : null;
         const normalizedType = messageType === "image" ? "image" : "text";
         const trimmedMessage = String(message || "").trim();
 
-        if (!normalizedSenderId) return;
         if (normalizedType === "text" && !trimmedMessage) return;
         if (normalizedType === "image" && !image) return;
 
@@ -692,7 +777,8 @@ router.get("/admin/support/conversations", authenticateTokenUser, async (req, re
       return res.status(403).json({ error: "Admins only" });
     }
 
-    const { users, agents } = await loadAdminSupportConversationBuckets(100);
+    const requestedLimit = req.query.limit ? normalizeLimit(req.query.limit, 100) : null;
+    const { users, agents } = await loadAdminSupportConversationBuckets(requestedLimit);
 
     return res.status(200).json({
       users,
@@ -815,7 +901,7 @@ router.post(
             .then((sockets) => {
               sockets
                 .filter(
-                  (socket) => String(socket.handshake.query.userId) === String(participantId)
+                  (socket) => String(socket.data?.userId || "") === String(participantId)
                 )
                 .forEach((socket) => socket.emit("newMessage", fullMessage));
             })
@@ -900,7 +986,7 @@ router.post(
             .then((sockets) => {
               sockets
                 .filter(
-                  (socket) => String(socket.handshake.query.userId) === String(participantId)
+                  (socket) => String(socket.data?.userId || "") === String(participantId)
                 )
                 .forEach((socket) => socket.emit("newMessage", fullMessage));
             })
@@ -934,8 +1020,12 @@ router.post(
   }
 );
 
-router.get("/usersWithLastMessage", async (req, res) => {
+router.get("/usersWithLastMessage", authenticateTokenUser, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Admins only" });
+    }
+
     const attributes = await getChatMessageAttributes();
     const admins = await User.findAll({
       where: { role: "admin" },
