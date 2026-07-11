@@ -6,12 +6,72 @@ const { StoreCategory, DigitalProduct, ProductPurchase, User, DigitalProductCode
 const { sendNotificationToUser } = require("../services/notifications");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
-const digitalProductCodeAttributes = ["id", "code", "used"];
-if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedBy")) {
-  digitalProductCodeAttributes.push("usedBy");
+let cachedDigitalProductCodeColumns = null;
+
+async function getDigitalProductCodeColumns() {
+  if (cachedDigitalProductCodeColumns !== null) {
+    return cachedDigitalProductCodeColumns;
+  }
+
+  try {
+    cachedDigitalProductCodeColumns = await sequelize.getQueryInterface().describeTable("digital_product_codes");
+  } catch (error) {
+    console.warn("⚠️ تعذر قراءة أعمدة جدول digital_product_codes، سيتم استخدام أعمدة افتراضية:", error.message);
+    cachedDigitalProductCodeColumns = {};
+  }
+
+  return cachedDigitalProductCodeColumns;
 }
-if (Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedAt")) {
-  digitalProductCodeAttributes.push("usedAt");
+
+async function hasDigitalProductCodeColumn(columnName) {
+  const columns = await getDigitalProductCodeColumns();
+  return Object.prototype.hasOwnProperty.call(columns, columnName);
+}
+
+async function getDigitalProductCodeAttributes() {
+  const attributes = ["id", "productId", "used"];
+
+  if (await hasDigitalProductCodeColumn("code")) {
+    attributes.push("code");
+  }
+  if ((await hasDigitalProductCodeColumn("usedBy")) && Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedBy")) {
+    attributes.push("usedBy");
+  }
+  if ((await hasDigitalProductCodeColumn("usedAt")) && Object.prototype.hasOwnProperty.call(DigitalProductCode.rawAttributes, "usedAt")) {
+    attributes.push("usedAt");
+  }
+
+  return attributes;
+}
+
+function buildDummyDigitalCode(record = {}) {
+  const id = record.id ?? record.codeId ?? 0;
+  const productId = record.productId ?? 0;
+  return `CARD-${productId}-${id}`;
+}
+
+function normalizeDigitalCodeRecord(record) {
+  const rawRecord = record && typeof record.toJSON === "function"
+    ? record.toJSON()
+    : { ...(record || {}) };
+
+  return {
+    ...rawRecord,
+    code: String(rawRecord.code || buildDummyDigitalCode(rawRecord)),
+    usedBy: Object.prototype.hasOwnProperty.call(rawRecord, "usedBy") ? rawRecord.usedBy : null,
+    usedAt: Object.prototype.hasOwnProperty.call(rawRecord, "usedAt") ? rawRecord.usedAt : null,
+  };
+}
+
+function normalizeProductCodes(productPayload) {
+  if (!productPayload || !Array.isArray(productPayload.codes)) {
+    return productPayload;
+  }
+
+  return {
+    ...productPayload,
+    codes: productPayload.codes.map((codeItem) => normalizeDigitalCodeRecord(codeItem)),
+  };
 }
 
 class StorePurchaseError extends Error {
@@ -120,6 +180,7 @@ router.delete("/store/categories/:id", requireAdmin, async (req, res) => {
 router.post("/store/products", requireAdmin, upload.array("images", 5), async (req, res) => {
   try {
     const { categoryId, title, description, price, codes } = req.body;
+    const codeColumnExists = await hasDigitalProductCodeColumn("code");
 
     if (!categoryId || !title || !price) {
       return res.status(400).json({
@@ -152,7 +213,7 @@ router.post("/store/products", requireAdmin, upload.array("images", 5), async (r
       });
     }
 
-    if (false && codesArr.length > 0) {
+    if (codeColumnExists && false && codesArr.length > 0) {
       const existedCodes = await DigitalProductCode.findAll({
         where: { code: codesArr },
         attributes: ["code"],
@@ -178,9 +239,9 @@ router.post("/store/products", requireAdmin, upload.array("images", 5), async (r
     });
 
     if (codesArr.length > 0) {
-      const entries = codesArr.map(code => ({
+      const entries = codesArr.map((code) => ({
         productId: product.id,
-        code,
+        ...(codeColumnExists ? { code } : {}),
       }));
 
       await DigitalProductCode.bulkCreate(entries);
@@ -193,14 +254,14 @@ router.post("/store/products", requireAdmin, upload.array("images", 5), async (r
         {
           model: DigitalProductCode,
           as: "codes",
-          attributes: ["id", "code", "used"],
+          attributes: await getDigitalProductCodeAttributes(),
         },
       ],
     });
 
     res.status(201).json({
       message: "تم إنشاء المنتج بنجاح",
-      product: freshProduct,
+      product: normalizeProductCodes(freshProduct?.toJSON()),
     });
 
   } catch (error) {
@@ -214,6 +275,7 @@ router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async 
   try {
     const { id } = req.params;
     const { codes } = req.body;
+    const codeColumnExists = await hasDigitalProductCodeColumn("code");
 
     const product = await DigitalProduct.findByPk(id);
     if (!product) {
@@ -248,10 +310,12 @@ router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async 
       });
     }
 
-    const existedCodes = await DigitalProductCode.findAll({
-      where: { code: codesArr },
-      attributes: ["code"],
-    });
+    const existedCodes = codeColumnExists
+      ? await DigitalProductCode.findAll({
+          where: { code: codesArr },
+          attributes: ["code"],
+        })
+      : [];
 
     /*if (existedCodes.length > 0) {
       return res.status(400).json({
@@ -262,7 +326,7 @@ router.post("/store/products/:id/add-codes", requireAdmin, upload.none(), async 
 
     const entries = codesArr.map((code) => ({
       productId: id,
-      code,
+      ...(codeColumnExists ? { code } : {}),
     }));
 
     await DigitalProductCode.bulkCreate(entries);
@@ -334,6 +398,7 @@ router.get("/store/categories/:categoryId/products", async (req, res) => {
 router.get("/store/admin/categories/:categoryId/products", requireAdmin, async (req, res) => {
   try {
     const { categoryId } = req.params;
+    const digitalProductCodeAttributes = await getDigitalProductCodeAttributes();
 
     const category = await StoreCategory.findByPk(categoryId);
     if (!category) {
@@ -365,7 +430,7 @@ router.get("/store/admin/categories/:categoryId/products", requireAdmin, async (
           });
 
       product.stock = unusedCodesCount;
-      normalizedProducts.push({
+      normalizedProducts.push(normalizeProductCodes({
         ...product.toJSON(),
         stock: unusedCodesCount,
         hiddenForUsers: unusedCodesCount <= 0,
@@ -374,7 +439,7 @@ router.get("/store/admin/categories/:categoryId/products", requireAdmin, async (
                 ? "no_codes_added"
                 : "all_codes_used")
             : null,
-      });
+      }));
     }
 
     res.status(200).json({
@@ -467,6 +532,7 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
   try {
     const { productId } = req.body;
     const userId = req.user.id;
+    const productCodeAttributes = await getDigitalProductCodeAttributes();
 
     if (!userId || !productId) {
       return res.status(400).json({ error: "userId \u0648 productId \u0645\u0637\u0644\u0648\u0628\u0629" });
@@ -524,6 +590,7 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
 
       const codeRow = await DigitalProductCode.findOne({
         where: { productId: prod.id, used: false },
+        attributes: productCodeAttributes,
         transaction: t,
         lock: t.LOCK.UPDATE,
       });
@@ -554,14 +621,16 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
         { where: { id: prod.id }, transaction: t }
       );
 
+      const normalizedCode = normalizeDigitalCodeRecord(codeRow);
+
       const purchase = await ProductPurchase.create({
         userId,
         productId,
-        cardCode: codeRow.code,
+        cardCode: normalizedCode.code,
         price: productPrice,
       }, { transaction: t });
 
-      return { purchase, prod, code: codeRow, userBalance: lockedUser.sawa };
+      return { purchase, prod, code: normalizedCode, userBalance: lockedUser.sawa };
     });
 
     await sendNotificationToUser(
