@@ -502,7 +502,10 @@ function initChatSocket(io) {
         }
 
         const receiverId = payload.receiverId ? Number(payload.receiverId) : null;
-        const normalizedLimit = normalizeLimit(payload.limit, 20);
+        const normalizedLimit = Math.max(
+          normalizeLimit(payload.limit, 100),
+          100
+        );
 
         if (receiverId) {
           const allowed = await canOpenDirectChat(
