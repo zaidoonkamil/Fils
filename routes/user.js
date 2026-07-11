@@ -3661,10 +3661,23 @@ router.post("/admin/settings", requireAdmin, upload.none(), async (req, res) => 
       return res.status(400).json({ error: "Key and value are required" });
     }
 
-    const existingSetting = await Settings.findOne({ where: { key } });
+    const existingSettings = await Settings.findAll({
+      where: { key },
+      order: [["updatedAt", "DESC"], ["id", "DESC"]],
+    });
+    const existingSetting = existingSettings[0] || null;
 
     if (existingSetting) {
       await existingSetting.update({ value, description });
+      if (existingSettings.length > 1) {
+        const duplicateIds = existingSettings
+          .slice(1)
+          .map((setting) => setting.id)
+          .filter(Boolean);
+        if (duplicateIds.length > 0) {
+          await Settings.destroy({ where: { id: duplicateIds } });
+        }
+      }
       res.status(200).json({ 
         message: "Setting updated successfully", 
         setting: existingSetting 
@@ -3686,7 +3699,10 @@ router.get("/admin/settings/:key", authorizeSettingRead, async (req, res) => {
   try {
 
     const { key } = req.params;
-    const setting = await Settings.findOne({ where: { key, isActive: true } });
+    const setting = await Settings.findOne({
+      where: { key, isActive: true },
+      order: [["updatedAt", "DESC"], ["id", "DESC"]],
+    });
 
     if (!setting) {
       return res.status(404).json({ error: "Setting not found" });

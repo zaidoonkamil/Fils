@@ -85,6 +85,51 @@ async function ensureSchema() {
     }
   }
 
+  if (await tableExists(queryInterface, "Settings")) {
+    const [duplicateSettings] = await sequelize.query(`
+      SELECT \`key\`
+      FROM \`Settings\`
+      GROUP BY \`key\`
+      HAVING COUNT(*) > 1
+    `);
+
+    for (const row of duplicateSettings) {
+      const key = String(row.key || "").trim();
+      if (!key) continue;
+
+      const records = await Settings.findAll({
+        where: { key },
+        order: [["updatedAt", "DESC"], ["id", "DESC"]],
+      });
+
+      if (records.length <= 1) continue;
+
+      const keepId = records[0].id;
+      const duplicateIds = records
+        .slice(1)
+        .map((item) => item.id)
+        .filter(Boolean);
+
+      if (duplicateIds.length > 0) {
+        await Settings.destroy({ where: { id: duplicateIds } });
+        console.log(`Deduplicated Settings key "${key}" and kept record #${keepId}`);
+      }
+    }
+
+    const settingsIndexes = await queryInterface.showIndex("Settings");
+    const hasUniqueKeyIndex = settingsIndexes.some((index) => {
+      const fields = (index.fields || []).map((field) => field.attribute || field.name);
+      return index.unique === true && fields.length === 1 && fields[0] === "key";
+    });
+
+    if (!hasUniqueKeyIndex) {
+      await queryInterface.addIndex("Settings", ["key"], {
+        unique: true,
+        name: "settings_key_unique",
+      });
+    }
+  }
+
   await ensureTable(queryInterface, "device_fingerprints", {
     id: {
       type: DataTypes.INTEGER,

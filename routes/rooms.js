@@ -455,8 +455,14 @@ async function cleanupUnsupportedRoomVoicePackages() {
 
 async function getRoomSupportAgentSettings() {
     const [priceSetting, hoursSetting] = await Promise.all([
-        Settings.findOne({ where: { key: "room_support_agent_price" } }),
-        Settings.findOne({ where: { key: "room_support_agent_hours" } }),
+        Settings.findOne({
+            where: { key: "room_support_agent_price", isActive: true },
+            order: [["updatedAt", "DESC"], ["id", "DESC"]],
+        }),
+        Settings.findOne({
+            where: { key: "room_support_agent_hours", isActive: true },
+            order: [["updatedAt", "DESC"], ["id", "DESC"]],
+        }),
     ]);
 
     return {
@@ -3244,20 +3250,24 @@ router.post("/room/:roomId/voice/token", authenticateToken, async (req, res) => 
 
 router.get("/room-settings", async (req, res) => {
   try {
-    const costSetting = await Settings.findOne({ where: { key: "room_creation_cost" } });
-    const maxUsersSetting = await Settings.findOne({ where: { key: "room_max_users" } });
-    const roomBackgroundChangeCostSetting = await Settings.findOne({ where: { key: "room_background_change_cost" } });
-    const roomNameChangeCostSetting = await Settings.findOne({ where: { key: "room_name_change_cost" } });
-    const roomVoiceMic4PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_4_price" } });
-    const roomVoiceMic4HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_4_hours" } });
-    const roomVoiceMic8PriceSetting = await Settings.findOne({ where: { key: "room_voice_mic_8_price" } });
-    const roomVoiceMic8HoursSetting = await Settings.findOne({ where: { key: "room_voice_mic_8_hours" } });
-    const roomAudioPriceSetting = await Settings.findOne({ where: { key: "room_audio_price" } });
-    const roomAudioHoursSetting = await Settings.findOne({ where: { key: "room_audio_hours" } });
-    const roomAudioMaxTotalMinutesSetting = await Settings.findOne({ where: { key: "room_audio_max_total_minutes" } });
-    const roomSupportAgentPriceSetting = await Settings.findOne({ where: { key: "room_support_agent_price" } });
-    const roomSupportAgentHoursSetting = await Settings.findOne({ where: { key: "room_support_agent_hours" } });
-    const roomChallengeDurationSetting = await Settings.findOne({ where: { key: "room_challenge_duration_seconds" } });
+    const latestActiveSetting = (key) => Settings.findOne({
+      where: { key, isActive: true },
+      order: [["updatedAt", "DESC"], ["id", "DESC"]],
+    });
+    const costSetting = await latestActiveSetting("room_creation_cost");
+    const maxUsersSetting = await latestActiveSetting("room_max_users");
+    const roomBackgroundChangeCostSetting = await latestActiveSetting("room_background_change_cost");
+    const roomNameChangeCostSetting = await latestActiveSetting("room_name_change_cost");
+    const roomVoiceMic4PriceSetting = await latestActiveSetting("room_voice_mic_4_price");
+    const roomVoiceMic4HoursSetting = await latestActiveSetting("room_voice_mic_4_hours");
+    const roomVoiceMic8PriceSetting = await latestActiveSetting("room_voice_mic_8_price");
+    const roomVoiceMic8HoursSetting = await latestActiveSetting("room_voice_mic_8_hours");
+    const roomAudioPriceSetting = await latestActiveSetting("room_audio_price");
+    const roomAudioHoursSetting = await latestActiveSetting("room_audio_hours");
+    const roomAudioMaxTotalMinutesSetting = await latestActiveSetting("room_audio_max_total_minutes");
+    const roomSupportAgentPriceSetting = await latestActiveSetting("room_support_agent_price");
+    const roomSupportAgentHoursSetting = await latestActiveSetting("room_support_agent_hours");
+    const roomChallengeDurationSetting = await latestActiveSetting("room_challenge_duration_seconds");
 
     res.json({
       room_creation_cost: costSetting ? parseInt(costSetting.value) : 0,
