@@ -671,7 +671,7 @@ router.get("/admin/agents/:agentId/conversations/:userId/messages", authenticate
 
     const agentId = Number(req.params.agentId);
     const targetUserId = Number(req.params.userId);
-    const limit = normalizeLimit(req.query.limit, 20);
+    const limit = normalizeLimit(req.query.limit, 100);
 
     const [agent, targetUser] = await Promise.all([
       User.findByPk(agentId, { attributes: ["id", "role", "name", "phone", "images"] }),
