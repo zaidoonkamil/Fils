@@ -1439,6 +1439,15 @@ async function ensureSchema() {
       isActive: true,
     },
   });
+
+  await Settings.findOrCreate({
+    where: { key: "domino_turn_seconds" },
+    defaults: {
+      value: "15",
+      description: "مدة الدور بلعبة الدومينو بالثواني (من 5 الى 120)",
+      isActive: true,
+    },
+  });
 }
 
 module.exports = ensureSchema;

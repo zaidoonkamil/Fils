@@ -142,6 +142,22 @@ async function initializeSettings() {
       console.log('domino_win_fee setting already exists');
     }
 
+    const dominoTurnSecondsSetting = await Settings.findOne({
+      where: { key: 'domino_turn_seconds' },
+    });
+
+    if (!dominoTurnSecondsSetting) {
+      await Settings.create({
+        key: 'domino_turn_seconds',
+        value: '15',
+        description: 'مدة الدور بلعبة الدومينو بالثواني (من 5 الى 120)',
+        isActive: true,
+      });
+      console.log('Default domino_turn_seconds setting created successfully');
+    } else {
+      console.log('domino_turn_seconds setting already exists');
+    }
+
     const dominoClassicPackage1PrizeSetting = await Settings.findOne({
       where: { key: 'domino_classic_package_1_prize' },
     });

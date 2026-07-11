@@ -1,8 +1,34 @@
-const { DominoMatch, User } = require('../models');
+const { DominoMatch, User, Settings } = require('../models');
 const sequelize = require("../config/db");
 
 
-const TURN_SECONDS = 7;
+const DEFAULT_TURN_SECONDS = 15;
+
+let turnSecondsCache = DEFAULT_TURN_SECONDS;
+let turnSecondsFetchedAt = 0;
+
+function currentTurnSeconds() {
+  const now = Date.now();
+  if (now - turnSecondsFetchedAt > 60 * 1000) {
+    turnSecondsFetchedAt = now;
+    Settings.findOne({ where: { key: 'domino_turn_seconds', isActive: true } })
+      .then((s) => {
+        const v = Number(s?.value);
+        if (Number.isFinite(v) && v >= 5 && v <= 120) {
+          turnSecondsCache = Math.floor(v);
+        }
+      })
+      .catch(() => {});
+  }
+  return turnSecondsCache;
+}
+
+// warm the cache at startup
+currentTurnSeconds();
+
+function stateTurnSeconds(state) {
+  return Number(state?.turnSeconds) || DEFAULT_TURN_SECONDS;
+}
 
 const matches = new Map();
 const timers = new Map();
@@ -43,7 +69,7 @@ async function payoutWinner(matchId, winnerId) {
     const pot = entryFee * 2;
 
     const winFee = Number(match.winFee ?? 0);
-    const commission = winFee > 0 && winFee < 1 ? pot * winFee : winFee; 
+    const commission = winFee > 0 && winFee < 1 ? pot * winFee : winFee;
 
     const prize = Math.max(0, Math.floor(pot - commission));
 
@@ -86,6 +112,8 @@ function createNewMatchState(matchId, p1, p2) {
   const boneyard = tiles;
 
   const starter = chooseStarter(p1, hand1, p2, hand2);
+  const starterHand = starter === p1 ? hand1 : hand2;
+  const turnSeconds = currentTurnSeconds();
 
   return {
     matchId,
@@ -98,17 +126,31 @@ function createNewMatchState(matchId, p1, p2) {
       rightChain: [],
       left: null,
       right: null,
-    }, 
+    },
     turnUserId: starter,
     lastMoveAt: Date.now(),
     status: 'playing',
     winnerId: null,
-    turn: { expiresAt: Date.now() + TURN_SECONDS * 1000 },
+    turnSeconds,
+    turn: { expiresAt: Date.now() + turnSeconds * 1000 },
     scores: { [p1]: 0, [p2]: 0 },
     matchTargetScore: 101,
-    round: { number: 1, starterUserId: starter, ended: false },
+    round: {
+      number: 1,
+      starterUserId: starter,
+      ended: false,
+      mustOpenWith: mandatoryOpeningDouble(starterHand),
+    },
     lastRound: null,
   };
+}
+
+// بالدومينو الحقيقي: اللي يبدي الجولة لازم يفتتح بأعلى دبل عنده (إذا عنده دبل)
+function mandatoryOpeningDouble(hand) {
+  for (let d = 6; d >= 0; d--) {
+    if (hand.some((t) => t[0] === d && t[1] === d)) return [d, d];
+  }
+  return null;
 }
 
 function chooseStarter(p1, hand1, p2, hand2) {
@@ -151,30 +193,30 @@ function computeRoundPointsOnEmptyHand(winnerId, loserId, state) {
 
 
 function isRoundBlocked(state) {
-  if (state.boneyard.length > 0) return false; 
-  
+  if (state.boneyard.length > 0) return false;
+
   const p1 = state.players.p1;
   const p2 = state.players.p2;
-  
+
   const p1CanPlay = hasAnyLegalPlay(state, p1);
   const p2CanPlay = hasAnyLegalPlay(state, p2);
-  
+
   return !p1CanPlay && !p2CanPlay;
 }
 
 function blockedWinnerAndPoints(state) {
   if (!isRoundBlocked(state)) return null;
-  
+
   const p1 = state.players.p1;
   const p2 = state.players.p2;
   const p1Score = sumHandPips(state.hands[p1] || []);
   const p2Score = sumHandPips(state.hands[p2] || []);
-  
+
   if (p1Score === p2Score) {
     // Tie: no one wins, no points awarded
     return { winnerId: null, points: 0, isTie: true };
   }
-  
+
   if (p1Score < p2Score) {
     // p1 has lower score, wins
     return { winnerId: p1, points: p2Score - p1Score, isTie: false };
@@ -214,13 +256,17 @@ function startNewRound(matchId, state) {
     starter = chooseStarter(p1, hand1, p2, hand2);
   }
 
+  const starterHand = state.hands[starter] || [];
+
   state.round.number++;
   state.round.starterUserId = starter;
   state.round.ended = false;
+  state.round.mustOpenWith = mandatoryOpeningDouble(starterHand);
 
   state.turnUserId = starter;
   state.lastMoveAt = Date.now();
-  state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+  state.turnSeconds = currentTurnSeconds();
+  state.turn.expiresAt = Date.now() + stateTurnSeconds(state) * 1000;
 }
 
 function storeState(matchId, state) {
@@ -243,13 +289,18 @@ async function publicState(state, viewerId) {
     where: {
       id: [state.players.p1, state.players.p2],
     },
-    attributes: ['id', 'name'],
+    attributes: ['id', 'name', 'images'],
   });
 
   const playersInfo = {};
   for (const p of players) {
+    let image = '';
+    if (Array.isArray(p.images) && p.images.length > 0 && p.images[0] != null) {
+      image = String(p.images[0]);
+    }
     playersInfo[p.id] = {
       name: p.name,
+      image,
     };
   }
 
@@ -328,7 +379,7 @@ function nextTurn(state) {
   const { p1, p2 } = state.players;
   state.turnUserId = state.turnUserId === p1 ? p2 : p1;
   state.lastMoveAt = Date.now();
-  state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+  state.turn.expiresAt = Date.now() + stateTurnSeconds(state) * 1000;
 }
 
 function finishMatch(state, winnerId) {
@@ -356,6 +407,16 @@ function isValidMove(state, userId, move) {
     if (!hand.some((t) => tileEquals(t, move.tile))) return { ok: false, reason: 'tile_not_in_hand' };
 
     const tile = normalizeTile(move.tile);
+
+    // فرض قاعدة الافتتاح: أول قطعة بالجولة لازم تكون أعلى دبل عند اللاعب المفتتح
+    if (state.board.center == null) {
+      const must = state.round?.mustOpenWith;
+      if (must && !tileEquals(tile, must)) {
+        return { ok: false, reason: 'must_open_with_double' };
+      }
+      return { ok: true };
+    }
+
     if (move.side === 'left' && !canPlayOnLeft(state, tile)) return { ok: false, reason: 'cannot_play_left' };
     if (move.side === 'right' && !canPlayOnRight(state, tile)) return { ok: false, reason: 'cannot_play_right' };
 
@@ -417,25 +478,25 @@ function applyMove(state, userId, move) {
       return { ok: true, action: 'play', placed: tile, side: 'first' };
     }
 
-      if (move.side === 'left') {
-        const oriented = rotateToMatchLeft(state, tile);
-        if (!oriented) return { ok: false, reason: 'cannot_play_left' };
+    if (move.side === 'left') {
+      const oriented = rotateToMatchLeft(state, tile);
+      if (!oriented) return { ok: false, reason: 'cannot_play_left' };
 
-        // ✅ نخزنها بطرف اليسار
-        state.board.leftChain.unshift(oriented); // الأقرب للسنتر يصير أول
-        state.board.left = oriented[0];
+      // نخزنها بطرف اليسار (الأبعد عن السنتر يصير أول)
+      state.board.leftChain.unshift(oriented);
+      state.board.left = oriented[0];
 
-        return { ok: true, action: 'play', placed: oriented, side: 'left' };
-      } else {
-        const oriented = rotateToMatchRight(state, tile);
-        if (!oriented) return { ok: false, reason: 'cannot_play_right' };
+      return { ok: true, action: 'play', placed: oriented, side: 'left' };
+    } else {
+      const oriented = rotateToMatchRight(state, tile);
+      if (!oriented) return { ok: false, reason: 'cannot_play_right' };
 
-        // ✅ نخزنها بطرف اليمين
-        state.board.rightChain.push(oriented);
-        state.board.right = oriented[1];
+      // نخزنها بطرف اليمين
+      state.board.rightChain.push(oriented);
+      state.board.right = oriented[1];
 
-        return { ok: true, action: 'play', placed: oriented, side: 'right' };
-      }
+      return { ok: true, action: 'play', placed: oriented, side: 'right' };
+    }
   }
 
   return { ok: false, reason: 'invalid_move' };
@@ -462,63 +523,99 @@ function clearTurnTimer(matchId) {
   timers.delete(String(matchId));
 }
 
-async function handleBlockedIfAny(io, matchId, state) {
-  if (!isRoundBlocked(state)) return false;
-
-  const blocked = blockedWinnerAndPoints(state);
-
+// ينهي الجولة (يوزع النقاط، يبث النتيجة)، وإذا وصل أحد للهدف ينهي المباراة، وإلا يبدي جولة جديدة
+// يرجع 'match_finished' أو 'new_round'
+async function finishRound(io, matchId, state, { winnerId, points, reason, isTie = false }) {
   state.round.ended = true;
   state.lastRound = {
-    winnerId: blocked.winnerId,
-    pointsAwarded: blocked.points,
-    reason: 'blocked',
-    isTie: blocked.isTie,
+    winnerId,
+    pointsAwarded: points,
+    reason,
+    isTie,
   };
 
-  if (!blocked.isTie && blocked.winnerId) {
-    state.scores[blocked.winnerId] += blocked.points;
+  if (!isTie && winnerId) {
+    state.scores[winnerId] += points;
   }
 
   io.to(`match:${matchId}`).emit('domino:round_finished', {
     matchId,
     roundNumber: state.round.number,
-    roundWinnerId: blocked.winnerId,
-    pointsAwarded: blocked.points,
+    roundWinnerId: winnerId,
+    pointsAwarded: points,
     scores: state.scores,
-    reason: 'blocked',
-    isTie: blocked.isTie,
+    reason,
+    isTie,
   });
 
-  if (blocked.winnerId && state.scores[blocked.winnerId] >= state.matchTargetScore) {
+  if (winnerId && state.scores[winnerId] >= state.matchTargetScore) {
     state.status = 'finished';
-    state.winnerId = blocked.winnerId;
+    state.winnerId = winnerId;
     clearTurnTimer(matchId);
 
-    await payoutWinner(matchId, blocked.winnerId);
-    await persistFinish(matchId, blocked.winnerId, state);
+    await payoutWinner(matchId, winnerId);
+    await persistFinish(matchId, winnerId, state);
 
-      io.to(`match:${matchId}`).emit('domino:match_finished', {
-        matchId,
-        winnerId: blocked.winnerId,
-        finalScores: state.scores,
-        reason: 'reached_target_score',
-        statePublicP1: await  publicState(state, state.players.p1),
-        statePublicP2: await publicState(state, state.players.p2),
-      });
-      clearMatchState(matchId);
-      return true;
-    }
+    io.to(`match:${matchId}`).emit('domino:match_finished', {
+      matchId,
+      winnerId,
+      finalScores: state.scores,
+      reason: 'reached_target_score',
+      statePublicP1: await publicState(state, state.players.p1),
+      statePublicP2: await publicState(state, state.players.p2),
+    });
+    clearMatchState(matchId);
+    return 'match_finished';
+  }
 
   startNewRound(matchId, state);
   io.to(`match:${matchId}`).emit('domino:new_round_started', {
     matchId,
     roundNumber: state.round.number,
     scores: state.scores,
-    statePublicP1: await  publicState(state, state.players.p1),
-    statePublicP2: await  publicState(state, state.players.p2),
+    statePublicP1: await publicState(state, state.players.p1),
+    statePublicP2: await publicState(state, state.players.p2),
   });
 
   startTurnTimer(io, matchId);
+  return 'new_round';
+}
+
+// بعد أي حركة: يفحص تفريغ اليد ثم الانسداد. يرجع null إذا الجولة مستمرة.
+async function settleAfterMove(io, matchId, state, userId) {
+  if ((state.hands[userId] || []).length === 0) {
+    const opponentId = otherPlayer(state, userId);
+    const points = computeRoundPointsOnEmptyHand(userId, opponentId, state);
+    return finishRound(io, matchId, state, {
+      winnerId: userId,
+      points,
+      reason: 'hand_empty',
+    });
+  }
+
+  if (isRoundBlocked(state)) {
+    const blocked = blockedWinnerAndPoints(state);
+    return finishRound(io, matchId, state, {
+      winnerId: blocked.winnerId,
+      points: blocked.points,
+      reason: 'blocked',
+      isTie: blocked.isTie,
+    });
+  }
+
+  return null;
+}
+
+async function handleBlockedIfAny(io, matchId, state) {
+  if (!isRoundBlocked(state)) return false;
+
+  const blocked = blockedWinnerAndPoints(state);
+  await finishRound(io, matchId, state, {
+    winnerId: blocked.winnerId,
+    points: blocked.points,
+    reason: 'blocked',
+    isTie: blocked.isTie,
+  });
   return true;
 }
 
@@ -540,184 +637,42 @@ async function autoMove(io, matchId) {
   const userId = state.turnUserId;
   const hand = state.hands[userId] || [];
 
+  // افتتاح الجولة عند انتهاء الوقت: يلتزم بقاعدة أعلى دبل
+  if (state.board.center == null) {
+    const opening =
+      (state.round && state.round.mustOpenWith) ||
+      bestOpeningTile(hand).tile;
+
+    if (opening) {
+      const res = applyMove(state, userId, { type: 'play', tile: opening, side: 'right' });
+      if (res.ok) {
+        const settled = await settleAfterMove(io, matchId, state, userId);
+        if (settled) return;
+
+        nextTurn(state);
+        await broadcastState(io, state, 'timeout_auto_play', { lastAction: res });
+        return;
+      }
+    }
+  }
+
   for (const tile of hand) {
-    if (canPlayOnLeft(state, tile)) {
-      const res = applyMove(state, userId, { type: 'play', tile, side: 'left' });
-      if (res.ok) {
-        if (state.hands[userId].length === 0) {
-          const opponentId = otherPlayer(state, userId);
-          const pointsAwarded = computeRoundPointsOnEmptyHand(userId, opponentId, state);
-          state.scores[userId] += pointsAwarded;
-          
-          state.round.ended = true;
-          state.lastRound = {
-            winnerId: userId,
-            pointsAwarded,
-            reason: 'hand_empty',
-          };
-          
-          io.to(`match:${matchId}`).emit('domino:round_finished', {
-            matchId,
-            roundNumber: state.round.number,
-            roundWinnerId: userId,
-            pointsAwarded,
-            scores: state.scores,
-            reason: 'hand_empty',
-          });
-          
-          if (state.scores[userId] >= state.matchTargetScore) {
-            state.status = 'finished';
-            state.winnerId = userId;
-            clearTurnTimer(matchId);
-            
-            await payoutWinner(matchId, userId);
-            await persistFinish(matchId, userId, state);
-            
-            io.to(`match:${matchId}`).emit('domino:match_finished', {
-              matchId,
-              winnerId: userId,
-              finalScores: state.scores,
-              reason: 'reached_target_score',
-              statePublicP1: await publicState(state, state.players.p1),
-              statePublicP2: await publicState(state, state.players.p2),
-            });
-            clearMatchState(matchId);
-            return;
-          }
-          
-            startNewRound(matchId, state);
-            io.to(`match:${matchId}`).emit('domino:new_round_started', {
-              matchId,
-              roundNumber: state.round.number,
-              scores: state.scores,
-              statePublicP1: await publicState(state, state.players.p1),
-              statePublicP2: await publicState(state, state.players.p2),
-            });
-            startTurnTimer(io, matchId);
-            return;
-        }
-        nextTurn(state);
-        broadcastState(io, state, 'timeout_auto_play');
-        return;
-      }
-    }
+    const side = canPlayOnLeft(state, tile)
+      ? 'left'
+      : canPlayOnRight(state, tile)
+        ? 'right'
+        : null;
+    if (!side) continue;
 
-    if (canPlayOnRight(state, tile)) {
-      const res = applyMove(state, userId, { type: 'play', tile, side: 'right' });
-      if (res.ok) {
-        if (state.hands[userId].length === 0) {
-          const opponentId = otherPlayer(state, userId);
-          const pointsAwarded = computeRoundPointsOnEmptyHand(userId, opponentId, state);
-          state.scores[userId] += pointsAwarded;
-          
-          state.round.ended = true;
-          state.lastRound = {
-            winnerId: userId,
-            pointsAwarded,
-            reason: 'hand_empty',
-          };
-          
-          io.to(`match:${matchId}`).emit('domino:round_finished', {
-            matchId,
-            roundNumber: state.round.number,
-            roundWinnerId: userId,
-            pointsAwarded,
-            scores: state.scores,
-            reason: 'hand_empty',
-          });
-          
-          if (state.scores[userId] >= state.matchTargetScore) {
-            state.status = 'finished';
-            state.winnerId = userId;
-            clearTurnTimer(matchId);
+    const res = applyMove(state, userId, { type: 'play', tile, side });
+    if (!res.ok) continue;
 
-            await payoutWinner(matchId, userId);
-            await persistFinish(matchId, userId, state);
-            
-            io.to(`match:${matchId}`).emit('domino:match_finished', {
-              matchId,
-              winnerId: userId,
-              finalScores: state.scores,
-              reason: 'reached_target_score',
-              statePublicP1: await publicState(state, state.players.p1),
-              statePublicP2: await publicState(state, state.players.p2),
-            });
-            clearMatchState(matchId);
-            return;
-          }
-          
-          startNewRound(matchId, state);
-          io.to(`match:${matchId}`).emit('domino:new_round_started', {
-            matchId,
-            roundNumber: state.round.number,
-            scores: state.scores,
-            statePublicP1: await publicState(state, state.players.p1),
-            statePublicP2: await publicState(state, state.players.p2),
-          });
-           startTurnTimer(io, matchId);
-          return;
-        }
-        
-        if (isRoundBlocked(state)) {
-          const blocked = blockedWinnerAndPoints(state);
-          state.round.ended = true;
-          state.lastRound = {
-            winnerId: blocked.winnerId,
-            pointsAwarded: blocked.points,
-            reason: 'blocked',
-            isTie: blocked.isTie,
-          };
-          
-          if (!blocked.isTie && blocked.winnerId) {
-            state.scores[blocked.winnerId] += blocked.points;
-          }
-          
-          io.to(`match:${matchId}`).emit('domino:round_finished', {
-            matchId,
-            roundNumber: state.round.number,
-            roundWinnerId: blocked.winnerId,
-            pointsAwarded: blocked.points,
-            scores: state.scores,
-            reason: 'blocked',
-            isTie: blocked.isTie,
-          });
-          
-          if (blocked.winnerId && state.scores[blocked.winnerId] >= state.matchTargetScore) {
-            state.status = 'finished';
-            state.winnerId = blocked.winnerId;
-            clearTurnTimer(matchId);
+    const settled = await settleAfterMove(io, matchId, state, userId);
+    if (settled) return;
 
-            await payoutWinner(matchId, blocked.winnerId);
-            await persistFinish(matchId, blocked.winnerId, state);
-            
-            io.to(`match:${matchId}`).emit('domino:match_finished', {
-              matchId,
-              winnerId: blocked.winnerId,
-              finalScores: state.scores,
-              reason: 'reached_target_score',
-              statePublicP1: await publicState(state, state.players.p1),
-              statePublicP2: await publicState(state, state.players.p2),
-            });
-            clearMatchState(matchId);
-            return;
-          }
-          
-          startNewRound(matchId, state);
-          io.to(`match:${matchId}`).emit('domino:new_round_started', {
-            matchId,
-            roundNumber: state.round.number,
-            scores: state.scores,
-            statePublicP1: await publicState(state, state.players.p1),
-            statePublicP2: await publicState(state, state.players.p2),
-          });
-          return;
-        }
-        
-        nextTurn(state);
-        broadcastState(io, state, 'timeout_auto_play');
-        return;
-      }
-    }
+    nextTurn(state);
+    await broadcastState(io, state, 'timeout_auto_play', { lastAction: res });
+    return;
   }
 
   if (state.boneyard.length > 0 && !hasAnyLegalPlay(state, userId)) {
@@ -725,11 +680,10 @@ async function autoMove(io, matchId) {
 
     if (hasAnyLegalPlay(state, userId)) {
       state.lastMoveAt = Date.now();
-      state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+      state.turn.expiresAt = Date.now() + stateTurnSeconds(state) * 1000;
       await broadcastState(io, state, 'timeout_auto_draw_until_playable', { lastAction: res });
       return;
     }
-
 
     if (await handleBlockedIfAny(io, matchId, state)) return;
 
@@ -759,134 +713,31 @@ async function onPlayerMove(io, matchId, userId, move) {
   const applied = applyMove(state, userId, move);
   if (!applied.ok) return applied;
 
-  if (state.hands[userId].length === 0) {
-    const opponentId = otherPlayer(state, userId);
-    const pointsAwarded = computeRoundPointsOnEmptyHand(userId, opponentId, state);
-    state.scores[userId] += pointsAwarded;
-    
-    state.round.ended = true;
-    state.lastRound = {
-      winnerId: userId,
-      pointsAwarded,
-      reason: 'hand_empty',
-    };
-    
-    io.to(`match:${matchId}`).emit('domino:round_finished', {
-      matchId,
-      roundNumber: state.round.number,
-      roundWinnerId: userId,
-      pointsAwarded,
-      scores: state.scores,
-      reason: 'hand_empty',
-    });
-    
-    if (state.scores[userId] >= state.matchTargetScore) {
-      state.status = 'finished';
-      state.winnerId = userId;
-      clearTurnTimer(matchId);
-
-      await payoutWinner(matchId, userId);
-      await persistFinish(matchId, userId, state);
-      
-      io.to(`match:${matchId}`).emit('domino:match_finished', {
-        matchId,
-        winnerId: userId,
-        finalScores: state.scores,
-        reason: 'reached_target_score',
-        statePublicP1: await publicState(state, state.players.p1),
-        statePublicP2: await publicState(state, state.players.p2),
-      });
-      clearMatchState(matchId);
-      return { ok: true, finished: true, winnerId: userId };
-    }
-    
-    startNewRound(matchId, state);
-    
-    io.to(`match:${matchId}`).emit('domino:new_round_started', {
-      matchId,
-      roundNumber: state.round.number,
-      scores: state.scores,
-      statePublicP1: await publicState(state, state.players.p1),
-      statePublicP2: await publicState(state, state.players.p2),
-    });
-    
-    startTurnTimer(io, matchId);
+  const settled = await settleAfterMove(io, matchId, state, userId);
+  if (settled === 'match_finished') {
+    return { ok: true, finished: true, winnerId: state.winnerId };
+  }
+  if (settled === 'new_round') {
     return { ok: true, roundEnded: true, newRound: true };
   }
 
-  if (isRoundBlocked(state)) {
-    const blocked = blockedWinnerAndPoints(state);
-    
-    state.round.ended = true;
-    state.lastRound = {
-      winnerId: blocked.winnerId,
-      pointsAwarded: blocked.points,
-      reason: 'blocked',
-      isTie: blocked.isTie,
-    };
-    
-    // Award points if not a tie
-    if (!blocked.isTie && blocked.winnerId) {
-      state.scores[blocked.winnerId] += blocked.points;
-    }
-    
-    // Broadcast round finished
-    io.to(`match:${matchId}`).emit('domino:round_finished', {
-      matchId,
-      roundNumber: state.round.number,
-      roundWinnerId: blocked.winnerId,
-      pointsAwarded: blocked.points,
-      scores: state.scores,
-      reason: 'blocked',
-      isTie: blocked.isTie,
-    });
-    
-    // Check if match is won
-    if (blocked.winnerId && state.scores[blocked.winnerId] >= state.matchTargetScore) {
-      state.status = 'finished';
-      state.winnerId = blocked.winnerId;
-      clearTurnTimer(matchId);
+  // إذا سحب كل البانك وبعده ما عنده لعبة، ينحسب عليه تمرير تلقائي
+  const drewAndStillStuck =
+    (move.type === 'draw' || move.type === 'draw_until_playable') &&
+    state.boneyard.length === 0 &&
+    !hasAnyLegalPlay(state, userId);
 
-      await payoutWinner(matchId, blocked.winnerId);
-      await persistFinish(matchId, blocked.winnerId, state);
-      
-      io.to(`match:${matchId}`).emit('domino:match_finished', {
-        matchId,
-        winnerId: blocked.winnerId,
-        finalScores: state.scores,
-        reason: 'reached_target_score',
-        statePublicP1: await publicState(state, state.players.p1),
-        statePublicP2: await publicState(state, state.players.p2),
-      });
-      clearMatchState(matchId);
-      return { ok: true, finished: true, winnerId: blocked.winnerId };
-    }
-    
-    // Start next round
-    startNewRound(matchId, state);
-    
-    io.to(`match:${matchId}`).emit('domino:new_round_started', {
-      matchId,
-      roundNumber: state.round.number,
-      scores: state.scores,
-      statePublicP1: await publicState(state, state.players.p1),
-      statePublicP2: await publicState(state, state.players.p2),
-    });
-    
-    startTurnTimer(io, matchId);
-    return { ok: true, roundEnded: true, newRound: true };
-  }
-
-  const isTurnEndingMove = (move.type === 'play' || move.type === 'pass');
+  const isTurnEndingMove =
+    move.type === 'play' || move.type === 'pass' || drewAndStillStuck;
 
   if (isTurnEndingMove) {
     nextTurn(state);
   } else {
     state.lastMoveAt = Date.now();
-    state.turn.expiresAt = Date.now() + TURN_SECONDS * 1000;
+    state.turn.expiresAt = Date.now() + stateTurnSeconds(state) * 1000;
   }
 
-  broadcastState(io, state, 'player_move', { lastAction: applied });
+  await broadcastState(io, state, 'player_move', { lastAction: applied });
   return { ok: true };
 }
 
