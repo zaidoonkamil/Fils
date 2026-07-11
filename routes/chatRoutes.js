@@ -1,6 +1,5 @@
 const express = require("express");
 const { Op } = require("sequelize");
-const jwt = require("jsonwebtoken");
 const { ChatMessage, User } = require("../models");
 const { authenticateTokenUser } = require("../middlewares/auth");
 const upload = require("../middlewares/uploads");
@@ -216,45 +215,6 @@ function buildNotificationMessage(message) {
     return "تم إرسال صورة";
   }
   return normalized.message || "";
-}
-
-function resolveSocketToken(socket) {
-  const authToken =
-    socket.handshake?.auth?.token ||
-    socket.handshake?.auth?.accessToken ||
-    null;
-  const headerToken =
-    socket.handshake?.headers?.authorization ||
-    socket.handshake?.headers?.Authorization ||
-    null;
-  const queryToken = socket.handshake?.query?.token || null;
-
-  const rawToken = authToken || headerToken || queryToken;
-  if (!rawToken || typeof rawToken !== "string") {
-    return null;
-  }
-
-  return rawToken.startsWith("Bearer ")
-    ? rawToken.slice("Bearer ".length).trim()
-    : rawToken.trim();
-}
-
-async function authenticateSocketUser(socket) {
-  const token = resolveSocketToken(socket);
-  if (!token) {
-    throw new Error("SOCKET_TOKEN_MISSING");
-  }
-
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-  const user = await User.findByPk(decoded.id, {
-    attributes: ["id", "email", "role", "isActive", "isVerified"],
-  });
-
-  if (!user || user.isActive === false) {
-    throw new Error("SOCKET_USER_FORBIDDEN");
-  }
-
-  return user;
 }
 
 async function isAllowedDirectChat(senderId, receiverId) {
@@ -525,29 +485,8 @@ async function loadAdminSupportConversationBuckets(limit = null) {
 function initChatSocket(io) {
   const userSocketsById = new Map();
 
-  io.use(async (socket, next) => {
-    try {
-      const user = await authenticateSocketUser(socket);
-      socket.data.user = {
-        id: Number(user.id),
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-        isVerified: user.isVerified,
-      };
-      socket.data.userId = String(user.id);
-      next();
-    } catch (error) {
-      const code =
-        error?.name === "TokenExpiredError"
-          ? "TOKEN_EXPIRED"
-          : error?.message || "SOCKET_UNAUTHORIZED";
-      next(new Error(code));
-    }
-  });
-
   io.on("connection", (socket) => {
-    const userId = socket.data?.userId;
+    const userId = String(socket.handshake.query.userId || "");
     if (!userId) return socket.disconnect(true);
 
     if (!userSocketsById.has(userId)) {
@@ -557,41 +496,35 @@ function initChatSocket(io) {
 
     socket.on("getMessages", async (payload = {}) => {
       try {
-        const authenticatedUser = socket.data?.user;
-        if (!authenticatedUser?.id) {
+        const currentUserId = Number(payload.userId || userId);
+        if (!currentUserId) {
           return socket.emit("chatError", { message: "ØºÙŠØ± Ù…ØµØ±Ø­ Ø¨Ù‡" });
         }
 
         const receiverId = payload.receiverId ? Number(payload.receiverId) : null;
-        const targetUserId = payload.userId ? Number(payload.userId) : null;
         const normalizedLimit = normalizeLimit(payload.limit, 20);
 
         if (receiverId) {
           const allowed = await canOpenDirectChat(
-            Number(authenticatedUser.id),
+            currentUserId,
             Number(receiverId)
           );
           if (!allowed.allowed) {
             return socket.emit("chatError", { message: allowed.error });
           }
 
-          await markConversationAsRead(Number(authenticatedUser.id), Number(receiverId));
+          await markConversationAsRead(currentUserId, Number(receiverId));
 
           const messages = await loadDirectMessages({
-            userId: Number(authenticatedUser.id),
+            userId: currentUserId,
             receiverId: Number(receiverId),
             limit: normalizedLimit,
           });
           return socket.emit("messagesLoaded", messages);
         }
 
-        const supportOwnerId =
-          authenticatedUser.role === "admin" && targetUserId
-            ? targetUserId
-            : Number(authenticatedUser.id);
-
         const messages = await loadAdminSupportMessages({
-          userId: supportOwnerId,
+          userId: currentUserId,
           limit: normalizedLimit,
         });
 
@@ -604,13 +537,12 @@ function initChatSocket(io) {
 
     socket.on("sendMessage", async (data = {}) => {
       try {
-        const authenticatedUser = socket.data?.user;
-        if (!authenticatedUser?.id) {
+        const normalizedSenderId = Number(data.senderId);
+        if (!normalizedSenderId) {
           return socket.emit("chatError", { message: "ØºÙŠØ± Ù…ØµØ±Ø­ Ø¨Ù‡" });
         }
 
         const { receiverId, message, messageType, image } = data;
-        const normalizedSenderId = Number(authenticatedUser.id);
         const normalizedReceiverId = receiverId ? Number(receiverId) : null;
         const normalizedType = messageType === "image" ? "image" : "text";
         const trimmedMessage = String(message || "").trim();
@@ -901,7 +833,7 @@ router.post(
             .then((sockets) => {
               sockets
                 .filter(
-                  (socket) => String(socket.data?.userId || "") === String(participantId)
+                  (socket) => String(socket.handshake?.query?.userId || "") === String(participantId)
                 )
                 .forEach((socket) => socket.emit("newMessage", fullMessage));
             })
@@ -986,7 +918,7 @@ router.post(
             .then((sockets) => {
               sockets
                 .filter(
-                  (socket) => String(socket.data?.userId || "") === String(participantId)
+                  (socket) => String(socket.handshake?.query?.userId || "") === String(participantId)
                 )
                 .forEach((socket) => socket.emit("newMessage", fullMessage));
             })
