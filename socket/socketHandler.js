@@ -8,6 +8,14 @@ const cleanupRoomVoiceParticipant = roomsRouter.cleanupRoomVoiceParticipant;
 const syncRoomAudioPlaybackPresence = roomsRouter.syncRoomAudioPlaybackPresence;
 const canManageRoom = roomsRouter.canManageRoom;
 
+function getJwtSecret() {
+  const secret = String(process.env.JWT_SECRET || "").trim();
+  if (!secret) {
+    throw new Error("JWT_SECRET is not configured");
+  }
+  return secret;
+}
+
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
 
@@ -143,10 +151,7 @@ function initializeSocketIO(io) {
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error("Authentication error"));
 
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || "your-secret-key-123456789"
-      );
+      const decoded = jwt.verify(token, getJwtSecret());
 
       const userId = decoded.id || decoded.userId;
       if (!userId) return next(new Error("Invalid token - no user ID"));

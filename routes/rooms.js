@@ -61,6 +61,14 @@ const ROOM_SUPERVISOR_SLOT_META = {
 
 const ROOM_SUPERVISOR_SLOT_KEYS = Object.keys(ROOM_SUPERVISOR_SLOT_META);
 
+function getJwtSecret() {
+    const secret = String(process.env.JWT_SECRET || "").trim();
+    if (!secret) {
+        throw new Error("JWT_SECRET is not configured");
+    }
+    return secret;
+}
+
 async function normalizeUserPayload(user) {
     if (!user) return null;
     const [plainUser] = await attachActiveUserFrames([user]);
@@ -1308,7 +1316,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, getJwtSecret());
         const userId = decoded.id || decoded.userId;
         if (!userId) {
             return res.status(401).json({ error: "Token غير صالح - لا يوجد معرف مستخدم" });
@@ -1331,6 +1339,9 @@ const authenticateToken = async (req, res, next) => {
 // إضافة نقاط sawa للمستخدم للاختبار
 router.post("/add-sawa", authenticateToken, async (req, res) => {
     try {
+        if (req.user?.role !== "admin") {
+            return res.status(403).json({ error: "Admins only" });
+        }
         const { amount = 1000 } = req.body;
         
         await req.user.update({
@@ -1347,8 +1358,11 @@ router.post("/add-sawa", authenticateToken, async (req, res) => {
 });
 
 // إنشاء مستخدمين متعددين للاختبار
-router.post("/create-test-users", async (req, res) => {
+router.post("/create-test-users", authenticateToken, async (req, res) => {
     try {
+        if (req.user?.role !== "admin") {
+            return res.status(403).json({ error: "Admins only" });
+        }
         const users = [];
         
         // إنشاء 5 مستخدمين للاختبار
@@ -1383,7 +1397,7 @@ router.post("/create-test-users", async (req, res) => {
                 });
             }
             
-            const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'your-secret-key-123456789');
+            const token = jwt.sign({ id: userId }, getJwtSecret());
             
             users.push({
                 id: userId,

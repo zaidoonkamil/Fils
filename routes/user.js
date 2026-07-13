@@ -39,6 +39,14 @@ const { maskArabicProfanity } = require("../services/profanityFilter");
 const { loadClassicPackageConfig } = require("../services/dominoMatchmaking");
 const dominoService = require("../services/dominoService");
 
+function getJwtSecret() {
+  const secret = String(process.env.JWT_SECRET || "").trim();
+  if (!secret) {
+    throw new Error("JWT_SECRET is not configured");
+  }
+  return secret;
+}
+
 async function findOrCreateDeviceFingerprint(installId, transaction) {
   const options = { where: { install_id: installId } };
   if (transaction) {
@@ -211,10 +219,18 @@ async function isUserLinkedToBannedDevice(userId) {
 
 router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, res) => {
   try {
-    const userId = req.query.id;
+    const userId = req.user?.id;
     const { url } = req.body;
 
+    if (!userId) {
+      return res.status(401).json({ error: "غير مصرح لك بتنفيذ هذا الطلب" });
+    }
+
     const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
     if (user.role === "agent") {
       return res.status(400).json({ error: "أنت بالفعل وكيل" });
     }
@@ -349,7 +365,7 @@ const generateToken = (user) => {
     const expiresIn = user.role === "admin" ? "1d" : "350d";
     return jwt.sign(
         { id: user.id, email: user.email, role: user.role },
-        process.env.JWT_SECRET || 'your-secret-key-123456789',
+        getJwtSecret(),
         { expiresIn } 
     );
 };
@@ -1792,7 +1808,7 @@ router.post("/otp/verify", upload.none(), async (req, res) => {
 
     const resetToken = jwt.sign(
       { email, purpose: "reset_password" },
-      process.env.JWT_SECRET || 'your-secret-key-123456789',
+      getJwtSecret(),
       { expiresIn: '10m' }
     );
 
@@ -1914,7 +1930,7 @@ router.post("/reset-password", upload.none(), async (req, res) => {
 
     let tokenPayload;
     try {
-      tokenPayload = jwt.verify(resetToken, process.env.JWT_SECRET || 'your-secret-key-123456789');
+      tokenPayload = jwt.verify(resetToken, getJwtSecret());
     } catch (err) {
       return res.status(400).json({ error: "رمز التحقق غير صالح أو منتهي" });
     }
