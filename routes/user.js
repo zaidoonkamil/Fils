@@ -235,6 +235,23 @@ router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, 
       return res.status(400).json({ error: "أنت بالفعل وكيل" });
     }
 
+    const now = new Date();
+    const eligibleCounter = await UserCounter.findOne({
+      where: {
+        userId: Number(userId),
+        type: "points",
+        points: { [Op.gte]: 2500 },
+        endDate: { [Op.gt]: now },
+      },
+      order: [["endDate", "DESC"], ["points", "DESC"]],
+    });
+
+    if (!eligibleCounter) {
+      return res.status(400).json({
+        error: "لا يمكنك تقديم طلب وكالة إلا إذا كان لديك باقة فعالة تنطي 2500 لكيك فما فوق",
+      });
+    }
+
     const existingRequest = await AgentRequest.findOne({
       where: { userId, status: "قيد الانتظار" },
     });
