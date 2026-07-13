@@ -281,18 +281,13 @@ router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, 
       });
     }
 
-    const eligibleCounter = activePointsCounters.find(
-      (counter) => Number(counter.points) >= 2500
-    );
+    const totalActivePoints = activePointsCounters.reduce((sum, counter) => {
+      return sum + (Number(counter.points) || 0);
+    }, 0);
 
-    if (!eligibleCounter) {
-      const highestPoints = activePointsCounters.reduce((maxValue, counter) => {
-        const value = Number(counter.points) || 0;
-        return value > maxValue ? value : maxValue;
-      }, 0);
-
+    if (totalActivePoints < 2500) {
       return res.status(400).json({
-        error: `قيمة الباقة الحالية ${highestPoints} فقط، يجب أن تكون 2500 لكيك فما فوق لتقديم طلب الوكالة`,
+        error: `إجمالي الباقات الفعالة الحالية ${totalActivePoints} فقط، يجب أن يكون 2500 لكيك فما فوق لتقديم طلب الوكالة`,
       });
     }
 
