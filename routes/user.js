@@ -235,29 +235,65 @@ router.post("/request-agent", authenticateTokenUser, upload.none(), async (req, 
       return res.status(400).json({ error: "أنت بالفعل وكيل" });
     }
 
-    const now = new Date();
-    const eligibleCounter = await UserCounter.findOne({
-      where: {
-        userId: Number(userId),
-        type: "points",
-        points: { [Op.gte]: 2500 },
-        endDate: { [Op.gt]: now },
-      },
-      order: [["endDate", "DESC"], ["points", "DESC"]],
-    });
-
-    if (!eligibleCounter) {
-      return res.status(400).json({
-        error: "لا يمكنك تقديم طلب وكالة إلا إذا كان لديك باقة فعالة تنطي 2500 لكيك فما فوق",
-      });
-    }
-
     const existingRequest = await AgentRequest.findOne({
       where: { userId, status: "قيد الانتظار" },
     });
 
     if (existingRequest) {
       return res.status(400).json({ error: "لديك طلب وكالة قيد المراجعة بالفعل" });
+    }
+
+    const now = new Date();
+    const activeCounters = await UserCounter.findAll({
+      where: {
+        userId: Number(userId),
+        endDate: { [Op.gt]: now },
+      },
+      attributes: ["id", "type", "points", "endDate", "counterId", "createdAt"],
+      order: [["endDate", "DESC"], ["points", "DESC"]],
+    });
+
+    if (!activeCounters.length) {
+      const latestCounter = await UserCounter.findOne({
+        where: { userId: Number(userId) },
+        attributes: ["id", "type", "points", "endDate", "counterId", "createdAt"],
+        order: [["endDate", "DESC"], ["createdAt", "DESC"]],
+      });
+
+      if (latestCounter) {
+        return res.status(400).json({
+          error: "الباقة منتهية، يجب تفعيل باقة فعالة تنطي 2500 لكيك فما فوق قبل تقديم طلب الوكالة",
+        });
+      }
+
+      return res.status(400).json({
+        error: "لا توجد لديك باقة فعالة حاليًا، يجب تفعيل باقة تنطي 2500 لكيك فما فوق قبل تقديم طلب الوكالة",
+      });
+    }
+
+    const activePointsCounters = activeCounters.filter(
+      (counter) => counter.type === "points"
+    );
+
+    if (!activePointsCounters.length) {
+      return res.status(400).json({
+        error: "نوع الباقة الحالية غير مؤهل، يجب أن تكون باقة لكيك فعلية تنطي 2500 لكيك فما فوق",
+      });
+    }
+
+    const eligibleCounter = activePointsCounters.find(
+      (counter) => Number(counter.points) >= 2500
+    );
+
+    if (!eligibleCounter) {
+      const highestPoints = activePointsCounters.reduce((maxValue, counter) => {
+        const value = Number(counter.points) || 0;
+        return value > maxValue ? value : maxValue;
+      }, 0);
+
+      return res.status(400).json({
+        error: `قيمة الباقة الحالية ${highestPoints} فقط، يجب أن تكون 2500 لكيك فما فوق لتقديم طلب الوكالة`,
+      });
     }
 
     const newRequest = await AgentRequest.create({
