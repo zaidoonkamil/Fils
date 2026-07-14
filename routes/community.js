@@ -319,6 +319,9 @@ async function buildPostsPayload(posts, currentUserId) {
           model: User,
           as: "user",
           attributes: ["id", "name", "images", "role"],
+          where: {
+            isActive: true,
+          },
         },
       ],
       order: [
@@ -380,6 +383,9 @@ async function buildPaginatedPostsPayload({
         model: User,
         as: "user",
         attributes: ["id", "name", "images", "role"],
+        where: {
+          isActive: true,
+        },
       },
     ],
     order: [["createdAt", "DESC"]],
@@ -438,6 +444,9 @@ async function buildCommunityConnectionList({
         model: User,
         as: isFollowersMode ? "follower" : "following",
         attributes: ["id", "name", "images", "role"],
+        where: {
+          isActive: true,
+        },
       },
     ],
     order: [["createdAt", "DESC"]],
@@ -1520,6 +1529,9 @@ router.get("/community/posts/:postId/comments", authenticateTokenUser, async (re
           model: User,
           as: "user",
           attributes: ["id", "name", "images", "role"],
+          where: {
+            isActive: true,
+          },
         },
       ],
       order: [["createdAt", "ASC"]],
