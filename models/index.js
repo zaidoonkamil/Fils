@@ -51,6 +51,7 @@ const CommunityStory = require("./CommunityStory");
 const CommunityHighlight = require("./CommunityHighlight");
 const CommunityHighlightItem = require("./CommunityHighlightItem");
 const UserReport = require("./UserReport");
+const LoginAttempt = require("./LoginAttempt");
 
 
 Room.hasMany(UserGift, { foreignKey: "roomId", as: "giftInstances", onDelete: "SET NULL" });
@@ -414,5 +415,6 @@ module.exports = {
   CommunityStory,
   CommunityHighlight,
   CommunityHighlightItem,
-  UserReport
+  UserReport,
+  LoginAttempt
 };

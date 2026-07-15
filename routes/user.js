@@ -27,7 +27,7 @@ const {
   DeviceFingerprint, DeviceFingerprintUser, UserInternalVerification,
   DailyAction, TransferHistory, WithdrawalRequest, ChatMessage,
   ProductPurchase, ConsumablePurchase, UserGift, AdminBalanceLog, GiftItem,
-  DominoMatch, DominoPrivateRoom
+  DominoMatch, DominoPrivateRoom, LoginAttempt
 } = require('../models');
 const { Op } = require("sequelize");
 const axios = require('axios');
@@ -38,6 +38,9 @@ const { requireAdmin, authenticateTokenUser } = require("../middlewares/auth");
 const { maskArabicProfanity } = require("../services/profanityFilter");
 const { loadClassicPackageConfig } = require("../services/dominoMatchmaking");
 const dominoService = require("../services/dominoService");
+
+const LOGIN_MAX_FAILED_ATTEMPTS = 5;
+const LOGIN_LOCK_DURATION_MS = 60 * 60 * 1000;
 
 function getJwtSecret() {
   const secret = String(process.env.JWT_SECRET || "").trim();
@@ -138,6 +141,98 @@ function normalizeText(value) {
 
 function normalizePhone(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function resolveClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return String(forwarded[0] || "").trim();
+  }
+  return String(req.ip || req.connection?.remoteAddress || "").trim() || "unknown";
+}
+
+function buildLoginLockMessage(lockUntil) {
+  const lockDate = lockUntil instanceof Date ? lockUntil : new Date(lockUntil);
+  const remainingMs = Math.max(0, lockDate.getTime() - Date.now());
+  const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+  return `تم تجاوز عدد محاولات تسجيل الدخول المسموح. حاول مرة أخرى بعد ${remainingMinutes} دقيقة.`;
+}
+
+async function findOrCreateLoginAttempt(scope, identifier, ipAddress) {
+  const normalizedIdentifier = String(identifier || "").trim().toLowerCase() || "__unknown__";
+  const normalizedIp = String(ipAddress || "").trim() || "unknown";
+  let attempt = await LoginAttempt.findOne({
+    where: {
+      scope,
+      identifier: normalizedIdentifier,
+      ipAddress: normalizedIp,
+    },
+  });
+
+  if (!attempt) {
+    attempt = await LoginAttempt.create({
+      scope,
+      identifier: normalizedIdentifier,
+      ipAddress: normalizedIp,
+      failCount: 0,
+    });
+  }
+
+  return attempt;
+}
+
+async function getActiveLoginLock(scope, identifier, ipAddress) {
+  const attempt = await findOrCreateLoginAttempt(scope, identifier, ipAddress);
+  if (attempt.lockUntil) {
+    const lockUntil = new Date(attempt.lockUntil);
+    if (!Number.isNaN(lockUntil.getTime()) && lockUntil > new Date()) {
+      return attempt;
+    }
+  }
+
+  if (attempt.lockUntil || attempt.failCount !== 0) {
+    attempt.lockUntil = null;
+    attempt.failCount = 0;
+    await attempt.save();
+  }
+
+  return null;
+}
+
+async function registerLoginFailure(scope, identifier, ipAddress) {
+  const attempt = await findOrCreateLoginAttempt(scope, identifier, ipAddress);
+  const now = new Date();
+  const currentFailCount = Number(attempt.failCount || 0) + 1;
+  attempt.failCount = currentFailCount;
+  attempt.lastFailedAt = now;
+
+  if (currentFailCount >= LOGIN_MAX_FAILED_ATTEMPTS) {
+    attempt.lockUntil = new Date(now.getTime() + LOGIN_LOCK_DURATION_MS);
+    attempt.failCount = LOGIN_MAX_FAILED_ATTEMPTS;
+  }
+
+  await attempt.save();
+  return attempt;
+}
+
+async function clearLoginFailures(scope, identifier, ipAddress) {
+  const attempt = await LoginAttempt.findOne({
+    where: {
+      scope,
+      identifier: String(identifier || "").trim().toLowerCase() || "__unknown__",
+      ipAddress: String(ipAddress || "").trim() || "unknown",
+    },
+  });
+
+  if (!attempt) return;
+
+  attempt.failCount = 0;
+  attempt.lockUntil = null;
+  attempt.lastSuccessAt = new Date();
+  await attempt.save();
 }
 
 function normalizeDateOnly(value) {
@@ -2518,8 +2613,10 @@ router.post("/login", upload.none(), async (req, res) => {
   const { email, password, player_id } = req.body;
   let resolvedInstallId = null;
   try {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const clientIp = resolveClientIp(req);
 
-    if (!email) {
+    if (!normalizedEmail) {
       return res.status(400).json({ error: "يرجى إدخال البريد الإلكتروني" });
     }
 
@@ -2527,8 +2624,23 @@ router.post("/login", upload.none(), async (req, res) => {
       return res.status(400).json({ error: "يرجى إدخال كلمة المرور" });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const activeLock = await getActiveLoginLock("user", normalizedEmail, clientIp);
+    if (activeLock) {
+      return res.status(429).json({
+        error: buildLoginLockMessage(activeLock.lockUntil),
+        lockedUntil: activeLock.lockUntil,
+      });
+    }
+
+    const user = await User.findOne({ where: { email: normalizedEmail } });
     if (!user) {
+      const failureAttempt = await registerLoginFailure("user", normalizedEmail, clientIp);
+      if (failureAttempt.lockUntil) {
+        return res.status(429).json({
+          error: buildLoginLockMessage(failureAttempt.lockUntil),
+          lockedUntil: failureAttempt.lockUntil,
+        });
+      }
       return res.status(400).json({ error: "البريد الإلكتروني غير صحيح" });
     }
 
@@ -2556,8 +2668,17 @@ router.post("/login", upload.none(), async (req, res) => {
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
+      const failureAttempt = await registerLoginFailure("user", normalizedEmail, clientIp);
+      if (failureAttempt.lockUntil) {
+        return res.status(429).json({
+          error: buildLoginLockMessage(failureAttempt.lockUntil),
+          lockedUntil: failureAttempt.lockUntil,
+        });
+      }
       return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
     }
+
+    await clearLoginFailures("user", normalizedEmail, clientIp);
 
     if (user.role !== "admin") {
       let fallbackPlayerId = normalizePlayerId(player_id);
@@ -2619,25 +2740,59 @@ router.post("/admin/login", upload.none(), async (req, res) => {
   const { email, password } = req.body;
 
   try {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const clientIp = resolveClientIp(req);
+
     if (!email || !password) {
       return res.status(400).json({ error: "يرجى إدخال البريد الإلكتروني وكلمة المرور" });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const activeLock = await getActiveLoginLock("admin", normalizedEmail, clientIp);
+    if (activeLock) {
+      return res.status(429).json({
+        error: buildLoginLockMessage(activeLock.lockUntil),
+        lockedUntil: activeLock.lockUntil,
+      });
+    }
+
+    const user = await User.findOne({ where: { email: normalizedEmail } });
 
     if (!user) {
+      const failureAttempt = await registerLoginFailure("admin", normalizedEmail, clientIp);
+      if (failureAttempt.lockUntil) {
+        return res.status(429).json({
+          error: buildLoginLockMessage(failureAttempt.lockUntil),
+          lockedUntil: failureAttempt.lockUntil,
+        });
+      }
       return res.status(400).json({ error: "البريد الإلكتروني غير صحيح" });
     }
 
     if (user.role !== "admin") {
+      const failureAttempt = await registerLoginFailure("admin", normalizedEmail, clientIp);
+      if (failureAttempt.lockUntil) {
+        return res.status(429).json({
+          error: buildLoginLockMessage(failureAttempt.lockUntil),
+          lockedUntil: failureAttempt.lockUntil,
+        });
+      }
       return res.status(403).json({ error: "هذا الرابط مخصص للأدمن فقط" });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
+      const failureAttempt = await registerLoginFailure("admin", normalizedEmail, clientIp);
+      if (failureAttempt.lockUntil) {
+        return res.status(429).json({
+          error: buildLoginLockMessage(failureAttempt.lockUntil),
+          lockedUntil: failureAttempt.lockUntil,
+        });
+      }
       return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
     }
+
+    await clearLoginFailures("admin", normalizedEmail, clientIp);
 
     const token = generateToken(user);
 

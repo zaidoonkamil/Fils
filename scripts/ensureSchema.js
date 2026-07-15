@@ -108,6 +108,81 @@ async function ensureSchema() {
     },
   });
 
+  await ensureTable(queryInterface, "login_attempts", {
+    id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    scope: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "user",
+    },
+    identifier: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "",
+    },
+    ipAddress: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "",
+    },
+    failCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    lockUntil: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    lastFailedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    lastSuccessAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+  });
+
+  if (await tableExists(queryInterface, "login_attempts")) {
+    const loginAttemptIndexes = await queryInterface.showIndex("login_attempts");
+    const hasUniqueIndex = loginAttemptIndexes.some((index) => {
+      const fields = (index.fields || []).map((field) => field.attribute || field.name);
+      return (
+        index.unique === true &&
+        fields.length === 3 &&
+        fields[0] === "scope" &&
+        fields[1] === "identifier" &&
+        fields[2] === "ipAddress"
+      );
+    });
+
+    if (!hasUniqueIndex) {
+      await queryInterface.addIndex("login_attempts", ["scope", "identifier", "ipAddress"], {
+        unique: true,
+        name: "login_attempts_scope_identifier_ip_unique",
+      });
+    }
+  }
+
   if (await tableExists(queryInterface, "Settings")) {
     const [duplicateSettings] = await sequelize.query(`
       SELECT \`key\`
