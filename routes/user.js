@@ -193,11 +193,8 @@ async function getActiveLoginLock(scope, identifier, ipAddress) {
     if (!Number.isNaN(lockUntil.getTime()) && lockUntil > new Date()) {
       return attempt;
     }
-  }
 
-  if (attempt.lockUntil || attempt.failCount !== 0) {
     attempt.lockUntil = null;
-    attempt.failCount = 0;
     await attempt.save();
   }
 
