@@ -16,6 +16,37 @@ function getJwtSecret() {
   return secret;
 }
 
+async function clearExpiredAccountBan(user) {
+  if (!user || user.accountBanActive !== true || !user.accountBanUntil) {
+    return false;
+  }
+  const banUntil = new Date(user.accountBanUntil);
+  if (Number.isNaN(banUntil.getTime()) || banUntil > new Date()) {
+    return false;
+  }
+
+  user.accountBanActive = false;
+  user.accountBanReason = null;
+  user.accountBanUntil = null;
+  user.accountBanBy = null;
+  await user.save();
+  return true;
+}
+
+function formatAccountBanSocketMessage(user) {
+  const reason =
+    typeof user?.accountBanReason === "string" && user.accountBanReason.trim()
+      ? user.accountBanReason.trim()
+      : "بدون سبب محدد";
+  const banUntil = user?.accountBanUntil ? new Date(user.accountBanUntil) : null;
+  const untilText = banUntil && !Number.isNaN(banUntil.getTime())
+    ? `${banUntil.getFullYear()}/${String(banUntil.getMonth() + 1).padStart(2, "0")}/${String(
+        banUntil.getDate()
+      ).padStart(2, "0")}`
+    : "غير محدد";
+  return `تم حظر حسابك مؤقتًا. السبب: ${reason}. ينتهي الحظر بتاريخ ${untilText}`;
+}
+
 // roomId -> Set({ id, name, socketId })
 const roomUsers = new Map();
 
@@ -156,10 +187,25 @@ function initializeSocketIO(io) {
       const userId = decoded.id || decoded.userId;
       if (!userId) return next(new Error("Invalid token - no user ID"));
 
-      const user = await User.findByPk(userId, { attributes: ["id", "name", "images", "isActive"] });
+      const user = await User.findByPk(userId, {
+        attributes: [
+          "id",
+          "name",
+          "images",
+          "isActive",
+          "accountBanActive",
+          "accountBanReason",
+          "accountBanUntil",
+          "accountBanBy",
+        ],
+      });
       if (!user) return next(new Error("User not found"));
       if (user.isActive === false) {
         return next(new Error("تم حظر حسابك"));
+      }
+      await clearExpiredAccountBan(user);
+      if (user.accountBanActive === true) {
+        return next(new Error(formatAccountBanSocketMessage(user)));
       }
 
       const normalizedUser = await normalizeUserPayload(user);

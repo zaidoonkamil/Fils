@@ -96,6 +96,26 @@ const User = sequelize.define("User", {
         allowNull: false,
         defaultValue: true,
     },
+    accountBanActive: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    },
+    accountBanReason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null,
+    },
+    accountBanUntil: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+    },
+    accountBanBy: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+    },
     agentPrivateChatEnabled: {
         type: DataTypes.BOOLEAN,
         allowNull: false,

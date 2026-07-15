@@ -6,6 +6,41 @@ dotenv.config();
 
 const ADMIN_TOKEN_VALID_AFTER_IAT_KEY = "admin_token_valid_after_iat";
 
+async function resolveAccountBanMessage(user) {
+  if (!user || user.accountBanActive !== true) {
+    return null;
+  }
+
+  const now = new Date();
+  const banUntil =
+    user.accountBanUntil instanceof Date
+      ? user.accountBanUntil
+      : user.accountBanUntil
+      ? new Date(user.accountBanUntil)
+      : null;
+
+  if (banUntil && banUntil <= now) {
+    user.accountBanActive = false;
+    user.accountBanReason = null;
+    user.accountBanUntil = null;
+    user.accountBanBy = null;
+    await user.save();
+    return null;
+  }
+
+  const reason =
+    typeof user.accountBanReason === "string" && user.accountBanReason.trim()
+      ? user.accountBanReason.trim()
+      : "بدون سبب محدد";
+  const untilText = banUntil
+    ? `${banUntil.getFullYear()}/${String(banUntil.getMonth() + 1).padStart(2, "0")}/${String(
+        banUntil.getDate()
+      ).padStart(2, "0")}`
+    : "غير محدد";
+
+  return `تم حظر حسابك مؤقتًا. السبب: ${reason}. ينتهي الحظر بتاريخ ${untilText}`;
+}
+
 async function getAdminTokenValidAfterIat() {
   const currentUnixSeconds = Math.floor(Date.now() / 1000);
 
@@ -76,7 +111,7 @@ const authenticateToken = (req, res, next) => {
       next();
     });
   } catch (error) {
-    console.error("❌ authenticateToken error:", error);
+    console.error("require authenticateToken error:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -116,6 +151,11 @@ const requireAdmin = async (req, res, next) => {
         return res.status(403).json({ error: "تم حظر حسابك" });
       }
 
+      const accountBanMessage = await resolveAccountBanMessage(user);
+      if (accountBanMessage) {
+        return res.status(403).json({ error: accountBanMessage });
+      }
+
       if (user.role !== "admin") {
         return res.status(403).json({ error: "Admins only" });
       }
@@ -129,7 +169,7 @@ const requireAdmin = async (req, res, next) => {
       next();
     });
   } catch (error) {
-    console.error("❌ requireAdmin error:", error);
+    console.error("requireAdmin error:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -169,6 +209,11 @@ const authenticateTokenUser = async (req, res, next) => {
         return res.status(403).json({ error: "تم حظر حسابك" });
       }
 
+      const accountBanMessage = await resolveAccountBanMessage(user);
+      if (accountBanMessage) {
+        return res.status(403).json({ error: accountBanMessage });
+      }
+
       req.user = {
         id: user.id,
         email: user.email,
@@ -180,7 +225,7 @@ const authenticateTokenUser = async (req, res, next) => {
       next();
     });
   } catch (error) {
-    console.error("❌ authenticateToken error:", error);
+    console.error("authenticateTokenUser error:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 };

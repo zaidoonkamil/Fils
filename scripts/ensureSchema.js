@@ -85,6 +85,29 @@ async function ensureSchema() {
     }
   }
 
+  await ensureTable(queryInterface, usersTable, {
+    accountBanActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    accountBanReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    accountBanUntil: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    accountBanBy: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+  });
+
   if (await tableExists(queryInterface, "Settings")) {
     const [duplicateSettings] = await sequelize.query(`
       SELECT \`key\`
@@ -1451,4 +1474,3 @@ async function ensureSchema() {
 }
 
 module.exports = ensureSchema;
-

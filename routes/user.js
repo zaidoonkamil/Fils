@@ -47,6 +47,34 @@ function getJwtSecret() {
   return secret;
 }
 
+function formatAccountBanMessage(user) {
+  const reason =
+    typeof user?.accountBanReason === "string" && user.accountBanReason.trim()
+      ? user.accountBanReason.trim()
+      : "بدون سبب محدد";
+  const banUntil = user?.accountBanUntil ? new Date(user.accountBanUntil) : null;
+  const untilText = banUntil && !Number.isNaN(banUntil.getTime())
+    ? `${banUntil.getFullYear()}/${String(banUntil.getMonth() + 1).padStart(2, "0")}/${String(
+        banUntil.getDate()
+      ).padStart(2, "0")}`
+    : "غير محدد";
+  return `تم حظر حسابك مؤقتًا. السبب: ${reason}. ينتهي الحظر بتاريخ ${untilText}`;
+}
+
+async function clearExpiredAccountBan(user) {
+  if (!user || user.accountBanActive !== true) return false;
+  if (!user.accountBanUntil) return false;
+  const banUntil = new Date(user.accountBanUntil);
+  if (Number.isNaN(banUntil.getTime()) || banUntil > new Date()) return false;
+
+  user.accountBanActive = false;
+  user.accountBanReason = null;
+  user.accountBanUntil = null;
+  user.accountBanBy = null;
+  await user.save();
+  return true;
+}
+
 async function findOrCreateDeviceFingerprint(installId, transaction) {
   const options = { where: { install_id: installId } };
   if (transaction) {
@@ -2508,6 +2536,11 @@ router.post("/login", upload.none(), async (req, res) => {
       return res.status(403).json({ error: "الحساب محظور" });
     }
 
+    await clearExpiredAccountBan(user);
+    if (user.accountBanActive === true) {
+      return res.status(403).json({ error: formatAccountBanMessage(user) });
+    }
+
     if (user.role !== 'admin' && user.isLoggedIn) {
       return res.status(403).json({ error: "لا يمكن تسجيل الدخول من أكثر من جهاز في نفس الوقت" });
     }
@@ -2831,6 +2864,117 @@ router.post("/admin/device-unban", requireAdmin, upload.none(), async (req, res)
   } catch (err) {
     console.error("❌ خطأ أثناء إلغاء الحظر:", err);
     return res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
+router.post("/admin/account-ban", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const userId = Number.parseInt(String(req.body.userId || ""), 10);
+    const days = Number.parseInt(String(req.body.days || ""), 10);
+    const reason = String(req.body.reason || "").trim();
+
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+    if (!Number.isFinite(days) || days <= 0) {
+      return res.status(400).json({ error: "مدة الحظر بالأيام غير صالحة" });
+    }
+    if (!reason) {
+      return res.status(400).json({ error: "سبب الحظر مطلوب" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    const banUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    user.accountBanActive = true;
+    user.accountBanReason = reason;
+    user.accountBanUntil = banUntil;
+    user.accountBanBy = req.user.id;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "تم حظر الحساب مؤقتًا بنجاح",
+      ban: {
+        userId: user.id,
+        userName: user.name,
+        reason: user.accountBanReason,
+        until: user.accountBanUntil,
+        bannedBy: user.accountBanBy,
+      },
+    });
+  } catch (error) {
+    console.error("Error applying account-only ban:", error);
+    return res.status(500).json({ error: "خطأ في حظر الحساب" });
+  }
+});
+
+router.post("/admin/account-unban", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const userId = Number.parseInt(String(req.body.userId || ""), 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "المستخدم غير موجود" });
+    }
+
+    user.accountBanActive = false;
+    user.accountBanReason = null;
+    user.accountBanUntil = null;
+    user.accountBanBy = null;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "تم رفع حظر الحساب بنجاح",
+    });
+  } catch (error) {
+    console.error("Error removing account-only ban:", error);
+    return res.status(500).json({ error: "خطأ في رفع حظر الحساب" });
+  }
+});
+
+router.get("/admin/account-bans", requireAdmin, async (req, res) => {
+  try {
+    const users = await User.findAll({
+      where: { accountBanActive: true },
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "accountBanActive",
+        "accountBanReason",
+        "accountBanUntil",
+        "accountBanBy",
+        "updatedAt",
+      ],
+      order: [["accountBanUntil", "ASC"], ["updatedAt", "DESC"]],
+    });
+
+    const normalized = [];
+    for (const user of users) {
+      const expired = await clearExpiredAccountBan(user);
+      if (expired || user.accountBanActive !== true) {
+        continue;
+      }
+      normalized.push(user);
+    }
+
+    return res.status(200).json({
+      success: true,
+      bans: normalized,
+    });
+  } catch (error) {
+    console.error("Error fetching account-only bans:", error);
+    return res.status(500).json({ error: "خطأ في جلب قائمة الحظر" });
   }
 });
 
