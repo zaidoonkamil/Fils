@@ -1037,6 +1037,40 @@ router.post(
   }
 );
 
+router.delete(
+  "/community/stories/:storyId",
+  authenticateTokenUser,
+  async (req, res) => {
+    try {
+      const storyId = parsePositiveInteger(req.params.storyId, 0);
+      if (!storyId) {
+        return res.status(400).json({ error: "معرف الستوري غير صالح" });
+      }
+
+      const story = await CommunityStory.findByPk(storyId);
+      if (!story) {
+        return res.status(404).json({ error: "الستوري غير موجودة" });
+      }
+
+      if (Number(story.userId) !== Number(req.user.id)) {
+        return res.status(403).json({ error: "لا يمكنك حذف هذه الستوري" });
+      }
+
+      const imagePath = story.image;
+      await story.destroy();
+      await deleteUploadedFile(imagePath);
+
+      return res.status(200).json({
+        success: true,
+        message: "تم حذف الستوري بنجاح",
+      });
+    } catch (error) {
+      console.error("Error deleting community story:", error);
+      return res.status(500).json({ error: "خطأ في حذف الستوري" });
+    }
+  }
+);
+
 router.get("/community/users/search", authenticateTokenUser, async (req, res) => {
   try {
     const users = await buildCommunitySearchResults({
