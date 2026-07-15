@@ -163,22 +163,61 @@ async function ensureSchema() {
   });
 
   if (await tableExists(queryInterface, "login_attempts")) {
+    const [duplicateAttempts] = await sequelize.query(`
+      SELECT scope, identifier, MAX(id) AS keepId
+      FROM login_attempts
+      GROUP BY scope, identifier
+      HAVING COUNT(*) > 1
+    `);
+
+    for (const row of duplicateAttempts) {
+      const scope = String(row.scope || "").trim();
+      const identifier = String(row.identifier || "").trim();
+      const keepId = Number(row.keepId || 0);
+      if (!scope || !identifier || !keepId) continue;
+
+      await sequelize.query(
+        `
+          DELETE FROM login_attempts
+          WHERE scope = :scope
+            AND identifier = :identifier
+            AND id <> :keepId
+        `,
+        {
+          replacements: { scope, identifier, keepId },
+        }
+      );
+    }
+
     const loginAttemptIndexes = await queryInterface.showIndex("login_attempts");
-    const hasUniqueIndex = loginAttemptIndexes.some((index) => {
+    const hasDesiredUniqueIndex = loginAttemptIndexes.some((index) => {
       const fields = (index.fields || []).map((field) => field.attribute || field.name);
       return (
+        index.unique === true &&
+        fields.length === 2 &&
+        fields[0] === "scope" &&
+        fields[1] === "identifier"
+      );
+    });
+
+    for (const index of loginAttemptIndexes) {
+      const fields = (index.fields || []).map((field) => field.attribute || field.name);
+      const isOldUniqueIndex =
         index.unique === true &&
         fields.length === 3 &&
         fields[0] === "scope" &&
         fields[1] === "identifier" &&
-        fields[2] === "ipAddress"
-      );
-    });
+        fields[2] === "ipAddress";
 
-    if (!hasUniqueIndex) {
-      await queryInterface.addIndex("login_attempts", ["scope", "identifier", "ipAddress"], {
+      if (isOldUniqueIndex && index.name && index.name !== "PRIMARY") {
+        await queryInterface.removeIndex("login_attempts", index.name);
+      }
+    }
+
+    if (!hasDesiredUniqueIndex) {
+      await queryInterface.addIndex("login_attempts", ["scope", "identifier"], {
         unique: true,
-        name: "login_attempts_scope_identifier_ip_unique",
+        name: "login_attempts_scope_identifier_unique",
       });
     }
   }

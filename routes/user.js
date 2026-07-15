@@ -168,7 +168,6 @@ async function findOrCreateLoginAttempt(scope, identifier, ipAddress) {
     where: {
       scope,
       identifier: normalizedIdentifier,
-      ipAddress: normalizedIp,
     },
   });
 
@@ -179,6 +178,9 @@ async function findOrCreateLoginAttempt(scope, identifier, ipAddress) {
       ipAddress: normalizedIp,
       failCount: 0,
     });
+  } else if (attempt.ipAddress !== normalizedIp) {
+    attempt.ipAddress = normalizedIp;
+    await attempt.save();
   }
 
   return attempt;
@@ -223,12 +225,12 @@ async function clearLoginFailures(scope, identifier, ipAddress) {
     where: {
       scope,
       identifier: String(identifier || "").trim().toLowerCase() || "__unknown__",
-      ipAddress: String(ipAddress || "").trim() || "unknown",
     },
   });
 
   if (!attempt) return;
 
+  attempt.ipAddress = String(ipAddress || "").trim() || attempt.ipAddress || "unknown";
   attempt.failCount = 0;
   attempt.lockUntil = null;
   attempt.lastSuccessAt = new Date();

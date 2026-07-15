@@ -51,8 +51,8 @@ const LoginAttempt = sequelize.define(
     indexes: [
       {
         unique: true,
-        fields: ["scope", "identifier", "ipAddress"],
-        name: "login_attempts_scope_identifier_ip_unique",
+        fields: ["scope", "identifier"],
+        name: "login_attempts_scope_identifier_unique",
       },
     ],
   }
