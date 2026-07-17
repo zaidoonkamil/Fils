@@ -84,15 +84,35 @@ async function enforceAdminTokenPolicy(decoded, res) {
   return true;
 }
 
+function extractTokenFromHeader(authHeader) {
+  const rawHeader = String(authHeader || "").trim();
+  if (!rawHeader) {
+    return null;
+  }
+
+  const normalized = rawHeader.replace(/^"+|"+$/g, "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const bearerSegments = normalized
+    .split(/\s+/)
+    .filter((segment) => segment && segment.toLowerCase() !== "bearer");
+
+  if (bearerSegments.length > 0) {
+    return bearerSegments[bearerSegments.length - 1].trim();
+  }
+
+  return normalized;
+}
+
 const authenticateToken = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = extractTokenFromHeader(authHeader);
+    if (!token) {
       return res.status(401).json({ error: "Token not provided. Unauthorized access." });
     }
-
-    const token = authHeader.split(" ")[1];
 
     jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
       if (err) {
@@ -119,14 +139,10 @@ const authenticateToken = (req, res, next) => {
 const requireAdmin = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
+    const token = extractTokenFromHeader(authHeader);
+    if (!token) {
       return res.status(401).json({ error: "Token not provided. Unauthorized access." });
     }
-
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.split(" ")[1]
-      : authHeader;
 
     jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
       if (err) {
@@ -181,14 +197,10 @@ const requireAdmin = async (req, res, next) => {
 const authenticateTokenUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
+    const token = extractTokenFromHeader(authHeader);
+    if (!token) {
       return res.status(401).json({ error: "Token not provided. Unauthorized access." });
     }
-
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.split(" ")[1]
-      : authHeader;
 
     jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
       if (err) {
