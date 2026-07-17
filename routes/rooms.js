@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { Op } = require("sequelize");
+const jwt = require("jsonwebtoken");
 const Room = require("../models/room");
 const Message = require("../models/message");
 const User = require("../models/user");
