@@ -1625,6 +1625,44 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
 });
 
 // الحصول على رسائل غرفة معينة
+router.get("/room/:roomId/creator", authenticateToken, async (req, res) => {
+    try {
+        const roomId = Number(req.params.roomId);
+
+        if (!Number.isInteger(roomId) || roomId <= 0) {
+            return res.status(400).json({ error: "معرّف الغرفة غير صالح" });
+        }
+
+        const room = await Room.findByPk(roomId, {
+            include: [{
+                model: User,
+                as: 'creator',
+                attributes: ['id', 'name', 'images', 'phone', 'role'],
+            }]
+        });
+
+        if (!room) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        res.json({
+            roomId: room.id,
+            roomName: room.name,
+            creatorId: room.creatorId,
+            creator: room.creator ? {
+                id: room.creator.id,
+                name: room.creator.name,
+                images: room.creator.images,
+                phone: room.creator.phone,
+                role: room.creator.role,
+            } : null,
+        });
+    } catch (error) {
+        console.error("خطأ في جلب صاحب الغرفة:", error);
+        res.status(500).json({ error: "خطأ في جلب صاحب الغرفة" });
+    }
+});
+
 router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
