@@ -210,6 +210,25 @@ router.get("/admin/counters", requireAdmin, async (req, res) => {
   }
 });
 
+router.get("/admin/counters/all", requireAdmin, async (req, res) => {
+  try {
+    const counters = await Counter.findAll({
+      order: [["id", "DESC"]],
+    });
+
+    const durationSetting = await Settings.findOne({
+      where: { key: "counter_duration_days", isActive: true },
+    });
+    const defaultDuration = durationSetting ? parseInt(durationSetting.value, 10) : 365;
+    const result = serializeCounters(counters, defaultDuration);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("Error fetching all admin counters:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/assign-counter", authenticateTokenUser, upload.none(), async (req, res) => {
   const { counterId } = req.body;
   const userId = req.user.id;
