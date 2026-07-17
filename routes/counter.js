@@ -287,6 +287,52 @@ router.post("/assign-counter", authenticateTokenUser, upload.none(), async (req,
   }
 });
 
+router.delete("/counters/:id", requireAdmin, async (req, res, next) => {
+  const { id } = req.params;
+
+  try {
+    const counter = await Counter.findByPk(id);
+    if (!counter) {
+      return res.status(404).json({ error: "العداد غير موجود" });
+    }
+
+    const userCounters = await UserCounter.findAll({
+      where: { counterId: counter.id },
+      attributes: ["id"],
+    });
+
+    const userCounterIds = userCounters.map((item) => item.id);
+
+    await sequelize.transaction(async (transaction) => {
+      if (userCounterIds.length > 0) {
+        await CounterSale.destroy({
+          where: {
+            userCounterId: { [Op.in]: userCounterIds },
+            isSold: false,
+          },
+          transaction,
+        });
+
+        await UserCounter.destroy({
+          where: { id: { [Op.in]: userCounterIds } },
+          transaction,
+        });
+      }
+
+      await counter.destroy({ transaction });
+    });
+
+    return res.status(200).json({
+      message: "تم حذف العداد نهائياً بنجاح",
+      deletedCounterId: Number(id),
+      deletedUserCountersCount: userCounterIds.length,
+    });
+  } catch (err) {
+    console.error("❌ Error deleting counter permanently:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء حذف العداد نهائياً" });
+  }
+});
+
 router.delete("/counters/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
 
