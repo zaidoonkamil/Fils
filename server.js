@@ -27,6 +27,7 @@ const entryEffectsRouter = require("./routes/entryEffects");
 const communityRouter = require("./routes/community");
 const chat = require("./routes/chatRoutes");
 const reportsRouter = require("./routes/reports");
+const { applyRateLimit } = require("./middlewares/requestRateLimiter");
 const { initializeSocketIO } = require("./socket/socketHandler.js");
 const { initDominoSocket } = require("./socket/dominoHandler");
 const ensureSchema = require("./scripts/ensureSchema");
@@ -99,6 +100,7 @@ const corsOptions = {
 };
 
 const app = express();
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
@@ -116,8 +118,9 @@ const io = socketIo(server, {
 });
 
 app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(applyRateLimit);
 
 app.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
