@@ -1748,7 +1748,18 @@ router.post("/send-gift", authenticateTokenUser, upload.none(), async (req, res)
 // عرض الهدايا التي يملكها المستخدم
 router.get("/my-gifts/:userId", authenticateTokenUser,async (req, res) => {
   try {
-    const userId = req.user.id;
+    const requestedUserId = Number.parseInt(String(req.params.userId), 10);
+    const currentUserId = Number.parseInt(String(req.user.id), 10);
+
+    if (!Number.isFinite(requestedUserId) || requestedUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    if (req.user.role !== "admin" && requestedUserId !== currentUserId) {
+      return res.status(403).json({ error: "غير مسموح لك بعرض هدايا مستخدم آخر" });
+    }
+
+    const userId = req.user.role === "admin" ? requestedUserId : currentUserId;
     const { type } = req.query;
 
     const where = { userId, status: "active" };

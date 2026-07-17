@@ -3,6 +3,7 @@ const router = express.Router();
 const { User, GameRoom, GameRoomUser, GameResult } = require("../models");
 const { Op } = require("sequelize");
 const Sequelize = require("sequelize");
+const { authenticateTokenUser } = require("../middlewares/auth");
 
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
@@ -111,9 +112,20 @@ router.post("/join-game/:id", async (req, res) => {
   }
 });
 */
-router.get("/last-finished-game/:userId", async (req, res) => {
+router.get("/last-finished-game/:userId", authenticateTokenUser, async (req, res) => {
   try {
-    const { userId } = req.params;
+    const requestedUserId = Number.parseInt(String(req.params.userId), 10);
+    const currentUserId = Number.parseInt(String(req.user.id), 10);
+
+    if (!Number.isFinite(requestedUserId) || requestedUserId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    if (req.user.role !== "admin" && requestedUserId !== currentUserId) {
+      return res.status(403).json({ error: "غير مسموح لك بعرض بيانات مستخدم آخر" });
+    }
+
+    const userId = req.user.role === "admin" ? requestedUserId : currentUserId;
 
     const user = await User.findByPk(userId);
     if (!user) {

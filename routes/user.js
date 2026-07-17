@@ -3547,13 +3547,28 @@ router.post("/store/buy-id/:shopId/:userId", authenticateTokenUser, async (req, 
 
   const t = await sequelize.transaction();
   try {
+    const requestedUserId = Number.parseInt(String(userId), 10);
+    const currentUserId = Number.parseInt(String(req.user.id), 10);
+
+    if (!Number.isFinite(requestedUserId) || requestedUserId <= 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    if (req.user.role !== "admin" && requestedUserId !== currentUserId) {
+      await t.rollback();
+      return res.status(403).json({ error: "غير مسموح لك شراء ID لحساب مستخدم آخر" });
+    }
+
+    const effectiveUserId = req.user.role === "admin" ? requestedUserId : currentUserId;
+
     const shopItem = await IdShop.findByPk(shopId, { transaction: t });
     if (!shopItem || !shopItem.isAvailable) {
       await t.rollback();
       return res.status(404).json({ error: "العنصر غير موجود أو تم شراؤه" });
     }
 
-    const user = await User.findByPk(userId, { transaction: t });
+    const user = await User.findByPk(effectiveUserId, { transaction: t });
     if (!user) {
       await t.rollback();
       return res.status(404).json({ error: "المستخدم غير موجود" });
