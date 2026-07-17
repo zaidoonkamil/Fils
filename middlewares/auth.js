@@ -141,6 +141,10 @@ const requireAdmin = async (req, res, next) => {
         return;
       }
 
+      if (!decoded || decoded.role !== "admin") {
+        return res.status(403).json({ error: "Admin token required" });
+      }
+
       const user = await User.findByPk(decoded.id);
 
       if (!user) {

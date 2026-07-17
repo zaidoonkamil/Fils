@@ -41,6 +41,7 @@ const dominoService = require("../services/dominoService");
 
 const LOGIN_MAX_FAILED_ATTEMPTS = 5;
 const LOGIN_LOCK_DURATION_MS = 60 * 60 * 1000;
+const ADMIN_TOKEN_VALID_AFTER_IAT_KEY = "admin_token_valid_after_iat";
 
 function getJwtSecret() {
   const secret = String(process.env.JWT_SECRET || "").trim();
@@ -532,7 +533,7 @@ const sendMailWithFallback = async (mailOptions) => {
 };
 
 const generateToken = (user) => {
-    const expiresIn = user.role === "admin" ? "1d" : "350d";
+    const expiresIn = user.role === "admin" ? "1h" : "350d";
     return jwt.sign(
         { id: user.id, email: user.email, role: user.role },
         getJwtSecret(),
@@ -2856,6 +2857,34 @@ router.post("/admin/login", upload.none(), async (req, res) => {
   } catch (err) {
     console.error("❌ خطأ أثناء تسجيل دخول الأدمن:", err);
     res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
+router.post("/admin/tokens/invalidate-all", requireAdmin, upload.none(), async (req, res) => {
+  try {
+    const validAfter = Math.floor(Date.now() / 1000);
+
+    const [setting] = await Settings.findOrCreate({
+      where: { key: ADMIN_TOKEN_VALID_AFTER_IAT_KEY },
+      defaults: {
+        value: String(validAfter),
+        description: "Reject admin JWTs issued before this unix timestamp",
+        isActive: true,
+      },
+    });
+
+    setting.value = String(validAfter);
+    setting.isActive = true;
+    await setting.save();
+
+    return res.status(200).json({
+      message: "تم إبطال جميع توكنات الأدمن الحالية بنجاح",
+      validAfterIat: validAfter,
+      invalidatedAt: new Date(validAfter * 1000).toISOString(),
+    });
+  } catch (err) {
+    console.error("❌ Error invalidating admin tokens:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء إبطال توكنات الأدمن" });
   }
 });
 

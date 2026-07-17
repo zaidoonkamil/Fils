@@ -12,6 +12,7 @@ const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { parseFile } = require("music-metadata");
 const Settings = require("../models/settings");
 const upload = require("../middlewares/uploads");
+const { requireAdmin } = require("../middlewares/auth");
 const { attachActiveRoomFrames, attachActiveUserFrames } = require("../services/roomLeaderboard");
 const { sendNotificationToUser } = require("../services/notifications");
 const { RoomJoinSubscription } = require("../models");
@@ -1358,7 +1359,7 @@ router.post("/add-sawa", authenticateToken, async (req, res) => {
 });
 
 // إنشاء مستخدمين متعددين للاختبار
-router.post("/create-test-users", authenticateToken, async (req, res) => {
+router.post("/create-test-users", requireAdmin, async (req, res) => {
     try {
         if (req.user?.role !== "admin") {
             return res.status(403).json({ error: "Admins only" });
