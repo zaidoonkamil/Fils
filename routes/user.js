@@ -2452,6 +2452,53 @@ router.get("/users/:id/referrals", authenticateTokenUser, async (req, res) => {
   }
 });
 
+router.get("/admin/users/:id/referrer", requireAdmin, async (req, res) => {
+  try {
+    const userId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: "معرف المستخدم غير صالح" });
+    }
+
+    const referral = await Referrals.findOne({
+      where: { referredUserId: userId },
+      include: [
+        {
+          model: User,
+          as: "referrer",
+          attributes: ["id", "name", "email", "phone", "images", "role"],
+        },
+        {
+          model: User,
+          as: "referredUser",
+          attributes: ["id", "name", "email", "phone", "images", "role"],
+        }
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    if (!referral) {
+      return res.status(404).json({ error: "هذا المستخدم لم يسجل باستخدام رمز إحالة" });
+    }
+
+    return res.status(200).json({
+      referral: {
+        id: referral.id,
+        referrerId: referral.referrerId,
+        referredUserId: referral.referredUserId,
+        createdAt: referral.createdAt,
+        updatedAt: referral.updatedAt,
+        referralCode: String(referral.referrerId),
+        referrer: referral.referrer || null,
+        referredUser: referral.referredUser || null,
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error fetching user's referrer:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء جلب صاحب رمز الإحالة" });
+  }
+});
+
 router.post("/users", upload.none(), async (req, res) => {
   const { id, name, email, location, password, note, url, refId, player_id } = req.body;
   const phone = req.body.phone;
