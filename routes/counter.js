@@ -18,6 +18,60 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const { requireAdmin , authenticateTokenUser} = require("../middlewares/auth");
 
+async function purgeDisabledCounters() {
+  const disabledCounters = await Counter.findAll({
+    where: { isActive: false },
+    attributes: ["id"],
+  });
+
+  if (disabledCounters.length === 0) {
+    return {
+      deletedCountersCount: 0,
+      deletedUserCountersCount: 0,
+      deletedCounterSalesCount: 0,
+    };
+  }
+
+  const counterIds = disabledCounters.map((counter) => counter.id);
+
+  return sequelize.transaction(async (transaction) => {
+    const userCounters = await UserCounter.findAll({
+      where: { counterId: { [Op.in]: counterIds } },
+      attributes: ["id"],
+      transaction,
+    });
+
+    const userCounterIds = userCounters.map((item) => item.id);
+    let deletedCounterSalesCount = 0;
+
+    if (userCounterIds.length > 0) {
+      deletedCounterSalesCount = await CounterSale.destroy({
+        where: {
+          userCounterId: { [Op.in]: userCounterIds },
+          isSold: false,
+        },
+        transaction,
+      });
+
+      await UserCounter.destroy({
+        where: { counterId: { [Op.in]: counterIds } },
+        transaction,
+      });
+    }
+
+    await Counter.destroy({
+      where: { id: { [Op.in]: counterIds } },
+      transaction,
+    });
+
+    return {
+      deletedCountersCount: counterIds.length,
+      deletedUserCountersCount: userCounterIds.length,
+      deletedCounterSalesCount,
+    };
+  });
+}
+
 function serializeCounters(counters, defaultDuration) {
   return counters.map((c) => {
     const counter = c.toJSON();
@@ -226,6 +280,19 @@ router.get("/admin/counters/all", requireAdmin, async (req, res) => {
   } catch (err) {
     console.error("Error fetching all admin counters:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/admin/counters/purge-disabled", requireAdmin, async (req, res) => {
+  try {
+    const result = await purgeDisabledCounters();
+    return res.status(200).json({
+      message: "تم حذف جميع العدادات المعطلة نهائياً",
+      ...result,
+    });
+  } catch (err) {
+    console.error("Error purging disabled counters:", err);
+    return res.status(500).json({ error: "حدث خطأ أثناء حذف العدادات المعطلة نهائياً" });
   }
 });
 
