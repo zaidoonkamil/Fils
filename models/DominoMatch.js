@@ -35,6 +35,19 @@ const DominoMatch = sequelize.define("DominoMatch", {
     allowNull: true,
   },
 
+  // جائزة الفائز والعمولة المقتطعة (تنحفظ عند إنهاء المباراة)
+  prizeSawa: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: null,
+  },
+
+  commissionSawa: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: null,
+  },
+
   stateJson: {
     type: DataTypes.JSON,
     allowNull: true,

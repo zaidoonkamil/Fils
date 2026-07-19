@@ -145,24 +145,33 @@ async function payoutWinner(matchId, winnerId) {
 }
 
 async function buildMatchFinishSummary(matchId) {
-  const match = await DominoMatch.findByPk(matchId, {
-    attributes: ['id', 'entryFee', 'winFee', 'prizeSawa', 'commissionSawa'],
-  });
-  if (!match) return null;
+  // أي خطأ هنا لازم ما يمنع بث نتيجة المباراة أبداً
+  try {
+    const match = await DominoMatch.findByPk(matchId, {
+      attributes: ['id', 'entryFee', 'winFee', 'prizeSawa', 'commissionSawa'],
+    });
+    if (!match) return null;
 
-  const entryFee = Number(match.entryFee ?? 0);
-  const pot = entryFee * 2;
-  const rawWinFee = Number(match.winFee ?? 0);
-  const commission =
-    rawWinFee > 0 && rawWinFee < 1 ? pot * rawWinFee : rawWinFee;
-  const fallbackPrize = Math.max(0, Math.floor(pot - commission));
+    const entryFee = Number(match.entryFee ?? 0);
+    const pot = entryFee * 2;
+    const rawWinFee = Number(match.winFee ?? 0);
+    const commission =
+      rawWinFee > 0 && rawWinFee < 1 ? pot * rawWinFee : rawWinFee;
+    const fallbackPrize = Math.max(0, Math.floor(pot - commission));
 
-  return {
-    entryFee,
-    totalPot: pot,
-    prizeSawa: Number(match.prizeSawa ?? fallbackPrize),
-    commissionSawa: Number(match.commissionSawa ?? Math.floor(commission)),
-  };
+    return {
+      entryFee,
+      totalPot: pot,
+      prizeSawa: Number(match.prizeSawa ?? fallbackPrize),
+      commissionSawa: Number(match.commissionSawa ?? Math.floor(commission)),
+    };
+  } catch (e) {
+    console.error(
+      '[DOMINO] buildMatchFinishSummary error:',
+      e?.message || e
+    );
+    return null;
+  }
 }
 
 async function buildFinishedMatchPayloadFromRecord(match) {
@@ -747,8 +756,12 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
     io.to(`user:${state.players.p1}`).emit('domino:match_finished', payload);
     io.to(`user:${state.players.p2}`).emit('domino:match_finished', payload);
 
-    await payoutWinner(matchId, winnerId);
-    await persistFinish(matchId, winnerId, state);
+    try {
+      await payoutWinner(matchId, winnerId);
+      await persistFinish(matchId, winnerId, state);
+    } catch (e) {
+      console.error('[DOMINO] finish payout/persist error:', e?.message || e);
+    }
     clearMatchState(matchId);
     return 'match_finished';
   }
@@ -962,8 +975,12 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
   io.to(`user:${state.players.p1}`).emit('domino:match_finished', payload);
   io.to(`user:${state.players.p2}`).emit('domino:match_finished', payload);
 
-  await payoutWinner(matchId, winnerId);
-  await persistFinish(matchId, winnerId, state);
+  try {
+    await payoutWinner(matchId, winnerId);
+    await persistFinish(matchId, winnerId, state);
+  } catch (e) {
+    console.error('[DOMINO] forfeit payout/persist error:', e?.message || e);
+  }
   clearMatchState(matchId);
 }
 

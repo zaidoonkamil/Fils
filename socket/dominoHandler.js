@@ -224,8 +224,13 @@ function registerDominoHandlers(io, socket) {
   });
 
   socket.on('domino:move', async ({ matchId, move }, cb) => {
-    const res = await dominoService.onPlayerMove(io, matchId, userId, move);
-    cb?.(res);
+    try {
+      const res = await dominoService.onPlayerMove(io, matchId, userId, move);
+      cb?.(res);
+    } catch (e) {
+      console.error('[DOMINO] move error:', e?.message || e);
+      cb?.({ ok: false, error: e?.message || 'move_failed' });
+    }
   });
 
   socket.on('domino:get_match_result', async ({ matchId }, cb) => {

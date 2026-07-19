@@ -169,6 +169,13 @@ app.set("roomsIO", roomNamespace);
 
 // Global Error Handler for Debugging
 app.use((err, req, res, next) => {
+    // طلبات Range غير صالحة على ملفات الميديا (ترجيع/تقديم بالمشغل) —
+    // حالة طبيعية: نرد بالكود الصحيح بدون ما نلوث اللوگ
+    if (err && (err.status === 416 || err.statusCode === 416)) {
+        if (res.headersSent) return next(err);
+        return res.status(416).end();
+    }
+
     console.error("Global Error Caught:", err);
     try {
         const fs = require("fs");

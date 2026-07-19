@@ -1585,6 +1585,29 @@ async function ensureSchema() {
       isActive: true,
     },
   });
+
+  // أعمدة جائزة الدومينو (كانت ناقصة بالجدول وتسبب تعليق نهاية المباراة)
+  if (await tableExists(queryInterface, "DominoMatches")) {
+    const dominoMatchColumns = await queryInterface.describeTable(
+      "DominoMatches"
+    );
+    if (!dominoMatchColumns.prizeSawa) {
+      await queryInterface.addColumn("DominoMatches", "prizeSawa", {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+      });
+      console.log("Added prizeSawa column to DominoMatches");
+    }
+    if (!dominoMatchColumns.commissionSawa) {
+      await queryInterface.addColumn("DominoMatches", "commissionSawa", {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+      });
+      console.log("Added commissionSawa column to DominoMatches");
+    }
+  }
 }
 
 module.exports = ensureSchema;
