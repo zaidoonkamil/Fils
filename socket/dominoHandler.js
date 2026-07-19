@@ -46,13 +46,32 @@ function initDominoSocket(dominoNamespace) {
 }
 
 async function getRecentFinishedMatchForUser(userId) {
-  return DominoMatch.findOne({
+  // فقط المباريات المنتهية بآخر 10 دقايق — الأقدم ما تهم اللاعب
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+
+  const match = await DominoMatch.findOne({
     where: {
       status: 'finished',
+      updatedAt: { [Op.gte]: tenMinutesAgo },
       [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
     },
     order: [['updatedAt', 'DESC']],
   });
+
+  if (!match) return null;
+
+  // إذا اللاعب شاف النتيجة من قبل (ضغط OK بالديالوج) ما نعيد عرضها
+  const stateJson =
+    match.stateJson && typeof match.stateJson === 'object'
+      ? match.stateJson
+      : {};
+  const resultSeen =
+    stateJson.resultSeen && typeof stateJson.resultSeen === 'object'
+      ? stateJson.resultSeen
+      : {};
+  if (resultSeen[String(userId)]) return null;
+
+  return match;
 }
 
 function registerDominoHandlers(io, socket) {
@@ -230,6 +249,41 @@ function registerDominoHandlers(io, socket) {
     } catch (e) {
       console.error('[DOMINO] move error:', e?.message || e);
       cb?.({ ok: false, error: e?.message || 'move_failed' });
+    }
+  });
+
+  // اللاعب أكد مشاهدة نتيجة المباراة — لا تنعرض عليه مرة ثانية
+  socket.on('domino:ack_result', async ({ matchId } = {}, cb) => {
+    try {
+      const numericMatchId = Number(matchId);
+      if (!numericMatchId) return cb?.({ ok: false, error: 'invalid_match_id' });
+
+      const match = await DominoMatch.findOne({
+        where: {
+          id: numericMatchId,
+          [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+        },
+      });
+      if (!match) return cb?.({ ok: false, error: 'match_not_found' });
+
+      const stateJson =
+        match.stateJson && typeof match.stateJson === 'object'
+          ? { ...match.stateJson }
+          : {};
+      const resultSeen =
+        stateJson.resultSeen && typeof stateJson.resultSeen === 'object'
+          ? { ...stateJson.resultSeen }
+          : {};
+      resultSeen[String(userId)] = true;
+      stateJson.resultSeen = resultSeen;
+
+      await DominoMatch.update(
+        { stateJson },
+        { where: { id: numericMatchId } }
+      );
+      return cb?.({ ok: true });
+    } catch (e) {
+      return cb?.({ ok: false, error: e.message || 'ack_failed' });
     }
   });
 
