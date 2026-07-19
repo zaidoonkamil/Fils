@@ -163,36 +163,64 @@ function registerDominoHandlers(io, socket) {
   });
 
   socket.on('domino:join_match', async ({ matchId }, cb) => {
-    socket.join(`match:${matchId}`);
-    socket.data.dominoMatches.add(String(matchId));
-    if (state && state.status === 'playing') {
-      dominoService.startTurnTimer(io, matchId);
-    }
+    try {
+      socket.join(`match:${matchId}`);
+      socket.data.dominoMatches.add(String(matchId));
 
-    dominoForfeit.clearForfeit(matchId, userId);
+      dominoForfeit.clearForfeit(matchId, userId);
 
-    const state = await dominoService.getOrRestoreState(matchId);
-    if (!state) {
-      const finishedPayload = await dominoService.buildFinishedMatchPayload(
-        matchId
-      );
-      if (finishedPayload) {
-        return cb?.({
-          ok: true,
-          status: 'finished',
-          matchFinished: finishedPayload,
-        });
+      const state = await dominoService.getOrRestoreState(matchId);
+      if (!state) {
+        const finishedPayload = await dominoService.buildFinishedMatchPayload(
+          matchId
+        );
+        if (finishedPayload) {
+          return cb?.({
+            ok: true,
+            status: 'finished',
+            matchFinished: finishedPayload,
+          });
+        }
+
+        return cb?.({ ok: false, reason: 'match_not_found' });
       }
 
-      return cb?.({ ok: false, reason: 'match_not_found' });
+      if (state.status === 'playing') {
+        dominoService.startTurnTimer(io, matchId);
+      }
+
+      io.to(`match:${matchId}`).emit('domino:player_reconnected', {
+        matchId,
+        userId,
+      });
+
+      cb?.({ ok: true, state: await dominoService.publicState(state, userId) });
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || 'join_failed' });
     }
+  });
 
-    io.to(`match:${matchId}`).emit('domino:player_reconnected', {
-      matchId,
-      userId,
-    });
+  // انسحاب صريح: ينهي المباراة فوراً بدون انتظار مهلة الانقطاع
+  socket.on('domino:leave_match', async ({ matchId } = {}, cb) => {
+    try {
+      const state = await dominoService.getOrRestoreState(matchId);
+      if (!state || state.status !== 'playing') {
+        return cb?.({ ok: true, status: 'not_playing' });
+      }
 
-    cb?.({ ok: true, state: await dominoService.publicState(state, userId) });
+      const p1 = String(state.players.p1);
+      const p2 = String(state.players.p2);
+      if (p1 !== String(userId) && p2 !== String(userId)) {
+        return cb?.({ ok: false, error: 'not_in_match' });
+      }
+
+      const winnerId =
+        p1 === String(userId) ? state.players.p2 : state.players.p1;
+      await dominoService.finishByForfeit(io, matchId, winnerId, userId);
+      return cb?.({ ok: true, status: 'finished' });
+    } catch (e) {
+      return cb?.({ ok: false, error: e.message || 'leave_failed' });
+    }
   });
 
   socket.on('domino:move', async ({ matchId, move }, cb) => {
@@ -252,7 +280,7 @@ function registerDominoHandlers(io, socket) {
       if (!state || state.status !== 'playing') continue;
 
       if (state.players.p1 === userId || state.players.p2 === userId) {
-        dominoForfeit.scheduleForfeit(io, matchId, userId, 30);
+        dominoForfeit.scheduleForfeit(io, matchId, userId, 15);
       }
     }
 
@@ -269,7 +297,7 @@ function registerDominoHandlers(io, socket) {
         const matchId = String(match.id);
         const state = dominoService.getState(matchId);
         if (state && state.status === 'playing') {
-          dominoForfeit.scheduleForfeit(io, matchId, userId, 30);
+          dominoForfeit.scheduleForfeit(io, matchId, userId, 15);
         }
       }
     } catch (e) {

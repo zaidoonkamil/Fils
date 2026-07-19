@@ -726,8 +726,8 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
     state.winnerId = winnerId;
     clearTurnTimer(matchId);
 
-    await payoutWinner(matchId, winnerId);
-    await persistFinish(matchId, winnerId, state);
+    // نبث النتيجة فوراً — توزيع الجائزة والحفظ بالداتابيس يصير بعد البث
+    // حتى ما يتأخر ظهور الديالوج على اللاعبين
     const finishSummary = await buildMatchFinishSummary(matchId);
 
     const payload = {
@@ -746,6 +746,9 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
     io.to(`match:${matchId}`).emit('domino:match_finished', payload);
     io.to(`user:${state.players.p1}`).emit('domino:match_finished', payload);
     io.to(`user:${state.players.p2}`).emit('domino:match_finished', payload);
+
+    await payoutWinner(matchId, winnerId);
+    await persistFinish(matchId, winnerId, state);
     clearMatchState(matchId);
     return 'match_finished';
   }
@@ -942,8 +945,7 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
     reason: 'forfeit_disconnect',
   };
 
-  await payoutWinner(matchId, winnerId);
-  await persistFinish(matchId, winnerId, state);
+  // نبث النتيجة فوراً — الدفع والحفظ بعد البث حتى ما يتأخر الديالوج
   const finishSummary = await buildMatchFinishSummary(matchId);
 
   const payload = {
@@ -959,6 +961,9 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
   io.to(`match:${matchId}`).emit('domino:match_finished', payload);
   io.to(`user:${state.players.p1}`).emit('domino:match_finished', payload);
   io.to(`user:${state.players.p2}`).emit('domino:match_finished', payload);
+
+  await payoutWinner(matchId, winnerId);
+  await persistFinish(matchId, winnerId, state);
   clearMatchState(matchId);
 }
 
