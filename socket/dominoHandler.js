@@ -9,10 +9,12 @@ const { DominoQueue, DominoMatch, User } = require('../models');
 function initDominoSocket(dominoNamespace) {
   dominoNamespace.on('connection', async (socket) => {
     try {
-      const rawToken = socket.handshake.auth?.token || socket.handshake.query?.token;
-      const token = typeof rawToken === "string" && rawToken.startsWith("Bearer ")
-        ? rawToken.split(" ")[1]
-        : rawToken;
+      const rawToken =
+        socket.handshake.auth?.token || socket.handshake.query?.token;
+      const token =
+        typeof rawToken === 'string' && rawToken.startsWith('Bearer ')
+          ? rawToken.split(' ')[1]
+          : rawToken;
 
       if (!token) {
         socket.disconnect(true);
@@ -27,7 +29,9 @@ function initDominoSocket(dominoNamespace) {
         return;
       }
 
-      const user = await User.findByPk(userId, { attributes: ["id", "isActive"] });
+      const user = await User.findByPk(userId, {
+        attributes: ['id', 'isActive'],
+      });
       if (!user || user.isActive === false) {
         socket.disconnect(true);
         return;
@@ -41,6 +45,16 @@ function initDominoSocket(dominoNamespace) {
   });
 }
 
+async function getRecentFinishedMatchForUser(userId) {
+  return DominoMatch.findOne({
+    where: {
+      status: 'finished',
+      [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+    },
+    order: [['updatedAt', 'DESC']],
+  });
+}
+
 function registerDominoHandlers(io, socket) {
   const userId = socket.userId;
 
@@ -49,7 +63,10 @@ function registerDominoHandlers(io, socket) {
 
   socket.on('domino:find_match', async (payload = {}, cb) => {
     try {
-      const packageKey = typeof payload?.packageKey === 'string' ? payload.packageKey : 'classic_1';
+      const packageKey =
+        typeof payload?.packageKey === 'string'
+          ? payload.packageKey
+          : 'classic_1';
       const res = await matchmaking.findOrCreateMatch(io, userId, packageKey);
       cb?.({ ok: true, ...res });
     } catch (e) {
@@ -60,7 +77,10 @@ function registerDominoHandlers(io, socket) {
   socket.on('domino:cancel_search', async (_, cb) => {
     try {
       const res = await matchmaking.cancelSearch(userId);
-      io.to(`user:${userId}`).emit('domino:cancel_search_result', { ok: true, ...res });
+      io.to(`user:${userId}`).emit('domino:cancel_search_result', {
+        ok: true,
+        ...res,
+      });
       cb?.({ ok: true, ...res });
     } catch (e) {
       cb?.({ ok: false, error: e.message });
@@ -76,7 +96,7 @@ function registerDominoHandlers(io, socket) {
         return cb?.({ ok: true, mode: 'searching' });
       }
 
-      const match = await DominoMatch.findOne({
+      const playingMatch = await DominoMatch.findOne({
         where: {
           status: 'playing',
           [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
@@ -84,15 +104,35 @@ function registerDominoHandlers(io, socket) {
         order: [['createdAt', 'DESC']],
       });
 
-      if (!match) {
+      if (!playingMatch) {
+        const recentFinished = await getRecentFinishedMatchForUser(userId);
+        if (recentFinished) {
+          const payload =
+            await dominoService.buildFinishedMatchPayloadFromRecord(
+              recentFinished
+            );
+          if (payload) {
+            return cb?.({ ok: true, mode: 'finished', matchFinished: payload });
+          }
+        }
         return cb?.({ ok: true, mode: 'idle' });
       }
 
-      const matchId = match.id;
-
+      const matchId = playingMatch.id;
       const state = dominoService.getState(matchId);
 
       if (!state) {
+        const finishedPayload = await dominoService.buildFinishedMatchPayload(
+          matchId
+        );
+        if (finishedPayload) {
+          return cb?.({
+            ok: true,
+            mode: 'finished',
+            matchFinished: finishedPayload,
+          });
+        }
+
         await DominoMatch.update(
           { status: 'finished', winnerId: null },
           { where: { id: matchId } }
@@ -104,8 +144,10 @@ function registerDominoHandlers(io, socket) {
       socket.data.dominoMatches.add(String(matchId));
 
       dominoForfeit.clearForfeit(matchId, userId);
-
-      io.to(`match:${matchId}`).emit('domino:player_reconnected', { matchId, userId });
+      io.to(`match:${matchId}`).emit('domino:player_reconnected', {
+        matchId,
+        userId,
+      });
 
       return cb?.({
         ok: true,
@@ -126,9 +168,25 @@ function registerDominoHandlers(io, socket) {
     dominoForfeit.clearForfeit(matchId, userId);
 
     const state = dominoService.getState(matchId);
-    if (!state) return cb?.({ ok: false, reason: 'match_not_found' });
+    if (!state) {
+      const finishedPayload = await dominoService.buildFinishedMatchPayload(
+        matchId
+      );
+      if (finishedPayload) {
+        return cb?.({
+          ok: true,
+          status: 'finished',
+          matchFinished: finishedPayload,
+        });
+      }
 
-    io.to(`match:${matchId}`).emit('domino:player_reconnected', { matchId, userId });
+      return cb?.({ ok: false, reason: 'match_not_found' });
+    }
+
+    io.to(`match:${matchId}`).emit('domino:player_reconnected', {
+      matchId,
+      userId,
+    });
 
     cb?.({ ok: true, state: await dominoService.publicState(state, userId) });
   });
@@ -143,6 +201,17 @@ function registerDominoHandlers(io, socket) {
       const numericMatchId = Number(matchId);
       if (!numericMatchId) {
         return cb?.({ ok: false, error: 'invalid_match_id' });
+      }
+
+      const finishedPayload = await dominoService.buildFinishedMatchPayload(
+        numericMatchId
+      );
+      if (finishedPayload) {
+        return cb?.({
+          ok: true,
+          status: 'finished',
+          matchFinished: finishedPayload,
+        });
       }
 
       const liveState = dominoService.getState(numericMatchId);
@@ -165,71 +234,7 @@ function registerDominoHandlers(io, socket) {
         return cb?.({ ok: false, error: 'match_not_found' });
       }
 
-      if (match.status !== 'finished') {
-        return cb?.({ ok: true, status: match.status || 'unknown' });
-      }
-
-      const player1Id = Number(match.player1Id);
-      const player2Id = Number(match.player2Id);
-      const winnerId = match.winnerId == null ? '' : String(match.winnerId);
-      const loserId =
-        winnerId && String(player1Id) === winnerId
-          ? String(player2Id)
-          : winnerId && String(player2Id) === winnerId
-            ? String(player1Id)
-            : '';
-      const stateJson = match.stateJson && typeof match.stateJson === 'object'
-        ? match.stateJson
-        : {};
-      const scores = stateJson.scores && typeof stateJson.scores === 'object'
-        ? stateJson.scores
-        : {};
-      const lastRound = stateJson.lastRound && typeof stateJson.lastRound === 'object'
-        ? stateJson.lastRound
-        : {};
-
-      const players = await User.findAll({
-        where: { id: [player1Id, player2Id] },
-        attributes: ['id', 'name', 'images'],
-      });
-
-      const playersInfo = {};
-      for (const player of players) {
-        playersInfo[String(player.id)] = {
-          id: player.id,
-          name: player.name || `لاعب ${player.id}`,
-          image: player.images || '',
-        };
-      }
-
-      const finishSummary = await dominoService.buildMatchFinishSummary(numericMatchId);
-
-      const statePublicBase = {
-        matchId: String(numericMatchId),
-        players: {
-          p1: String(player1Id),
-          p2: String(player2Id),
-        },
-        playersInfo,
-        scores,
-        winnerId,
-        status: 'finished',
-        reason: lastRound.reason || 'finished',
-      };
-
-      return cb?.({
-        ok: true,
-        status: 'finished',
-        matchFinished: {
-          matchId: String(numericMatchId),
-          winnerId,
-          loserId,
-          reason: lastRound.reason || 'finished',
-          finishSummary,
-          statePublicP1: statePublicBase,
-          statePublicP2: statePublicBase,
-        },
-      });
+      return cb?.({ ok: true, status: match.status || 'unknown' });
     } catch (e) {
       return cb?.({ ok: false, error: e.message || 'get_match_result_failed' });
     }
@@ -246,7 +251,6 @@ function registerDominoHandlers(io, socket) {
         dominoForfeit.scheduleForfeit(io, matchId, userId, 30);
       }
     }
-
 
     try {
       const match = await DominoMatch.findOne({

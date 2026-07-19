@@ -111,6 +111,99 @@ async function buildMatchFinishSummary(matchId) {
   };
 }
 
+async function buildFinishedMatchPayloadFromRecord(match) {
+  if (!match) return null;
+
+  const player1Id = Number(match.player1Id);
+  const player2Id = Number(match.player2Id);
+  const winnerId = match.winnerId == null ? '' : String(match.winnerId);
+  const loserId =
+    winnerId && String(player1Id) === winnerId
+      ? String(player2Id)
+      : winnerId && String(player2Id) === winnerId
+        ? String(player1Id)
+        : '';
+
+  const stateJson =
+    match.stateJson && typeof match.stateJson === 'object'
+      ? match.stateJson
+      : {};
+  const scores =
+    stateJson.scores && typeof stateJson.scores === 'object'
+      ? stateJson.scores
+      : {};
+  const roundWins =
+    stateJson.roundWins && typeof stateJson.roundWins === 'object'
+      ? stateJson.roundWins
+      : {};
+  const lastRound =
+    stateJson.lastRound && typeof stateJson.lastRound === 'object'
+      ? stateJson.lastRound
+      : {};
+
+  const players = await User.findAll({
+    where: { id: [player1Id, player2Id] },
+    attributes: ['id', 'name', 'images'],
+  });
+
+  const playersInfo = {};
+  for (const player of players) {
+    playersInfo[String(player.id)] = {
+      id: player.id,
+      name: player.name || `لاعب ${player.id}`,
+      image: player.images || '',
+    };
+  }
+
+  const finishSummary = await buildMatchFinishSummary(match.id);
+
+  const publicState = {
+    matchId: String(match.id),
+    players: {
+      p1: String(player1Id),
+      p2: String(player2Id),
+    },
+    playersInfo,
+    scores,
+    roundWins,
+    winnerId,
+    status: 'finished',
+    reason: lastRound.reason || 'finished',
+  };
+
+  return {
+    matchId: String(match.id),
+    winnerId,
+    loserId,
+    reason: lastRound.reason || 'finished',
+    finishSummary,
+    statePublicP1: publicState,
+    statePublicP2: publicState,
+  };
+}
+
+async function buildFinishedMatchPayload(matchId) {
+  const match = await DominoMatch.findByPk(matchId, {
+    attributes: [
+      'id',
+      'player1Id',
+      'player2Id',
+      'winnerId',
+      'status',
+      'stateJson',
+      'entryFee',
+      'winFee',
+      'prizeSawa',
+      'commissionSawa',
+      'updatedAt',
+      'createdAt',
+    ],
+  });
+
+  if (!match || match.status !== 'finished') return null;
+  return buildFinishedMatchPayloadFromRecord(match);
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -583,15 +676,22 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
     await persistFinish(matchId, winnerId, state);
     const finishSummary = await buildMatchFinishSummary(matchId);
 
-    io.to(`match:${matchId}`).emit('domino:match_finished', {
+    const payload = {
       matchId,
       winnerId,
+      loserId:
+        String(state.players.p1) === String(winnerId)
+          ? String(state.players.p2)
+          : String(state.players.p1),
       finalScores: state.scores,
       reason: 'reached_target_score',
       finishSummary,
       statePublicP1: await publicState(state, state.players.p1),
       statePublicP2: await publicState(state, state.players.p2),
-    });
+    };
+    io.to(`match:${matchId}`).emit('domino:match_finished', payload);
+    io.to(`user:${state.players.p1}`).emit('domino:match_finished', payload);
+    io.to(`user:${state.players.p2}`).emit('domino:match_finished', payload);
     clearMatchState(matchId);
     return 'match_finished';
   }
@@ -791,7 +891,7 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
   await persistFinish(matchId, winnerId, state);
   const finishSummary = await buildMatchFinishSummary(matchId);
 
-  io.to(`match:${matchId}`).emit('domino:match_finished', {
+  const payload = {
     matchId,
     winnerId,
     loserId,
@@ -800,7 +900,10 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
     finishSummary,
     statePublicP1: await publicState(state, state.players.p1),
     statePublicP2: await publicState(state, state.players.p2),
-  });
+  };
+  io.to(`match:${matchId}`).emit('domino:match_finished', payload);
+  io.to(`user:${state.players.p1}`).emit('domino:match_finished', payload);
+  io.to(`user:${state.players.p2}`).emit('domino:match_finished', payload);
   clearMatchState(matchId);
 }
 
@@ -822,4 +925,6 @@ module.exports = {
   blockedWinnerAndPoints,
   startNewRound,
   buildMatchFinishSummary,
+  buildFinishedMatchPayload,
+  buildFinishedMatchPayloadFromRecord,
 };
