@@ -1781,14 +1781,20 @@ router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
             return res.status(403).json({ error: "??? ????" });
         }
 
+        const actorUser = await User.findByPk(req.user.id);
+        if (!actorUser) {
+            return res.status(404).json({ error: "??????? ??? ??????" });
+        }
+
         const roomNameChangeCostSetting = await Settings.findOne({
-            where: { key: "room_name_change_cost" }
+            where: { key: "room_name_change_cost", isActive: true },
+            order: [["updatedAt", "DESC"], ["id", "DESC"]],
         });
         const roomNameChangeCost = roomNameChangeCostSetting
             ? parseInt(roomNameChangeCostSetting.value, 10) || 0
             : 0;
 
-        const currentBalance = Number(req.user.sawa ?? 0);
+        const currentBalance = Number(actorUser.sawa ?? 0);
         if (currentBalance < roomNameChangeCost) {
             return res.status(400).json({
                 error: "???? ??? ????? ?????? ??? ?????",
@@ -1799,7 +1805,7 @@ router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
 
         const remainingSawa = currentBalance - roomNameChangeCost;
         if (roomNameChangeCost > 0) {
-            await req.user.update({ sawa: remainingSawa });
+            await actorUser.update({ sawa: remainingSawa });
         }
 
         await room.update({ name: nextName });
@@ -1915,14 +1921,20 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
             return res.status(400).json({ error: "Background image is required" });
         }
 
+        const actorUser = await User.findByPk(req.user.id);
+        if (!actorUser) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
         const backgroundCostSetting = await Settings.findOne({
-            where: { key: "room_background_change_cost" }
+            where: { key: "room_background_change_cost", isActive: true },
+            order: [["updatedAt", "DESC"], ["id", "DESC"]],
         });
         const backgroundCost = backgroundCostSetting
             ? parseInt(backgroundCostSetting.value, 10) || 0
             : 0;
 
-        const currentBalance = Number(req.user.sawa ?? 0);
+        const currentBalance = Number(actorUser.sawa ?? 0);
         if (currentBalance < backgroundCost) {
             return res.status(400).json({
                 error: "Insufficient points to change room background",
@@ -1933,7 +1945,7 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
 
         const remainingSawa = currentBalance - backgroundCost;
         if (backgroundCost > 0) {
-            await req.user.update({ sawa: remainingSawa });
+            await actorUser.update({ sawa: remainingSawa });
         }
 
         await room.update({ backgroundImage: req.file.filename });

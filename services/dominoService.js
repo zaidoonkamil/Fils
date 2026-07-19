@@ -90,6 +90,27 @@ async function payoutWinner(matchId, winnerId) {
   });
 }
 
+async function buildMatchFinishSummary(matchId) {
+  const match = await DominoMatch.findByPk(matchId, {
+    attributes: ['id', 'entryFee', 'winFee', 'prizeSawa', 'commissionSawa'],
+  });
+  if (!match) return null;
+
+  const entryFee = Number(match.entryFee ?? 0);
+  const pot = entryFee * 2;
+  const rawWinFee = Number(match.winFee ?? 0);
+  const commission =
+    rawWinFee > 0 && rawWinFee < 1 ? pot * rawWinFee : rawWinFee;
+  const fallbackPrize = Math.max(0, Math.floor(pot - commission));
+
+  return {
+    entryFee,
+    totalPot: pot,
+    prizeSawa: Number(match.prizeSawa ?? fallbackPrize),
+    commissionSawa: Number(match.commissionSawa ?? Math.floor(commission)),
+  };
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -560,12 +581,14 @@ async function finishRound(io, matchId, state, { winnerId, points, reason, isTie
 
     await payoutWinner(matchId, winnerId);
     await persistFinish(matchId, winnerId, state);
+    const finishSummary = await buildMatchFinishSummary(matchId);
 
     io.to(`match:${matchId}`).emit('domino:match_finished', {
       matchId,
       winnerId,
       finalScores: state.scores,
       reason: 'reached_target_score',
+      finishSummary,
       statePublicP1: await publicState(state, state.players.p1),
       statePublicP2: await publicState(state, state.players.p2),
     });
@@ -766,6 +789,7 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
 
   await payoutWinner(matchId, winnerId);
   await persistFinish(matchId, winnerId, state);
+  const finishSummary = await buildMatchFinishSummary(matchId);
 
   io.to(`match:${matchId}`).emit('domino:match_finished', {
     matchId,
@@ -773,6 +797,7 @@ async function finishByForfeit(io, matchId, winnerId, loserId) {
     loserId,
     finalScores: state.scores,
     reason: 'forfeit_disconnect',
+    finishSummary,
     statePublicP1: await publicState(state, state.players.p1),
     statePublicP2: await publicState(state, state.players.p2),
   });
