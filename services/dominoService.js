@@ -821,4 +821,5 @@ module.exports = {
   isRoundBlocked,
   blockedWinnerAndPoints,
   startNewRound,
+  buildMatchFinishSummary,
 };

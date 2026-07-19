@@ -138,6 +138,103 @@ function registerDominoHandlers(io, socket) {
     cb?.(res);
   });
 
+  socket.on('domino:get_match_result', async ({ matchId }, cb) => {
+    try {
+      const numericMatchId = Number(matchId);
+      if (!numericMatchId) {
+        return cb?.({ ok: false, error: 'invalid_match_id' });
+      }
+
+      const liveState = dominoService.getState(numericMatchId);
+      if (liveState && liveState.status === 'playing') {
+        return cb?.({
+          ok: true,
+          status: 'playing',
+          state: await dominoService.publicState(liveState, userId),
+        });
+      }
+
+      const match = await DominoMatch.findOne({
+        where: {
+          id: numericMatchId,
+          [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+        },
+      });
+
+      if (!match) {
+        return cb?.({ ok: false, error: 'match_not_found' });
+      }
+
+      if (match.status !== 'finished') {
+        return cb?.({ ok: true, status: match.status || 'unknown' });
+      }
+
+      const player1Id = Number(match.player1Id);
+      const player2Id = Number(match.player2Id);
+      const winnerId = match.winnerId == null ? '' : String(match.winnerId);
+      const loserId =
+        winnerId && String(player1Id) === winnerId
+          ? String(player2Id)
+          : winnerId && String(player2Id) === winnerId
+            ? String(player1Id)
+            : '';
+      const stateJson = match.stateJson && typeof match.stateJson === 'object'
+        ? match.stateJson
+        : {};
+      const scores = stateJson.scores && typeof stateJson.scores === 'object'
+        ? stateJson.scores
+        : {};
+      const lastRound = stateJson.lastRound && typeof stateJson.lastRound === 'object'
+        ? stateJson.lastRound
+        : {};
+
+      const players = await User.findAll({
+        where: { id: [player1Id, player2Id] },
+        attributes: ['id', 'name', 'images'],
+      });
+
+      const playersInfo = {};
+      for (const player of players) {
+        playersInfo[String(player.id)] = {
+          id: player.id,
+          name: player.name || `لاعب ${player.id}`,
+          image: player.images || '',
+        };
+      }
+
+      const finishSummary = await dominoService.buildMatchFinishSummary(numericMatchId);
+
+      const statePublicBase = {
+        matchId: String(numericMatchId),
+        players: {
+          p1: String(player1Id),
+          p2: String(player2Id),
+        },
+        playersInfo,
+        scores,
+        winnerId,
+        status: 'finished',
+        reason: lastRound.reason || 'finished',
+      };
+
+      return cb?.({
+        ok: true,
+        status: 'finished',
+        matchFinished: {
+          matchId: String(numericMatchId),
+          winnerId,
+          loserId,
+          reason: lastRound.reason || 'finished',
+          finishSummary,
+          statePublicP1: statePublicBase,
+          statePublicP2: statePublicBase,
+        },
+      });
+    } catch (e) {
+      return cb?.({ ok: false, error: e.message || 'get_match_result_failed' });
+    }
+  });
+
   socket.on('disconnect', async () => {
     const joinedMatches = socket.data.dominoMatches || new Set();
 
