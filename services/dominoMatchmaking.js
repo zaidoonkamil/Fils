@@ -133,6 +133,7 @@ async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
   // 7) بعد الـ commit: أنشئ state وبث للطرفين
   const state = dominoService.createNewMatchState(createdMatch.id, p1, p2);
   dominoService.storeState(createdMatch.id, state);
+  await dominoService.persistRuntimeState(createdMatch.id, state);
 
   io.to(`user:${p1}`).emit('domino:match_found', {
     matchId: createdMatch.id,

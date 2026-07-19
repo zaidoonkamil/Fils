@@ -8,17 +8,19 @@ function scheduleForfeit(io, matchId, userId, seconds = 30) {
   if (forfeits.has(key)) return;
 
   const timeoutId = setTimeout(() => {
-    const state = dominoService.getState(matchId);
-    if (!state || state.status !== 'playing') {
+    void (async () => {
+      const state = await dominoService.getOrRestoreState(matchId);
+      if (!state || state.status !== 'playing') {
+        clearForfeit(matchId, userId);
+        return;
+      }
+
+      const opponentId =
+        state.players.p1 === userId ? state.players.p2 : state.players.p1;
+
+      await dominoService.finishByForfeit(io, matchId, opponentId, userId);
       clearForfeit(matchId, userId);
-      return;
-    }
-
-    const opponentId = state.players.p1 === userId ? state.players.p2 : state.players.p1;
-
-    dominoService.finishByForfeit(io, matchId, opponentId, userId);
-
-    clearForfeit(matchId, userId);
+    })();
   }, seconds * 1000);
 
   forfeits.set(key, timeoutId);

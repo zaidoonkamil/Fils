@@ -119,7 +119,7 @@ function registerDominoHandlers(io, socket) {
       }
 
       const matchId = playingMatch.id;
-      const state = dominoService.getState(matchId);
+      const state = await dominoService.getOrRestoreState(matchId);
 
       if (!state) {
         const finishedPayload = await dominoService.buildFinishedMatchPayload(
@@ -142,6 +142,7 @@ function registerDominoHandlers(io, socket) {
 
       socket.join(`match:${matchId}`);
       socket.data.dominoMatches.add(String(matchId));
+      dominoService.startTurnTimer(io, matchId);
 
       dominoForfeit.clearForfeit(matchId, userId);
       io.to(`match:${matchId}`).emit('domino:player_reconnected', {
@@ -164,10 +165,13 @@ function registerDominoHandlers(io, socket) {
   socket.on('domino:join_match', async ({ matchId }, cb) => {
     socket.join(`match:${matchId}`);
     socket.data.dominoMatches.add(String(matchId));
+    if (state && state.status === 'playing') {
+      dominoService.startTurnTimer(io, matchId);
+    }
 
     dominoForfeit.clearForfeit(matchId, userId);
 
-    const state = dominoService.getState(matchId);
+    const state = await dominoService.getOrRestoreState(matchId);
     if (!state) {
       const finishedPayload = await dominoService.buildFinishedMatchPayload(
         matchId
@@ -214,7 +218,7 @@ function registerDominoHandlers(io, socket) {
         });
       }
 
-      const liveState = dominoService.getState(numericMatchId);
+      const liveState = await dominoService.getOrRestoreState(numericMatchId);
       if (liveState && liveState.status === 'playing') {
         return cb?.({
           ok: true,
@@ -244,7 +248,7 @@ function registerDominoHandlers(io, socket) {
     const joinedMatches = socket.data.dominoMatches || new Set();
 
     for (const matchId of joinedMatches) {
-      const state = dominoService.getState(matchId);
+      const state = await dominoService.getOrRestoreState(matchId);
       if (!state || state.status !== 'playing') continue;
 
       if (state.players.p1 === userId || state.players.p2 === userId) {

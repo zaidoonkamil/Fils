@@ -37,6 +37,60 @@ function clearMatchState(matchId) {
   matches.delete(String(matchId));
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+async function persistRuntimeState(matchId, state) {
+  await DominoMatch.update(
+    {
+      status: state?.status || 'playing',
+      winnerId: state?.winnerId || null,
+      stateJson: state ? cloneJson(state) : null,
+    },
+    { where: { id: matchId } }
+  );
+}
+
+function restoreRuntimeStateFromSnapshot(matchId, snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+
+  const restored = cloneJson(snapshot);
+  restored.matchId = Number(restored.matchId || matchId);
+  restored.status = restored.status || 'playing';
+  restored.winnerId = restored.winnerId ?? null;
+  restored.lastMoveAt = Number(restored.lastMoveAt || Date.now());
+  restored.turnSeconds = Number(restored.turnSeconds || currentTurnSeconds());
+
+  if (!restored.turn || typeof restored.turn !== 'object') {
+    restored.turn = {};
+  }
+
+  const expiresAt = Number(restored.turn.expiresAt || 0);
+  restored.turn.expiresAt =
+    expiresAt > Date.now() ? expiresAt : Date.now() + stateTurnSeconds(restored) * 1000;
+
+  return restored;
+}
+
+async function getOrRestoreState(matchId) {
+  const live = getState(matchId);
+  if (live) return live;
+
+  const match = await DominoMatch.findByPk(matchId, {
+    attributes: ['id', 'status', 'winnerId', 'stateJson'],
+  });
+
+  if (!match) return null;
+  if (match.status !== 'playing') return null;
+
+  const restored = restoreRuntimeStateFromSnapshot(match.id, match.stateJson);
+  if (!restored) return null;
+
+  storeState(match.id, restored);
+  return restored;
+}
+
 async function persistFinish(matchId, winnerId, state) {
   await DominoMatch.update(
     {
@@ -749,6 +803,7 @@ async function handleBlockedIfAny(io, matchId, state) {
 
 async function broadcastState(io, state, reason, extra = {}) {
   const matchId = state.matchId;
+  await persistRuntimeState(matchId, state);
   io.to(`match:${matchId}`).emit('domino:state', {
     matchId,
     reason,
@@ -759,7 +814,7 @@ async function broadcastState(io, state, reason, extra = {}) {
 }
 
 async function autoMove(io, matchId) {
-  const state = getState(matchId);
+  const state = await getOrRestoreState(matchId);
   if (!state || state.status !== 'playing') return;
 
   const userId = state.turnUserId;
@@ -834,7 +889,7 @@ async function autoMove(io, matchId) {
 
 
 async function onPlayerMove(io, matchId, userId, move) {
-  const state = getState(matchId);
+  const state = await getOrRestoreState(matchId);
   const valid = isValidMove(state, userId, move);
   if (!valid.ok) return valid;
 
@@ -871,7 +926,7 @@ async function onPlayerMove(io, matchId, userId, move) {
 
 
 async function finishByForfeit(io, matchId, winnerId, loserId) {
-  const state = getState(matchId);
+  const state = await getOrRestoreState(matchId);
   if (!state || state.status !== 'playing') return;
 
   // Finish match immediately on forfeit (don't continue with rounds)
@@ -911,6 +966,7 @@ module.exports = {
   createNewMatchState,
   storeState,
   getState,
+  getOrRestoreState,
   publicState,
   startTurnTimer,
   clearTurnTimer,
@@ -927,4 +983,5 @@ module.exports = {
   buildMatchFinishSummary,
   buildFinishedMatchPayload,
   buildFinishedMatchPayloadFromRecord,
+  persistRuntimeState,
 };
