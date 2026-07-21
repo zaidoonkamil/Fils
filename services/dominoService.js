@@ -436,11 +436,13 @@ function startNewRound(matchId, state) {
   }
 
   const starterHand = state.hands[starter] || [];
+  const nextRoundNumber = (Number(state.round?.number) || 1) + 1;
 
-  state.round.number++;
+  state.round.number = nextRoundNumber;
   state.round.starterUserId = starter;
   state.round.ended = false;
-  state.round.mustOpenWith = mandatoryOpeningDouble(starterHand);
+  state.round.mustOpenWith =
+    nextRoundNumber <= 1 ? mandatoryOpeningDouble(starterHand) : null;
 
   state.turnUserId = starter;
   state.lastMoveAt = Date.now();
