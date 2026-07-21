@@ -2501,12 +2501,17 @@ router.get("/admin/users/:id/referrer", requireAdmin, async (req, res) => {
 });
 
 router.post("/users", upload.none(), async (req, res) => {
-  const { id, name, email, location, password, note, url, refId, player_id } = req.body;
+  const { name, email, location, password, note, url, refId, player_id } = req.body;
   const phone = req.body.phone;
 
   const t = await sequelize.transaction();
 
   try {
+    if (req.body.id !== undefined && req.body.id !== null && String(req.body.id).trim() !== "") {
+      await t.rollback();
+      return res.status(400).json({ error: "لا يمكن تحديد ID يدويًا عند إنشاء الحساب" });
+    }
+
     const resolvedInstallId = getOneSignalInstallId(player_id);
     let device = null;
     if (resolvedInstallId) {
@@ -2548,7 +2553,6 @@ router.post("/users", upload.none(), async (req, res) => {
     const sanitizedName = maskArabicProfanity(name);
 
     const user = await User.create({
-      id: id || undefined,
       name: sanitizedName,
       email,
       isVerified: false,
