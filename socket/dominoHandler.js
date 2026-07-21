@@ -4,17 +4,111 @@ const dominoForfeit = require('../services/dominoForfeit');
 const jwt = require('jsonwebtoken');
 
 const { Op } = require('sequelize');
-const { DominoQueue, DominoMatch, User } = require('../models');
+const { DominoQueue, DominoMatch, User, Settings } = require('../models');
+
+const ADMIN_TOKEN_VALID_AFTER_IAT_KEY = 'admin_token_valid_after_iat';
+
+function extractSocketToken(rawToken) {
+  if (typeof rawToken !== 'string') return null;
+  const normalized = rawToken.trim();
+  if (!normalized) return null;
+  return normalized.startsWith('Bearer ')
+    ? normalized.split(' ')[1]
+    : normalized;
+}
+
+async function resolveAccountBanMessage(user) {
+  if (!user || user.accountBanActive !== true) {
+    return null;
+  }
+
+  const now = new Date();
+  const banUntil =
+    user.accountBanUntil instanceof Date
+      ? user.accountBanUntil
+      : user.accountBanUntil
+      ? new Date(user.accountBanUntil)
+      : null;
+
+  if (banUntil && banUntil <= now) {
+    user.accountBanActive = false;
+    user.accountBanReason = null;
+    user.accountBanUntil = null;
+    user.accountBanBy = null;
+    await user.save();
+    return null;
+  }
+
+  const reason =
+    typeof user.accountBanReason === 'string' && user.accountBanReason.trim()
+      ? user.accountBanReason.trim()
+      : 'بدون سبب محدد';
+  const untilText = banUntil
+    ? `${banUntil.getFullYear()}/${String(banUntil.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}/${String(banUntil.getDate()).padStart(2, '0')}`
+    : 'غير محدد';
+
+  return `تم حظر حسابك مؤقتًا. السبب: ${reason}. ينتهي الحظر بتاريخ ${untilText}`;
+}
+
+async function getAdminTokenValidAfterIat() {
+  const currentUnixSeconds = Math.floor(Date.now() / 1000);
+
+  const [setting] = await Settings.findOrCreate({
+    where: { key: ADMIN_TOKEN_VALID_AFTER_IAT_KEY },
+    defaults: {
+      value: String(currentUnixSeconds),
+      description: 'Reject admin JWTs issued before this unix timestamp',
+      isActive: true,
+    },
+  });
+
+  const parsedValue = parseInt(String(setting.value || '').trim(), 10);
+  if (Number.isNaN(parsedValue) || parsedValue <= 0) {
+    setting.value = String(currentUnixSeconds);
+    setting.isActive = true;
+    await setting.save();
+    return currentUnixSeconds;
+  }
+
+  return parsedValue;
+}
+
+async function enforceSocketTokenPolicy(decoded) {
+  if (!decoded || decoded.role !== 'admin') {
+    return true;
+  }
+
+  const decodedIat = Number(decoded.iat || 0);
+  if (!decodedIat) {
+    return false;
+  }
+
+  const validAfterIat = await getAdminTokenValidAfterIat();
+  return decodedIat >= validAfterIat;
+}
+
+async function findAuthorizedMatch(matchId, userId) {
+  const numericMatchId = Number(matchId);
+  if (!numericMatchId) return null;
+
+  return DominoMatch.findOne({
+    where: {
+      id: numericMatchId,
+      [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+    },
+    attributes: ['id', 'status', 'player1Id', 'player2Id', 'winnerId', 'stateJson'],
+  });
+}
 
 function initDominoSocket(dominoNamespace) {
   dominoNamespace.on('connection', async (socket) => {
     try {
       const rawToken =
         socket.handshake.auth?.token || socket.handshake.query?.token;
-      const token =
-        typeof rawToken === 'string' && rawToken.startsWith('Bearer ')
-          ? rawToken.split(' ')[1]
-          : rawToken;
+      const token = extractSocketToken(rawToken);
 
       if (!token) {
         socket.disconnect(true);
@@ -22,6 +116,12 @@ function initDominoSocket(dominoNamespace) {
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const policyAllowed = await enforceSocketTokenPolicy(decoded);
+      if (!policyAllowed) {
+        socket.disconnect(true);
+        return;
+      }
+
       const userId = Number(decoded.id || decoded.userId);
 
       if (!userId) {
@@ -30,9 +130,24 @@ function initDominoSocket(dominoNamespace) {
       }
 
       const user = await User.findByPk(userId, {
-        attributes: ['id', 'isActive'],
+        attributes: [
+          'id',
+          'isActive',
+          'role',
+          'accountBanActive',
+          'accountBanReason',
+          'accountBanUntil',
+          'accountBanBy',
+        ],
       });
       if (!user || user.isActive === false) {
+        socket.disconnect(true);
+        return;
+      }
+
+      const accountBanMessage = await resolveAccountBanMessage(user);
+      if (accountBanMessage) {
+        socket.emit('domino:error', { error: accountBanMessage });
         socket.disconnect(true);
         return;
       }
@@ -183,16 +298,24 @@ function registerDominoHandlers(io, socket) {
 
   socket.on('domino:join_match', async ({ matchId }, cb) => {
     try {
-      socket.join(`match:${matchId}`);
-      socket.data.dominoMatches.add(String(matchId));
+      const numericMatchId = Number(matchId);
+      if (!numericMatchId) {
+        return cb?.({ ok: false, reason: 'invalid_match_id' });
+      }
 
-      dominoForfeit.clearForfeit(matchId, userId);
+      const match = await findAuthorizedMatch(numericMatchId, userId);
+      if (!match) {
+        return cb?.({ ok: false, reason: 'match_not_found' });
+      }
 
-      const state = await dominoService.getOrRestoreState(matchId);
+      dominoForfeit.clearForfeit(numericMatchId, userId);
+
+      const state = await dominoService.getOrRestoreState(numericMatchId);
       if (!state) {
-        const finishedPayload = await dominoService.buildFinishedMatchPayload(
-          matchId
-        );
+        const finishedPayload =
+          match.status === 'finished'
+            ? await dominoService.buildFinishedMatchPayload(numericMatchId)
+            : null;
         if (finishedPayload) {
           return cb?.({
             ok: true,
@@ -204,12 +327,15 @@ function registerDominoHandlers(io, socket) {
         return cb?.({ ok: false, reason: 'match_not_found' });
       }
 
+      socket.join(`match:${numericMatchId}`);
+      socket.data.dominoMatches.add(String(numericMatchId));
+
       if (state.status === 'playing') {
-        dominoService.startTurnTimer(io, matchId);
+        dominoService.startTurnTimer(io, numericMatchId);
       }
 
-      io.to(`match:${matchId}`).emit('domino:player_reconnected', {
-        matchId,
+      io.to(`match:${numericMatchId}`).emit('domino:player_reconnected', {
+        matchId: numericMatchId,
         userId,
       });
 
@@ -294,6 +420,11 @@ function registerDominoHandlers(io, socket) {
         return cb?.({ ok: false, error: 'invalid_match_id' });
       }
 
+      const match = await findAuthorizedMatch(numericMatchId, userId);
+      if (!match) {
+        return cb?.({ ok: false, error: 'match_not_found' });
+      }
+
       const finishedPayload = await dominoService.buildFinishedMatchPayload(
         numericMatchId
       );
@@ -312,17 +443,6 @@ function registerDominoHandlers(io, socket) {
           status: 'playing',
           state: await dominoService.publicState(liveState, userId),
         });
-      }
-
-      const match = await DominoMatch.findOne({
-        where: {
-          id: numericMatchId,
-          [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
-        },
-      });
-
-      if (!match) {
-        return cb?.({ ok: false, error: 'match_not_found' });
       }
 
       return cb?.({ ok: true, status: match.status || 'unknown' });

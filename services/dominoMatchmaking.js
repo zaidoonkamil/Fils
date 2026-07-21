@@ -1,17 +1,20 @@
 // services/dominoMatchmaking.js
 const { DominoQueue, DominoMatch, Settings, User } = require('../models');
 const dominoService = require('./dominoService');
-const sequelize = require("../config/db"); 
+const sequelize = require('../config/db');
 const { Op } = require('sequelize');
 
 async function getSetting(key, fallback = '0') {
-  const s = await Settings.findOne({ where: { key, isActive: true } });
-  return s ? s.value : fallback;
+  const setting = await Settings.findOne({ where: { key, isActive: true } });
+  return setting ? setting.value : fallback;
 }
 
 async function loadClassicPackageConfig(packageKey) {
   const allowedIndexes = new Set(['1', '2', '3', '4']);
-  const requestedIndex = String(packageKey || 'classic_1').replace('classic_', '');
+  const requestedIndex = String(packageKey || 'classic_1').replace(
+    'classic_',
+    ''
+  );
   const index = allowedIndexes.has(requestedIndex) ? requestedIndex : '1';
   const normalizedKey = `classic_${index}`;
   const defaultEntries = {
@@ -26,9 +29,21 @@ async function loadClassicPackageConfig(packageKey) {
     '3': '10000',
     '4': '5000',
   };
-  const entryFee = Number(await getSetting(`domino_classic_package_${index}_entry_fee`, defaultEntries[index]));
-  const prize = Number(await getSetting(`domino_classic_package_${index}_prize`, defaultPrizes[index]));
+
+  const entryFee = Number(
+    await getSetting(
+      `domino_classic_package_${index}_entry_fee`,
+      defaultEntries[index]
+    )
+  );
+  const prize = Number(
+    await getSetting(
+      `domino_classic_package_${index}_prize`,
+      defaultPrizes[index]
+    )
+  );
   const winFee = Number(await getSetting('domino_win_fee', '0'));
+
   return {
     packageKey: normalizedKey,
     entryFee,
@@ -43,36 +58,53 @@ async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
   const prize = Number(packageConfig.prize || 0);
   const winFee = Number(packageConfig.winFee || 0);
 
-  // 1) إذا هو أصلًا searching لا تعيد
-  const existing = await DominoQueue.findOne({ where: { userId } });
-  if (existing && existing.status === 'searching') return { status: 'already_searching' };
+  const existingQueue = await DominoQueue.findOne({ where: { userId } });
+  if (existingQueue && existingQueue.status === 'searching') {
+    return { status: 'already_searching' };
+  }
 
   let createdMatch = null;
-  let p1 = null;
-  let p2 = null;
+  let player1Id = null;
+  let player2Id = null;
+  let alreadyPlayingMatchId = null;
 
-  await sequelize.transaction(async (t) => {
-    // 2) اقفل المستخدم وخصم الرسم بأمان
-    const user = await User.findByPk(userId, {
-      transaction: t,
-      lock: t.LOCK.UPDATE,
+  await sequelize.transaction(async (transaction) => {
+    const existingPlayingMatch = await DominoMatch.findOne({
+      where: {
+        status: 'playing',
+        [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+      },
+      order: [['createdAt', 'DESC']],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
     });
-    if (!user) throw new Error('user_not_found');
 
-    const sawa = Number(user.sawa ?? 0);
-    if (sawa < entryFee) throw new Error('insufficient_sawa');
+    if (existingPlayingMatch) {
+      alreadyPlayingMatchId = existingPlayingMatch.id;
+      return;
+    }
 
-    user.sawa = sawa - entryFee;
-    await user.save({ transaction: t });
+    const user = await User.findByPk(userId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!user) {
+      throw new Error('user_not_found');
+    }
 
+    const currentSawa = Number(user.sawa ?? 0);
+    if (currentSawa < entryFee) {
+      throw new Error('insufficient_sawa');
+    }
 
-    // 3) دخله الطابور (searching)
+    user.sawa = currentSawa - entryFee;
+    await user.save({ transaction });
+
     await DominoQueue.upsert(
       { userId, entryFee, status: 'searching' },
-      { transaction: t }
+      { transaction }
     );
 
-    // 4) دور على خصم غيره + اقفل صف الخصم
     const opponent = await DominoQueue.findOne({
       where: {
         status: 'searching',
@@ -80,36 +112,30 @@ async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
         entryFee,
       },
       order: [['createdAt', 'ASC']],
-      transaction: t,
-      lock: t.LOCK.UPDATE,
-      skipLocked: true, // Postgres: ممتاز حتى ما تنتظر صف مقفول
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+      skipLocked: true,
     });
 
     if (!opponent) {
-      // ماكو خصم بعد
       return;
     }
 
-    // 5) حدّث الاثنين matched بشرط بعدهم searching (حتى ما يصير سباق)
-    const [affected] = await DominoQueue.update(
+    const [affectedRows] = await DominoQueue.update(
       { status: 'matched' },
       {
         where: {
           userId: { [Op.in]: [userId, opponent.userId] },
           status: 'searching',
         },
-        transaction: t,
+        transaction,
       }
     );
 
-    // لازم يحدّث صفّين. إذا أقل => واحد من عدهم سبق وانطابق
-    if (affected !== 2) {
-      // نخلي المستخدم searching (يبقى بالطابور) أو ترجع waiting
-      // هنا نرجع بدون إنشاء ماتش
+    if (affectedRows !== 2) {
       return;
     }
 
-    // 6) أنشئ المباراة داخل نفس الترانزاكشن
     createdMatch = await DominoMatch.create(
       {
         player1Id: opponent.userId,
@@ -118,65 +144,97 @@ async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
         winFee,
         status: 'playing',
       },
-      { transaction: t }
+      { transaction }
     );
 
-    p1 = opponent.userId;
-    p2 = userId;
+    player1Id = opponent.userId;
+    player2Id = userId;
   });
 
-  // إذا ما انخلق ماتش => user صار waiting
-  if (!createdMatch) {
-    return { status: 'waiting', packageKey: packageConfig.packageKey, prize, entryFee };
+  if (alreadyPlayingMatchId) {
+    return {
+      status: 'already_in_match',
+      matchId: alreadyPlayingMatchId,
+      packageKey: packageConfig.packageKey,
+      prize,
+      entryFee,
+    };
   }
 
-  // 7) بعد الـ commit: أنشئ state وبث للطرفين
-  const state = dominoService.createNewMatchState(createdMatch.id, p1, p2);
+  if (!createdMatch) {
+    return {
+      status: 'waiting',
+      packageKey: packageConfig.packageKey,
+      prize,
+      entryFee,
+    };
+  }
+
+  const state = dominoService.createNewMatchState(
+    createdMatch.id,
+    player1Id,
+    player2Id
+  );
   dominoService.storeState(createdMatch.id, state);
   await dominoService.persistRuntimeState(createdMatch.id, state);
 
-  io.to(`user:${p1}`).emit('domino:match_found', {
+  io.to(`user:${player1Id}`).emit('domino:match_found', {
     matchId: createdMatch.id,
-    state: await dominoService.publicState(state, p1),
+    state: await dominoService.publicState(state, player1Id),
   });
 
-  io.to(`user:${p2}`).emit('domino:match_found', {
+  io.to(`user:${player2Id}`).emit('domino:match_found', {
     matchId: createdMatch.id,
-    state: await dominoService.publicState(state, p2),
+    state: await dominoService.publicState(state, player2Id),
   });
 
   dominoService.startTurnTimer(io, createdMatch.id);
 
-  return { status: 'matched', matchId: createdMatch.id, packageKey: packageConfig.packageKey, prize, entryFee };
+  return {
+    status: 'matched',
+    matchId: createdMatch.id,
+    packageKey: packageConfig.packageKey,
+    prize,
+    entryFee,
+  };
 }
 
 async function cancelSearch(userId) {
   let refunded = 0;
 
-  await sequelize.transaction(async (t) => {
-    const q = await DominoQueue.findOne({
+  await sequelize.transaction(async (transaction) => {
+    const queueRecord = await DominoQueue.findOne({
       where: { userId, status: 'searching' },
-      transaction: t,
-      lock: t.LOCK.UPDATE,
+      transaction,
+      lock: transaction.LOCK.UPDATE,
     });
 
-    if (!q) return;
+    if (!queueRecord) {
+      return;
+    }
 
     await DominoQueue.update(
       { status: 'canceled' },
-      { where: { userId, status: 'searching' }, transaction: t }
+      {
+        where: { userId, status: 'searching' },
+        transaction,
+      }
     );
 
-    const user = await User.findByPk(userId, { transaction: t, lock: t.LOCK.UPDATE });
-    if (!user) throw new Error('user_not_found');
+    const user = await User.findByPk(userId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!user) {
+      throw new Error('user_not_found');
+    }
 
-    refunded = Number(q.entryFee ?? 0);
+    refunded = Number(queueRecord.entryFee ?? 0);
     user.sawa = Number(user.sawa ?? 0) + refunded;
-    await user.save({ transaction: t });
+    await user.save({ transaction });
   });
 
   return { status: 'canceled', refunded };
 }
-
 
 module.exports = { findOrCreateMatch, cancelSearch, loadClassicPackageConfig };
