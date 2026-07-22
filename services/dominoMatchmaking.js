@@ -173,7 +173,15 @@ async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
   const state = dominoService.createNewMatchState(
     createdMatch.id,
     player1Id,
-    player2Id
+    player2Id,
+    {
+      pricing: {
+        entryFee,
+        prizePerPlayer: prize,
+        totalPrize: prize * 2,
+        commission: Math.max(0, entryFee * 2 - prize * 2),
+      },
+    }
   );
   dominoService.storeState(createdMatch.id, state);
   await dominoService.persistRuntimeState(createdMatch.id, state);

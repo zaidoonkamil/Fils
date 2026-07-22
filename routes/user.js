@@ -1266,7 +1266,18 @@ router.post("/domino/private-room/join", authenticateTokenUser, upload.none(), a
     state = dominoService.createNewMatchState(
       createdMatch.id,
       hostUserId,
-      guestUserId
+      guestUserId,
+      {
+        pricing: {
+          entryFee,
+          prizePerPlayer: Number(room.prize || 0),
+          totalPrize: Number(room.prize || 0) * 2,
+          commission: Math.max(
+            0,
+            entryFee * 2 - Number(room.prize || 0) * 2
+          ),
+        },
+      }
     );
     dominoService.storeState(createdMatch.id, state);
     dominoService.startTurnTimer(req.app.get("dominoNamespace"), createdMatch.id);

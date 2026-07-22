@@ -123,10 +123,28 @@ async function payoutWinner(matchId, winnerId) {
     const entryFee = Number(match.entryFee ?? 0);
     const pot = entryFee * 2;
 
-    const winFee = Number(match.winFee ?? 0);
-    const commission = winFee > 0 && winFee < 1 ? pot * winFee : winFee;
+    const pricing =
+      match.stateJson && typeof match.stateJson === 'object'
+        ? match.stateJson.pricing || {}
+        : {};
+    const configuredPrizePerPlayer = Number(pricing.prizePerPlayer || 0);
+    const configuredTotalPrize = Number(pricing.totalPrize || 0);
 
-    const prize = Math.max(0, Math.floor(pot - commission));
+    let commission = 0;
+    let prize = 0;
+
+    if (configuredTotalPrize > 0 || configuredPrizePerPlayer > 0) {
+      const desiredPrize =
+        configuredTotalPrize > 0
+          ? configuredTotalPrize
+          : configuredPrizePerPlayer * 2;
+      prize = Math.max(0, Math.min(pot, Math.floor(desiredPrize)));
+      commission = Math.max(0, pot - prize);
+    } else {
+      const winFee = Number(match.winFee ?? 0);
+      commission = winFee > 0 && winFee < 1 ? pot * winFee : winFee;
+      prize = Math.max(0, Math.floor(pot - commission));
+    }
 
     const winner = await User.findByPk(winnerId, {
       transaction: t,
@@ -154,16 +172,37 @@ async function buildMatchFinishSummary(matchId) {
 
     const entryFee = Number(match.entryFee ?? 0);
     const pot = entryFee * 2;
-    const rawWinFee = Number(match.winFee ?? 0);
-    const commission =
-      rawWinFee > 0 && rawWinFee < 1 ? pot * rawWinFee : rawWinFee;
-    const fallbackPrize = Math.max(0, Math.floor(pot - commission));
+    const pricing =
+      match.stateJson && typeof match.stateJson === 'object'
+        ? match.stateJson.pricing || {}
+        : {};
+    const configuredPrizePerPlayer = Number(pricing.prizePerPlayer || 0);
+    const configuredTotalPrize = Number(pricing.totalPrize || 0);
+
+    let fallbackPrize = 0;
+    let fallbackCommission = 0;
+
+    if (configuredTotalPrize > 0 || configuredPrizePerPlayer > 0) {
+      const desiredPrize =
+        configuredTotalPrize > 0
+          ? configuredTotalPrize
+          : configuredPrizePerPlayer * 2;
+      fallbackPrize = Math.max(0, Math.min(pot, Math.floor(desiredPrize)));
+      fallbackCommission = Math.max(0, pot - fallbackPrize);
+    } else {
+      const rawWinFee = Number(match.winFee ?? 0);
+      fallbackCommission =
+        rawWinFee > 0 && rawWinFee < 1 ? pot * rawWinFee : rawWinFee;
+      fallbackPrize = Math.max(0, Math.floor(pot - fallbackCommission));
+    }
 
     return {
       entryFee,
       totalPot: pot,
       prizeSawa: Number(match.prizeSawa ?? fallbackPrize),
-      commissionSawa: Number(match.commissionSawa ?? Math.floor(commission)),
+      commissionSawa: Number(
+        match.commissionSawa ?? Math.floor(fallbackCommission)
+      ),
     };
   } catch (e) {
     console.error(
@@ -283,7 +322,7 @@ function generateTiles() {
   return shuffle(tiles);
 }
 
-function createNewMatchState(matchId, p1, p2) {
+function createNewMatchState(matchId, p1, p2, options = {}) {
   const tiles = generateTiles();
   const hand1 = tiles.splice(0, 7);
   const hand2 = tiles.splice(0, 7);
@@ -292,6 +331,8 @@ function createNewMatchState(matchId, p1, p2) {
   const starter = chooseStarter(p1, hand1, p2, hand2);
   const starterHand = starter === p1 ? hand1 : hand2;
   const turnSeconds = currentTurnSeconds();
+  const pricing =
+    options && typeof options.pricing === 'object' ? options.pricing : {};
 
   return {
     matchId,
@@ -314,6 +355,12 @@ function createNewMatchState(matchId, p1, p2) {
     scores: { [p1]: 0, [p2]: 0 },
     roundWins: { [p1]: 0, [p2]: 0 },
     matchTargetScore: 101,
+    pricing: {
+      entryFee: Number(pricing.entryFee || 0),
+      prizePerPlayer: Number(pricing.prizePerPlayer || 0),
+      totalPrize: Number(pricing.totalPrize || 0),
+      commission: Number(pricing.commission || 0),
+    },
     round: {
       number: 1,
       starterUserId: starter,
