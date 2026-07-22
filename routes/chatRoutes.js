@@ -597,7 +597,7 @@ function initChatSocket(io) {
       try {
         const currentUserId = Number(authUser.id);
         if (!currentUserId) {
-          return socket.emit("chatError", { message: "ØºÙŠØ± Ù…ØµØ±Ø­ Ø¨Ù‡" });
+          return socket.emit("chatError", { message: "غير مصرح به" });
         }
 
         const receiverId = payload.receiverId ? Number(payload.receiverId) : null;
@@ -666,7 +666,7 @@ function initChatSocket(io) {
       try {
         const normalizedSenderId = Number(authUser.id);
         if (!normalizedSenderId) {
-          return socket.emit("chatError", { message: "ØºÙŠØ± Ù…ØµØ±Ø­ Ø¨Ù‡" });
+          return socket.emit("chatError", { message: "غير مصرح به" });
         }
 
         const { receiverId, message, messageType, image } = data;
