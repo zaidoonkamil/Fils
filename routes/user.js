@@ -643,6 +643,92 @@ function buildDominoPrivateRoomPayload(room, currentUserId = null) {
   };
 }
 
+function parseAdminDateBoundary(value, { endOfDay = false } = {}) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  if (endOfDay) {
+    parsed.setHours(23, 59, 59, 999);
+  } else {
+    parsed.setHours(0, 0, 0, 0);
+  }
+
+  return parsed;
+}
+
+function resolvePrimaryImage(images) {
+  if (Array.isArray(images) && images.length > 0) {
+    return String(images[0] || "").trim();
+  }
+  if (typeof images === "string" && images.trim()) {
+    return images.trim();
+  }
+  return "";
+}
+
+function buildDominoPackageLabel(packageKey) {
+  switch (String(packageKey || "").trim()) {
+    case "classic_1":
+      return "الباقة الأولى";
+    case "classic_2":
+      return "الباقة الثانية";
+    case "classic_3":
+      return "الباقة الثالثة";
+    case "classic_4":
+      return "الباقة الرابعة";
+    default:
+      return "غير مصنفة";
+  }
+}
+
+async function getDominoPackageCatalog() {
+  const packageKeys = ["classic_1", "classic_2", "classic_3", "classic_4"];
+  return Promise.all(
+    packageKeys.map(async (packageKey) => {
+      const config = await loadClassicPackageConfig(packageKey);
+      return {
+        key: packageKey,
+        label: buildDominoPackageLabel(packageKey),
+        entryFee: Number(config.entryFee || 0),
+        prize: Number(config.prize || 0),
+      };
+    })
+  );
+}
+
+function resolveDominoPackageInfo(entryFee, packageCatalog, preferredKey = null) {
+  if (preferredKey) {
+    const matchedByKey = packageCatalog.find((item) => item.key === preferredKey);
+    if (matchedByKey) return matchedByKey;
+  }
+
+  const numericEntryFee = Number(entryFee || 0);
+  const matched = packageCatalog.find(
+    (item) => Number(item.entryFee || 0) === numericEntryFee
+  );
+
+  if (matched) return matched;
+
+  return {
+    key: "unknown",
+    label: "غير مصنفة",
+    entryFee: numericEntryFee,
+    prize: 0,
+  };
+}
+
+function buildDominoAdminPlayerPayload(user) {
+  if (!user) return null;
+
+  return {
+    id: Number(user.id),
+    name: user.name || `لاعب ${user.id}`,
+    image: resolvePrimaryImage(user.images),
+    isLoggedIn: user.isLoggedIn === true,
+  };
+}
+
 function generateDominoPrivateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -3233,6 +3319,383 @@ router.get("/allusers", requireAdmin, async (req, res) => {
   } catch (err) {
     console.error("❌ Error fetching users:", err);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/domino/statistics", requireAdmin, async (req, res) => {
+  try {
+    const limitRaw = parseInt(String(req.query.limit || "20"), 10);
+    const transactionLimitRaw = parseInt(
+      String(req.query.transactionLimit || "120"),
+      10
+    );
+    const limit =
+      Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 20;
+    const transactionLimit =
+      Number.isFinite(transactionLimitRaw) && transactionLimitRaw > 0
+        ? Math.min(transactionLimitRaw, 500)
+        : 120;
+
+    const fromDate = parseAdminDateBoundary(req.query.fromDate);
+    const toDate = parseAdminDateBoundary(req.query.toDate, {
+      endOfDay: true,
+    });
+
+    if ((req.query.fromDate && !fromDate) || (req.query.toDate && !toDate)) {
+      return res.status(400).json({ error: "صيغة التاريخ غير صحيحة" });
+    }
+
+    const where = {};
+    if (fromDate || toDate) {
+      where.createdAt = {};
+      if (fromDate) where.createdAt[Op.gte] = fromDate;
+      if (toDate) where.createdAt[Op.lte] = toDate;
+    }
+
+    const matches = await DominoMatch.findAll({
+      where,
+      attributes: [
+        "id",
+        "player1Id",
+        "player2Id",
+        "entryFee",
+        "winFee",
+        "status",
+        "winnerId",
+        "prizeSawa",
+        "commissionSawa",
+        "stateJson",
+        "createdAt",
+        "updatedAt",
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const matchIds = matches.map((item) => Number(item.id)).filter(Boolean);
+    const privateRooms = matchIds.length
+      ? await DominoPrivateRoom.findAll({
+          where: {
+            matchId: {
+              [Op.in]: matchIds,
+            },
+          },
+          attributes: ["matchId", "code", "packageKey"],
+        })
+      : [];
+
+    const privateRoomMap = new Map(
+      privateRooms.map((room) => [Number(room.matchId), room])
+    );
+
+    const packageCatalog = await getDominoPackageCatalog();
+
+    const playerIds = new Set();
+    for (const match of matches) {
+      playerIds.add(Number(match.player1Id));
+      playerIds.add(Number(match.player2Id));
+      if (match.winnerId != null) {
+        playerIds.add(Number(match.winnerId));
+      }
+    }
+
+    const users = playerIds.size
+      ? await User.findAll({
+          where: {
+            id: {
+              [Op.in]: Array.from(playerIds),
+            },
+          },
+          attributes: ["id", "name", "images", "isLoggedIn"],
+        })
+      : [];
+
+    const userMap = new Map(users.map((user) => [Number(user.id), user]));
+    const playerStats = new Map();
+    const packageStats = new Map();
+    const recentMatches = [];
+    const transactionFeed = [];
+
+    const summary = {
+      totalMatches: matches.length,
+      finishedMatches: 0,
+      activeMatches: 0,
+      drawMatches: 0,
+      classicMatches: 0,
+      privateMatches: 0,
+      uniquePlayers: playerIds.size,
+      totalEntrySpent: 0,
+      totalPrizePaid: 0,
+      totalCommission: 0,
+      totalRounds: 0,
+      averageEntryFee: 0,
+      averagePrize: 0,
+      highestEntryFee: 0,
+      highestPrize: 0,
+    };
+
+    const ensurePlayerStat = (userId) => {
+      const numericUserId = Number(userId || 0);
+      if (!numericUserId) return null;
+
+      if (!playerStats.has(numericUserId)) {
+        const user = userMap.get(numericUserId);
+        playerStats.set(numericUserId, {
+          user: buildDominoAdminPlayerPayload(user) || {
+            id: numericUserId,
+            name: `لاعب ${numericUserId}`,
+            image: "",
+            isLoggedIn: false,
+          },
+          matches: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          spent: 0,
+          earned: 0,
+          netPoints: 0,
+          winRate: 0,
+        });
+      }
+
+      return playerStats.get(numericUserId);
+    };
+
+    for (const match of matches) {
+      const matchId = Number(match.id);
+      const entryFee = Number(match.entryFee || 0);
+      const pot = entryFee * 2;
+      const estimatedPrize = estimateDominoPrize(match);
+      const prizePaid =
+        match.prizeSawa == null ? estimatedPrize : Number(match.prizeSawa || 0);
+      const commission =
+        match.commissionSawa == null
+          ? Math.max(0, pot - prizePaid)
+          : Number(match.commissionSawa || 0);
+      const rounds = Number(match.stateJson?.rounds || 0);
+      const winnerId = match.winnerId == null ? null : Number(match.winnerId);
+      const player1Id = Number(match.player1Id);
+      const player2Id = Number(match.player2Id);
+      const status = String(match.status || "");
+      const linkedPrivateRoom = privateRoomMap.get(matchId);
+      const mode = linkedPrivateRoom ? "private" : "classic";
+      const packageInfo = resolveDominoPackageInfo(
+        entryFee,
+        packageCatalog,
+        linkedPrivateRoom?.packageKey || null
+      );
+
+      summary.totalEntrySpent += entryFee * 2;
+      summary.totalRounds += rounds;
+      summary.highestEntryFee = Math.max(summary.highestEntryFee, entryFee);
+
+      if (mode === "private") {
+        summary.privateMatches += 1;
+      } else {
+        summary.classicMatches += 1;
+      }
+
+      if (status === "finished") {
+        summary.finishedMatches += 1;
+        summary.totalPrizePaid += prizePaid;
+        summary.totalCommission += commission;
+        summary.highestPrize = Math.max(summary.highestPrize, prizePaid);
+        if (winnerId == null) {
+          summary.drawMatches += 1;
+        }
+      } else {
+        summary.activeMatches += 1;
+      }
+
+      const packageEntry = packageStats.get(packageInfo.key) || {
+        key: packageInfo.key,
+        label: packageInfo.label,
+        entryFee: Number(packageInfo.entryFee || 0),
+        configuredPrize: Number(packageInfo.prize || 0),
+        matches: 0,
+        finishedMatches: 0,
+        totalSpent: 0,
+        totalPrizePaid: 0,
+        totalCommission: 0,
+      };
+      packageEntry.matches += 1;
+      packageEntry.totalSpent += entryFee * 2;
+      if (status === "finished") {
+        packageEntry.finishedMatches += 1;
+        packageEntry.totalPrizePaid += prizePaid;
+        packageEntry.totalCommission += commission;
+      }
+      packageStats.set(packageInfo.key, packageEntry);
+
+      const player1Stats = ensurePlayerStat(player1Id);
+      const player2Stats = ensurePlayerStat(player2Id);
+
+      for (const currentStat of [player1Stats, player2Stats]) {
+        if (!currentStat) continue;
+        currentStat.matches += 1;
+        currentStat.spent += entryFee;
+        currentStat.netPoints -= entryFee;
+      }
+
+      if (status === "finished") {
+        if (winnerId == null) {
+          if (player1Stats) player1Stats.draws += 1;
+          if (player2Stats) player2Stats.draws += 1;
+        } else {
+          if (winnerId === player1Id) {
+            if (player1Stats) player1Stats.wins += 1;
+            if (player2Stats) player2Stats.losses += 1;
+          } else if (winnerId === player2Id) {
+            if (player2Stats) player2Stats.wins += 1;
+            if (player1Stats) player1Stats.losses += 1;
+          }
+
+          const winnerStats = ensurePlayerStat(winnerId);
+          if (winnerStats) {
+            winnerStats.earned += prizePaid;
+            winnerStats.netPoints += prizePaid;
+          }
+        }
+      }
+
+      const player1 = userMap.get(player1Id);
+      const player2 = userMap.get(player2Id);
+      const winner = winnerId ? userMap.get(winnerId) : null;
+
+      recentMatches.push({
+        id: matchId,
+        status,
+        mode,
+        packageKey: packageInfo.key,
+        packageLabel: packageInfo.label,
+        privateRoomCode: linkedPrivateRoom?.code || null,
+        entryFee,
+        prizeSawa: prizePaid,
+        commissionSawa: commission,
+        rounds,
+        createdAt: match.createdAt,
+        updatedAt: match.updatedAt,
+        player1: buildDominoAdminPlayerPayload(player1),
+        player2: buildDominoAdminPlayerPayload(player2),
+        winner: buildDominoAdminPlayerPayload(winner),
+      });
+
+      transactionFeed.push({
+        id: `match-${matchId}-player1-entry`,
+        matchId,
+        type: "entry_fee",
+        direction: "out",
+        amount: entryFee,
+        mode,
+        packageKey: packageInfo.key,
+        packageLabel: packageInfo.label,
+        privateRoomCode: linkedPrivateRoom?.code || null,
+        user: buildDominoAdminPlayerPayload(player1),
+        createdAt: match.createdAt,
+        note: "رسوم دخول اللاعب الأول",
+      });
+      transactionFeed.push({
+        id: `match-${matchId}-player2-entry`,
+        matchId,
+        type: "entry_fee",
+        direction: "out",
+        amount: entryFee,
+        mode,
+        packageKey: packageInfo.key,
+        packageLabel: packageInfo.label,
+        privateRoomCode: linkedPrivateRoom?.code || null,
+        user: buildDominoAdminPlayerPayload(player2),
+        createdAt: match.createdAt,
+        note: "رسوم دخول اللاعب الثاني",
+      });
+
+      if (status === "finished" && winnerId != null) {
+        transactionFeed.push({
+          id: `match-${matchId}-winner-prize`,
+          matchId,
+          type: "winner_prize",
+          direction: "in",
+          amount: prizePaid,
+          mode,
+          packageKey: packageInfo.key,
+          packageLabel: packageInfo.label,
+          privateRoomCode: linkedPrivateRoom?.code || null,
+          user: buildDominoAdminPlayerPayload(winner),
+          createdAt: match.updatedAt,
+          note: "جائزة الفائز",
+        });
+      }
+
+      if (status === "finished" && commission > 0) {
+        transactionFeed.push({
+          id: `match-${matchId}-commission`,
+          matchId,
+          type: "commission",
+          direction: "system",
+          amount: commission,
+          mode,
+          packageKey: packageInfo.key,
+          packageLabel: packageInfo.label,
+          privateRoomCode: linkedPrivateRoom?.code || null,
+          user: null,
+          createdAt: match.updatedAt,
+          note: "عمولة النظام",
+        });
+      }
+    }
+
+    for (const stat of playerStats.values()) {
+      stat.winRate =
+        stat.matches > 0
+          ? Number(((stat.wins / stat.matches) * 100).toFixed(1))
+          : 0;
+    }
+
+    summary.averageEntryFee =
+      summary.totalMatches > 0
+        ? Number((summary.totalEntrySpent / (summary.totalMatches * 2)).toFixed(2))
+        : 0;
+    summary.averagePrize =
+      summary.finishedMatches > 0
+        ? Number((summary.totalPrizePaid / summary.finishedMatches).toFixed(2))
+        : 0;
+
+    const topPlayers = Array.from(playerStats.values())
+      .sort((a, b) => {
+        if (b.earned !== a.earned) return b.earned - a.earned;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return b.matches - a.matches;
+      })
+      .slice(0, 12);
+
+    const packageBreakdown = Array.from(packageStats.values()).sort(
+      (a, b) => b.matches - a.matches
+    );
+
+    const sortedRecentMatches = recentMatches
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+
+    const sortedTransactionFeed = transactionFeed
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, transactionLimit);
+
+    return res.status(200).json({
+      success: true,
+      filters: {
+        limit,
+        transactionLimit,
+        fromDate: fromDate ? fromDate.toISOString() : null,
+        toDate: toDate ? toDate.toISOString() : null,
+      },
+      summary,
+      packageBreakdown,
+      topPlayers,
+      recentMatches: sortedRecentMatches,
+      transactionFeed: sortedTransactionFeed,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching admin domino statistics:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
