@@ -60,6 +60,16 @@ const ROOM_SUPERVISOR_SLOT_META = {
 };
 
 const ROOM_SUPERVISOR_SLOT_KEYS = Object.keys(ROOM_SUPERVISOR_SLOT_META);
+const ROOM_CHALLENGE_WATCH_INTERVAL_MS = 1000;
+const roomChallengeWatchIds = new Set();
+let roomChallengeWatchBootstrapped = false;
+let roomChallengeWatchStarted = false;
+let roomChallengeWatchInFlight = false;
+
+router.use((req, res, next) => {
+    ensureRoomChallengeWatchWorker(req.app);
+    next();
+});
 
 function getJwtSecret() {
     const secret = String(process.env.JWT_SECRET || "").trim();
@@ -1151,6 +1161,129 @@ async function processRoomChallengeGift({
     return buildRoomChallengePayload(room);
 }
 
+function watchRoomChallenge(roomId) {
+    const numericRoomId = Number(roomId);
+    if (Number.isFinite(numericRoomId) && numericRoomId > 0) {
+        roomChallengeWatchIds.add(numericRoomId);
+    }
+}
+
+function unwatchRoomChallenge(roomId) {
+    const numericRoomId = Number(roomId);
+    if (Number.isFinite(numericRoomId) && numericRoomId > 0) {
+        roomChallengeWatchIds.delete(numericRoomId);
+    }
+}
+
+async function bootstrapWatchedRoomChallenges() {
+    if (roomChallengeWatchBootstrapped) return;
+    const rooms = await Room.findAll({
+        where: { isActive: true },
+        attributes: ["id", "roomChallengeState"],
+    });
+
+    for (const room of rooms) {
+        const challenge = normalizeRoomChallengeState(room.roomChallengeState);
+        if (challenge && challenge.status === "active") {
+            watchRoomChallenge(room.id);
+        }
+    }
+
+    roomChallengeWatchBootstrapped = true;
+}
+
+async function flushWatchedRoomChallenges(app) {
+    if (roomChallengeWatchInFlight) return;
+    roomChallengeWatchInFlight = true;
+
+    try {
+        await bootstrapWatchedRoomChallenges();
+        if (roomChallengeWatchIds.size === 0) return;
+
+        const watchedIds = Array.from(roomChallengeWatchIds);
+        const rooms = await Room.findAll({
+            where: {
+                id: watchedIds,
+                isActive: true,
+            },
+            attributes: ["id", "creatorId", "isActive", "roomChallengeState"],
+        });
+
+        const foundIds = new Set(rooms.map((room) => Number(room.id)));
+        for (const watchedId of watchedIds) {
+            if (!foundIds.has(watchedId)) {
+                roomChallengeWatchIds.delete(watchedId);
+            }
+        }
+
+        const roomsIO = app?.get?.("roomsIO");
+        for (const room of rooms) {
+            const before = normalizeRoomChallengeState(room.roomChallengeState);
+            if (!before) {
+                unwatchRoomChallenge(room.id);
+                continue;
+            }
+
+            if (before.status !== "active") {
+                unwatchRoomChallenge(room.id);
+                continue;
+            }
+
+            if (!before.endsAt || before.endsAt.getTime() > Date.now()) {
+                continue;
+            }
+
+            const beforeStatus = before.status;
+            const beforeEndsAt = before.endsAt?.getTime() || 0;
+            const beforeSettledAt = before.settledAt?.getTime?.() || 0;
+            const beforeWinnerUserId = Number(before.winnerUserId || 0) || 0;
+
+            const after = await settleRoomChallengeIfNeeded(room);
+            if (!after) {
+                unwatchRoomChallenge(room.id);
+                continue;
+            }
+
+            if (after.status === "active") {
+                watchRoomChallenge(room.id);
+            } else {
+                unwatchRoomChallenge(room.id);
+            }
+
+            const afterStatus = after.status;
+            const afterEndsAt = after.endsAt?.getTime() || 0;
+            const afterSettledAt = after.settledAt?.getTime?.() || 0;
+            const afterWinnerUserId = Number(after.winnerUserId || 0) || 0;
+            const changed =
+                afterStatus !== beforeStatus ||
+                afterEndsAt !== beforeEndsAt ||
+                afterSettledAt !== beforeSettledAt ||
+                afterWinnerUserId !== beforeWinnerUserId;
+
+            if (changed && roomsIO) {
+                await emitRoomChallengeUpdatedToIO(roomsIO, room);
+            }
+        }
+    } catch (error) {
+        console.error("Error while flushing watched room challenges:", error);
+    } finally {
+        roomChallengeWatchInFlight = false;
+    }
+}
+
+function ensureRoomChallengeWatchWorker(app) {
+    if (roomChallengeWatchStarted) return;
+    roomChallengeWatchStarted = true;
+
+    const timer = setInterval(() => {
+        flushWatchedRoomChallenges(app);
+    }, ROOM_CHALLENGE_WATCH_INTERVAL_MS);
+
+    if (typeof timer.unref === "function") {
+        timer.unref();
+    }
+}
+
 async function emitRoomVoiceUpdated(app, room) {
     const roomsIO = app.get("roomsIO");
     if (!roomsIO) return;
@@ -2104,6 +2237,101 @@ router.get("/room/:roomId/audio-state", authenticateToken, async (req, res) => {
     } catch (error) {
         console.error("Error fetching room audio state:", error);
         return res.status(500).json({ error: "حدث خطأ أثناء جلب حالة الصوتيات" });
+    }
+});
+
+router.get("/room/:roomId/challenge-state", authenticateToken, async (req, res) => {
+    try {
+        if (!ensureUserPresentInRoomSocket(req, res, req.params.roomId)) {
+            return;
+        }
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+
+        const challengeState = await buildRoomChallengePayload(room, req.user.id, req.user.role);
+        return res.json(challengeState);
+    } catch (error) {
+        console.error("Error fetching room challenge state:", error);
+        return res.status(500).json({ error: "حدث خطأ أثناء جلب حالة التحدي" });
+    }
+});
+
+router.post("/room/:roomId/challenge/start", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مسموح لك بإدارة التحدي" });
+        }
+
+        const leftUserId = Number(req.body?.leftUserId || 0);
+        const rightUserId = Number(req.body?.rightUserId || 0);
+        if (!leftUserId || !rightUserId || leftUserId === rightUserId) {
+            return res.status(400).json({ error: "يجب اختيار مستخدمين مختلفين لبدء التحدي" });
+        }
+
+        const [leftUser, rightUser] = await Promise.all([
+            User.findByPk(leftUserId, { attributes: ["id", "name", "images"] }),
+            User.findByPk(rightUserId, { attributes: ["id", "name", "images"] }),
+        ]);
+        if (!leftUser || !rightUser) {
+            return res.status(404).json({ error: "أحد المتنافسين غير موجود" });
+        }
+
+        const settings = await getRoomChallengeSettings();
+        const now = new Date();
+        const nextState = {
+            status: "active",
+            startedAt: now.toISOString(),
+            endsAt: new Date(now.getTime() + (settings.durationSeconds * 1000)).toISOString(),
+            winnerUserId: null,
+            settledAt: null,
+            left: createChallengeParticipantPayload(leftUser),
+            right: createChallengeParticipantPayload(rightUser),
+        };
+
+        await room.update({ roomChallengeState: nextState });
+        watchRoomChallenge(room.id);
+        const roomsIO = req.app.get("roomsIO");
+        const challengeState = await buildRoomChallengePayload(room, req.user.id, req.user.role);
+        await emitRoomChallengeUpdatedToIO(roomsIO, room, req.user.id, req.user.role);
+        emitGlobalRoomChallengeStarted(roomsIO, room, challengeState);
+
+        return res.json({
+            message: "تم بدء التحدي بنجاح",
+            challengeState,
+        });
+    } catch (error) {
+        console.error("Error starting room challenge:", error);
+        return res.status(500).json({ error: "حدث خطأ أثناء بدء التحدي" });
+    }
+});
+
+router.post("/room/:roomId/challenge/cancel", authenticateToken, async (req, res) => {
+    try {
+        const room = await Room.findByPk(req.params.roomId);
+        if (!room || !room.isActive) {
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
+        }
+        if (!canManageRoom(room, req.user)) {
+            return res.status(403).json({ error: "غير مسموح لك بإدارة التحدي" });
+        }
+
+        await room.update({ roomChallengeState: null });
+        unwatchRoomChallenge(room.id);
+        await emitRoomChallengeUpdatedToIO(req.app.get("roomsIO"), room, req.user.id, req.user.role);
+
+        return res.json({
+            message: "تم إلغاء التحدي",
+            challengeState: await buildRoomChallengePayload(room, req.user.id, req.user.role),
+        });
+    } catch (error) {
+        console.error("Error cancelling room challenge:", error);
+        return res.status(500).json({ error: "حدث خطأ أثناء إلغاء التحدي" });
     }
 });
 
