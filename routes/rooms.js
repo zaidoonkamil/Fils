@@ -1469,7 +1469,7 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 
-// ????? ???? sawa ???????? ????????
+// Reset sawa for all room owners
 router.post("/add-sawa", authenticateToken, async (req, res) => {
     try {
         if (req.user?.role !== "admin") {
@@ -1528,7 +1528,7 @@ router.post("/create-room", authenticateToken, upload.array("images", 5), async 
             images: images || []
         });
 
-        // ??? ?????? ?? ????????
+        // Ensure room image is resolved
         await req.user.update({
             sawa: req.user.sawa - cost
         });
@@ -1540,12 +1540,12 @@ router.post("/create-room", authenticateToken, upload.array("images", 5), async 
         });
 
     } catch (error) {
-        console.error("??? ?? ????? ??????:", error);
+        console.error("\u062e\u0637\u0623 \u0641\u064a \u0625\u0646\u0634\u0627\u0621 \u0627\u0644\u063a\u0631\u0641\u0629:", error);
         res.status(500).json({ error: "حدث خطأ أثناء إنشاء الغرفة" });
     }
 });
 
-// ????? ?? ???? ???????? id ?? name
+// Search by room identifier or name
 router.get("/search-rooms", authenticateToken, async (req, res) => {
     try {
         const { query } = req.query;
@@ -1586,12 +1586,12 @@ router.get("/search-rooms", authenticateToken, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("??? ?? ????? ?? ?????:", error);
+        console.error("\u062e\u0637\u0623 \u0641\u064a \u0627\u0644\u0628\u062d\u062b \u0639\u0646 \u0627\u0644\u063a\u0631\u0641:", error);
         res.status(500).json({ error: "حدث خطأ أثناء البحث" });
     }
 });
 
-// ??? ????? ????????
+// Fetch room voice state
 router.get("/rooms", authenticateToken, async (req, res) => {
     try {
         const { category, page = 1, limit = 50 } = req.query;
@@ -1607,7 +1607,7 @@ router.get("/rooms", authenticateToken, async (req, res) => {
                 model: User,
                 as: 'creator',
                 attributes: ['id', 'name', 'images'],
-                required: false  // LEFT JOIN ????? ?? INNER JOIN
+                required: false  // Keep LEFT JOIN behavior
             }],
             order: [
                 ['currentUsers', 'DESC'],
@@ -1635,7 +1635,7 @@ router.get("/rooms", authenticateToken, async (req, res) => {
     }
 });
 
-// ?????? ??? ?????? ???? ?????
+// Fetch room join status for user
 router.get("/my-room", authenticateToken, async (req, res) => {
     try {
         const room = await Room.findOne({
@@ -1664,7 +1664,7 @@ router.get("/my-room", authenticateToken, async (req, res) => {
     }
 });
 
-// ?????? ??? ?????? ???? ?????
+// Fetch room supervisors list
 router.get("/room/:roomId", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -1694,7 +1694,7 @@ router.get("/room/:roomId", authenticateToken, async (req, res) => {
     }
 });
 
-// ?????? ??? ????? ???? ?????
+// Fetch room audio status
 router.get("/room/:roomId/creator", authenticateToken, async (req, res) => {
     try {
         const roomId = Number(req.params.roomId);
@@ -1783,7 +1783,7 @@ router.get("/room/:roomId/messages", authenticateToken, async (req, res) => {
     }
 });
 
-// ????? ????? ?? ?????? (????? ?????? ?? ?????? ???)
+// Purchase room audio package (audio only without mics)
 router.post("/room/:roomId/pin-message", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -1836,7 +1836,7 @@ router.post("/room/:roomId/pin-message", authenticateToken, async (req, res) => 
     }
 });
 
-// ????? ????? ????? ?? ??????
+// Purchase room microphone package
 router.post("/room/:roomId/unpin-message", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -1867,7 +1867,7 @@ router.post("/room/:roomId/unpin-message", authenticateToken, async (req, res) =
     }
 });
 
-// ??? ??????? ??????? ??????
+// Toggle room join notifications
 router.get("/room/:roomId/pinned-message", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -1884,7 +1884,7 @@ router.get("/room/:roomId/pinned-message", authenticateToken, async (req, res) =
     }
 });
 
-// ??? ???? (?????? ???)
+// Room store items (owner only)
 router.patch("/room/:roomId/name", authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -2105,7 +2105,7 @@ router.post("/room/:roomId/background", authenticateToken, upload.single("backgr
     }
 });
 
-// ????? ?????? ???????? ?????? (????? ?????? ?? ??????)
+// Assign support agent to room owner (owner only)
 router.post("/room/:roomId/image", authenticateToken, upload.single("image"), async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -2123,7 +2123,7 @@ router.post("/room/:roomId/image", authenticateToken, upload.single("image"), as
         }
 
         if (!canManageRoom(room, req.user)) {
-            return res.status(403).json({ error: "??? ????" });
+            return res.status(403).json({ error: "غير مسموح" });
         }
 
         if (!req.file) {
@@ -2652,12 +2652,12 @@ router.post("/room/:roomId/challenge/start", authenticateToken, async (req, res)
         emitGlobalRoomChallengeStarted(roomsIO, room, challengeState);
 
         return res.json({
-            message: "?? ??? ?????? ?????",
+            message: "تم بدء التحدي بنجاح",
             challengeState,
         });
     } catch (error) {
         console.error("Error starting room challenge:", error);
-        return res.status(500).json({ error: "??? ?? ??? ??????" });
+        return res.status(500).json({ error: "حدث خطأ في بدء التحدي" });
     }
 });
 
@@ -2665,22 +2665,22 @@ router.post("/room/:roomId/challenge/cancel", authenticateToken, async (req, res
     try {
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
-            return res.status(404).json({ error: "?????? ??? ??????" });
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
         if (!canManageRoom(room, req.user)) {
-            return res.status(403).json({ error: "غير مسموح لك بإدارة دعم الوكيل" });
+            return res.status(403).json({ error: "غير مسموح لك بإدارة التحدي" });
         }
 
         await room.update({ roomChallengeState: null });
         await emitRoomChallengeUpdatedToIO(req.app.get("roomsIO"), room, req.user.id, req.user.role);
 
         return res.json({
-            message: "?? ????? ??????",
+            message: "تم إلغاء التحدي",
             challengeState: await buildRoomChallengePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error cancelling room challenge:", error);
-        return res.status(500).json({ error: "??? ?? ????? ??????" });
+        return res.status(500).json({ error: "حدث خطأ في إلغاء التحدي" });
     }
 });
 
@@ -2688,28 +2688,28 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
     try {
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
-            return res.status(404).json({ error: "?????? ??? ??????" });
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
         if (!canManageRoom(room, req.user)) {
-            return res.status(403).json({ error: "??? ?????? ????? ?????? ???" });
+            return res.status(403).json({ error: "غير مسموح لك بإدارة المايكات" });
         }
 
         const micCount = Number(req.body?.micCount ?? 4);
         if (!isSupportedRoomVoiceMicCount(micCount)) {
-            return res.status(400).json({ error: "???? ???????? ???????? ??? ??????" });
+            return res.status(400).json({ error: "عدد المايكات المحدد غير مدعوم" });
         }
 
         const settings = await getRoomVoicePackageSettings();
         const packageConfig = settings.packages.find((entry) => entry.micCount === micCount);
         if (!packageConfig || packageConfig.hours <= 0) {
-            return res.status(400).json({ error: "??????? ???? ???????? ??? ????? ?? ???????" });
+            return res.status(400).json({ error: "باقة المايكات غير متاحة أو منتهية" });
         }
 
         const currentBalance = Number(req.user.sawa ?? 0);
         if (currentBalance < packageConfig.price) {
             return res.status(400).json({
-                error: "????? ??? ????? ????? ???? ????????",
+                error: "رصيدك الحالي غير كافٍ لشراء المايكات",
                 requiredPoints: packageConfig.price,
                 availablePoints: currentBalance,
             });
@@ -2739,14 +2739,14 @@ router.post("/room/:roomId/voice/purchase", authenticateToken, async (req, res) 
         await emitRoomVoiceUpdated(req.app, room);
 
         return res.json({
-            message: "?? ????? ???? ???????? ?????",
+            message: "تم شراء باقة المايكات بنجاح",
             deductedPoints: packageConfig.price,
             remainingSawa: currentBalance - packageConfig.price,
             voiceState: await buildRoomVoicePayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error purchasing room voice package:", error);
-        return res.status(500).json({ error: "??? ?? ???? ???? ????????" });
+        return res.status(500).json({ error: "حدث خطأ في شراء باقة المايكات" });
     }
 });
 
@@ -2754,26 +2754,26 @@ router.post("/room/:roomId/audio/purchase", authenticateToken, async (req, res) 
     try {
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
-            return res.status(404).json({ error: "?????? ??? ??????" });
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
         if (!canManageRoom(room, req.user)) {
-            return res.status(403).json({ error: "??? ?????? ????? ?????? ???" });
+            return res.status(403).json({ error: "غير مسموح لك بإدارة الصوتيات" });
         }
 
         if (false && !voiceState.isActive) {
-            return res.status(400).json({ error: "???? ???????? ????? ??? ????? ?? ????? ????????" });
+            return res.status(400).json({ error: "ميزة الصوتيات غير متاحة أو غير مفعلة حاليًا" });
         }
 
         const packageConfig = await getRoomAudioSettings();
         if (packageConfig.hours <= 0) {
-            return res.status(400).json({ error: "??????? ??? ???????? ??? ????? ?? ???????" });
+            return res.status(400).json({ error: "باقة الصوتيات غير متاحة أو منتهية" });
         }
 
         const currentBalance = Number(req.user.sawa ?? 0);
         if (currentBalance < packageConfig.price) {
             return res.status(400).json({
-                error: "????? ??? ????? ?????? ????????",
+                error: "رصيدك الحالي غير كافٍ لشراء الصوتيات",
                 requiredPoints: packageConfig.price,
                 availablePoints: currentBalance,
             });
@@ -2794,21 +2794,21 @@ router.post("/room/:roomId/audio/purchase", authenticateToken, async (req, res) 
         await emitSerializedRoomUpdated(req.app, room.id);
 
         return res.json({
-            message: "?? ????? ???????? ?????",
+            message: "تم شراء الصوتيات بنجاح",
             deductedPoints: packageConfig.price,
             remainingSawa: currentBalance - packageConfig.price,
             audioState: await buildRoomAudioPayload(room, req.user.id, req.user.role),
         });
     } catch (error) {
         console.error("Error purchasing room audio package:", error);
-        return res.status(500).json({ error: "??? ?? ???? ??? ????????" });
+        return res.status(500).json({ error: "حدث خطأ في شراء الصوتيات" });
     }
 });
 
 router.post("/admin/rooms/reset-voice-audio-packages", authenticateToken, async (req, res) => {
     try {
         if (req.user?.role !== "admin") {
-            return res.status(403).json({ error: "??? ???? ?? ???? ???????" });
+            return res.status(403).json({ error: "غير مصرح لك بهذه العملية" });
         }
 
         const affectedRooms = await Room.findAll({
@@ -2825,7 +2825,7 @@ router.post("/admin/rooms/reset-voice-audio-packages", authenticateToken, async 
 
         if (affectedRooms.length == 0) {
             return res.status(200).json({
-                message: "?? ???? ????? ?????? ?? ?????? ????? ??????",
+                message: "لا توجد أي غرف تحتوي على مايكات أو صوتيات حاليًا",
                 affectedRoomsCount: 0,
                 affectedRoomIds: [],
             });
@@ -3057,11 +3057,11 @@ router.post("/room/:roomId/support-agent/activate", authenticateToken, async (re
     try {
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
-            return res.status(404).json({ error: "?????? ??? ??????" });
+            return res.status(404).json({ error: "الغرفة غير موجودة" });
         }
 
         if (!canManageRoom(room, req.user)) {
-            return res.status(403).json({ error: "??? ?????? ????? ?????? ???" });
+            return res.status(403).json({ error: "غير مسموح لك بإدارة دعم الوكيل" });
         }
 
         const agentId = Number(req.body?.agentId);
@@ -3260,7 +3260,7 @@ router.post("/room/:roomId/voice/toggle-owner-speaker", authenticateToken, async
     try {
         const room = await Room.findByPk(req.params.roomId);
         if (!room || !room.isActive) {
-            return res.status(404).json({ error: "?????? ??? ??????" });
+            return res.status(404).json({ error: "\u0627\u0644\u063a\u0631\u0641\u0629 \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f\u0629" });
         }
 
         if (!canManageRoom(room, req.user)) {
@@ -3520,7 +3520,7 @@ router.get("/room-settings", async (req, res) => {
   }
 });
 
-// ???? ?????? ???? ????? ?????? ????? ?????
+// Admin route to sync room avatars from linked profiles
 router.get("/migrate-rooms-images", authenticateToken, async (req, res) => {
     try {
         if (req.user?.role !== "admin") {
@@ -3528,10 +3528,10 @@ router.get("/migrate-rooms-images", authenticateToken, async (req, res) => {
         }
 
         await require("../models/room").sync({ alter: true });
-        res.json({ message: "?? ????? ???? ????? ?????? ????? ????? ?????" });
+        res.json({ message: "تمت مزامنة صور الغرف بنجاح" });
     } catch (error) {
-        console.error("??? ?? ????? ????? ????????:", error);
-        res.status(500).json({ error: "??? ?? ????? ????? ????????" });
+        console.error("خطأ أثناء مزامنة صور الغرف:", error);
+        res.status(500).json({ error: "حدث خطأ أثناء مزامنة صور الغرف" });
     }
 });
 

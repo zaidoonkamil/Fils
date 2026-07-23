@@ -661,7 +661,7 @@ router.post("/store/buy-product", authenticateTokenUser, upload.none(), async (r
       userBalance: result.userBalance,
     });
   } catch (error) {
-    console.error("? ??? ?? ????? ??????:", error);
+    console.error("خطأ في عملية الشراء:", error);
     if (error instanceof StorePurchaseError) {
       return res.status(error.statusCode || 400).json({ error: error.message });
     }

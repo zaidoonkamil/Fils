@@ -103,6 +103,40 @@ async function findAuthorizedMatch(matchId, userId) {
   });
 }
 
+async function emitPendingMatchStateToUser(io, userId) {
+  const playingMatch = await DominoMatch.findOne({
+    where: {
+      status: 'playing',
+      [Op.or]: [{ player1Id: userId }, { player2Id: userId }],
+    },
+    order: [['updatedAt', 'DESC']],
+    attributes: ['id', 'status', 'player1Id', 'player2Id', 'winnerId', 'stateJson'],
+  });
+
+  if (playingMatch) {
+    const liveState = await dominoService.getOrRestoreState(playingMatch.id);
+    if (liveState) {
+      io.to(`user:${userId}`).emit('domino:match_found', {
+        matchId: playingMatch.id,
+        state: await dominoService.publicState(liveState, userId),
+      });
+      return true;
+    }
+  }
+
+  const recentFinished = await getRecentFinishedMatchForUser(userId);
+  if (recentFinished) {
+    const finishedPayload =
+      await dominoService.buildFinishedMatchPayloadFromRecord(recentFinished);
+    if (finishedPayload) {
+      io.to(`user:${userId}`).emit('domino:match_finished', finishedPayload);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function initDominoSocket(dominoNamespace) {
   dominoNamespace.on('connection', async (socket) => {
     try {
@@ -154,6 +188,7 @@ function initDominoSocket(dominoNamespace) {
 
       socket.userId = userId;
       registerDominoHandlers(dominoNamespace, socket);
+      await emitPendingMatchStateToUser(dominoNamespace, userId);
     } catch (_) {
       socket.disconnect(true);
     }
