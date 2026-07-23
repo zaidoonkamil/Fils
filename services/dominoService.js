@@ -166,7 +166,14 @@ async function buildMatchFinishSummary(matchId) {
   // أي خطأ هنا لازم ما يمنع بث نتيجة المباراة أبداً
   try {
     const match = await DominoMatch.findByPk(matchId, {
-      attributes: ['id', 'entryFee', 'winFee', 'prizeSawa', 'commissionSawa'],
+      attributes: [
+        'id',
+        'entryFee',
+        'winFee',
+        'prizeSawa',
+        'commissionSawa',
+        'stateJson',
+      ],
     });
     if (!match) return null;
 

@@ -562,6 +562,21 @@ const PUBLIC_READABLE_SETTINGS = new Set([
 function estimateDominoPrize(match) {
   const entryFee = Number(match.entryFee ?? 0);
   const pot = entryFee * 2;
+  const pricing =
+    match.stateJson && typeof match.stateJson === "object"
+      ? match.stateJson.pricing || {}
+      : {};
+  const configuredPrizePerPlayer = Number(pricing.prizePerPlayer || 0);
+  const configuredTotalPrize = Number(pricing.totalPrize || 0);
+
+  if (configuredTotalPrize > 0 || configuredPrizePerPlayer > 0) {
+    const desiredPrize =
+      configuredTotalPrize > 0
+        ? configuredTotalPrize
+        : configuredPrizePerPlayer * 2;
+    return Math.max(0, Math.min(pot, Math.floor(desiredPrize)));
+  }
+
   const winFee = Number(match.winFee ?? 0);
   const commission = winFee > 0 && winFee < 1 ? pot * winFee : winFee;
   return Math.max(0, Math.floor(pot - commission));
