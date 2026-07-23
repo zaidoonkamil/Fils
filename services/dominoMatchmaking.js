@@ -178,8 +178,8 @@ async function findOrCreateMatch(io, userId, packageKey = 'classic_1') {
       pricing: {
         entryFee,
         prizePerPlayer: prize,
-        totalPrize: prize * 2,
-        commission: Math.max(0, entryFee * 2 - prize * 2),
+        totalPrize: prize,
+        commission: Math.max(0, entryFee * 2 - prize),
       },
     }
   );

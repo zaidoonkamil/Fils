@@ -1274,10 +1274,10 @@ router.post("/domino/private-room/join", authenticateTokenUser, upload.none(), a
           pricing: {
           entryFee,
           prizePerPlayer,
-          totalPrize: prizePerPlayer * 2,
+          totalPrize: prizePerPlayer,
           commission: Math.max(
             0,
-            entryFee * 2 - prizePerPlayer * 2
+            entryFee * 2 - prizePerPlayer
           ),
         },
       }
