@@ -71,6 +71,9 @@ function buildRateRules() {
       name: "otp-generate-email",
       windowMs: 60 * 1000,
       maxRequests: 1,
+      escalationWindowMs: 10 * 60 * 1000,
+      escalationMaxRequests: 5,
+      escalationLockMs: 2 * 60 * 60 * 1000,
       methods: ["POST"],
       match: (pathname) => pathname === "/otp/generate",
       keyBuilder: (req) => {
@@ -79,6 +82,8 @@ function buildRateRules() {
       },
       message:
         "تم إرسال رمز استرجاع لهذا البريد مؤخرًا. حاول مرة أخرى بعد دقيقة.",
+      escalationMessage:
+        "تم تجاوز الحد المسموح لإرسال رموز الاسترجاع لهذا البريد. حاول مرة أخرى بعد ساعتين.",
     },
     {
       name: "ads-read",
@@ -236,6 +241,15 @@ function createBucketKey(req, rule) {
   return `${rule.name}:${actorKey}`;
 }
 
+function buildLimitResponse(res, message, retryAfterMs) {
+  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  res.setHeader("Retry-After", String(retryAfterSeconds));
+  return res.status(429).json({
+    error: message,
+    retryAfterSeconds,
+  });
+}
+
 function applyRateLimit(req, res, next) {
   try {
     const rule = getRuleForRequest(req);
@@ -245,6 +259,25 @@ function applyRateLimit(req, res, next) {
 
     const now = Date.now();
     const bucketKey = createBucketKey(req, rule);
+    const escalationKey =
+      rule.escalationWindowMs && rule.escalationMaxRequests
+        ? `${bucketKey}:escalation`
+        : null;
+
+    if (escalationKey) {
+      const escalationBucket = rateBuckets.get(escalationKey);
+      if (
+        escalationBucket?.lockUntil &&
+        Number(escalationBucket.lockUntil) > now
+      ) {
+        return buildLimitResponse(
+          res,
+          rule.escalationMessage || rule.message,
+          Number(escalationBucket.lockUntil) - now
+        );
+      }
+    }
+
     const existingBucket = rateBuckets.get(bucketKey);
 
     if (!existingBucket || existingBucket.resetAt <= now) {
@@ -252,18 +285,38 @@ function applyRateLimit(req, res, next) {
         count: 1,
         resetAt: now + rule.windowMs,
       });
-      return next();
+    } else {
+      existingBucket.count += 1;
+
+      if (existingBucket.count > rule.maxRequests) {
+        return buildLimitResponse(
+          res,
+          rule.message,
+          existingBucket.resetAt - now
+        );
+      }
     }
 
-    existingBucket.count += 1;
-
-    if (existingBucket.count > rule.maxRequests) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((existingBucket.resetAt - now) / 1000));
-      res.setHeader("Retry-After", String(retryAfterSeconds));
-      return res.status(429).json({
-        error: rule.message,
-        retryAfterSeconds,
-      });
+    if (escalationKey) {
+      const escalationBucket = rateBuckets.get(escalationKey);
+      if (!escalationBucket || escalationBucket.resetAt <= now) {
+        rateBuckets.set(escalationKey, {
+          count: 1,
+          resetAt: now + rule.escalationWindowMs,
+          lockUntil: null,
+        });
+      } else {
+        escalationBucket.count += 1;
+        if (escalationBucket.count > rule.escalationMaxRequests) {
+          escalationBucket.lockUntil = now + rule.escalationLockMs;
+          escalationBucket.resetAt = escalationBucket.lockUntil;
+          return buildLimitResponse(
+            res,
+            rule.escalationMessage || rule.message,
+            rule.escalationLockMs
+          );
+        }
+      }
     }
 
     return next();
