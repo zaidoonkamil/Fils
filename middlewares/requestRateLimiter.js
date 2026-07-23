@@ -61,8 +61,25 @@ function normalizePath(pathname) {
   return String(pathname || "/").toLowerCase();
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function buildRateRules() {
   return [
+    {
+      name: "otp-generate-email",
+      windowMs: 60 * 1000,
+      maxRequests: 1,
+      methods: ["POST"],
+      match: (pathname) => pathname === "/otp/generate",
+      keyBuilder: (req) => {
+        const email = normalizeEmail(req.body?.email);
+        return email ? `email:${email}` : null;
+      },
+      message:
+        "تم إرسال رمز استرجاع لهذا البريد مؤخرًا. حاول مرة أخرى بعد دقيقة.",
+    },
     {
       name: "ads-read",
       windowMs: 60 * 1000,
@@ -206,6 +223,13 @@ function cleanupExpiredBuckets() {
 setInterval(cleanupExpiredBuckets, 5 * 60 * 1000).unref();
 
 function createBucketKey(req, rule) {
+  if (typeof rule.keyBuilder === "function") {
+    const customKey = String(rule.keyBuilder(req) || "").trim();
+    if (customKey) {
+      return `${rule.name}:${customKey}`;
+    }
+  }
+
   const ipAddress = resolveClientIp(req);
   const userId = getUserIdFromToken(req);
   const actorKey = userId ? `user:${userId}` : `ip:${ipAddress}`;
