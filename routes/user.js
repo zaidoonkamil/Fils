@@ -1186,6 +1186,8 @@ router.post("/domino/private-room/join", authenticateTokenUser, upload.none(), a
   let hostUserId = null;
   let guestUserId = req.user.id;
   let state = null;
+  let entryFee = 0;
+  let prizePerPlayer = 0;
 
   try {
     await closeExpiredDominoPrivateRooms();
@@ -1228,7 +1230,8 @@ router.post("/domino/private-room/join", authenticateTokenUser, upload.none(), a
         throw new Error("player_not_found");
       }
 
-      const entryFee = Number(room.entryFee || 0);
+      entryFee = Number(room.entryFee || 0);
+      prizePerPlayer = Number(room.prize || 0);
       if (Number(hostUser.sawa || 0) < entryFee) {
         throw new Error("host_insufficient_sawa");
       }
@@ -1266,15 +1269,15 @@ router.post("/domino/private-room/join", authenticateTokenUser, upload.none(), a
     state = dominoService.createNewMatchState(
       createdMatch.id,
       hostUserId,
-      guestUserId,
-      {
-        pricing: {
+        guestUserId,
+        {
+          pricing: {
           entryFee,
-          prizePerPlayer: Number(room.prize || 0),
-          totalPrize: Number(room.prize || 0) * 2,
+          prizePerPlayer,
+          totalPrize: prizePerPlayer * 2,
           commission: Math.max(
             0,
-            entryFee * 2 - Number(room.prize || 0) * 2
+            entryFee * 2 - prizePerPlayer * 2
           ),
         },
       }
