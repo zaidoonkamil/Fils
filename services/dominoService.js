@@ -324,8 +324,8 @@ function generateTiles() {
 
 function createNewMatchState(matchId, p1, p2, options = {}) {
   const tiles = generateTiles();
-  const hand1 = tiles.splice(0, 7);
-  const hand2 = tiles.splice(0, 7);
+  const hand1 = tiles.splice(0, 8);
+  const hand2 = tiles.splice(0, 8);
   const boneyard = tiles;
 
   const starter = chooseStarter(p1, hand1, p2, hand2);
@@ -455,8 +455,8 @@ function blockedWinnerAndPoints(state) {
 
 function startNewRound(matchId, state) {
   const tiles = generateTiles();
-  const hand1 = tiles.splice(0, 7);
-  const hand2 = tiles.splice(0, 7);
+  const hand1 = tiles.splice(0, 8);
+  const hand2 = tiles.splice(0, 8);
   const boneyard = tiles;
 
   const p1 = state.players.p1;
